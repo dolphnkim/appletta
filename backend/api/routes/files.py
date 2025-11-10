@@ -1,4 +1,3 @@
-/backend/
 """File browser API for selecting model/adapter paths
 
  

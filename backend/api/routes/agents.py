@@ -30,25 +30,21 @@ from sqlalchemy.orm import Session
 
  
 
-# TODO: Import when DB is set up
+from backend.db.session import get_db
 
-# from backend.db.session import get_db
+from backend.db.models.agent import Agent
 
-# from backend.db.models.agent import Agent
+from backend.schemas.agent import (
 
-# from backend.schemas.agent import (
+    AgentCreate,
 
-#     AgentCreate,
+    AgentUpdate,
 
-#     AgentUpdate,
+    AgentResponse,
 
-#     AgentResponse,
+    AgentFile,
 
-#     AgentListResponse,
-
-#     AgentFile,
-
-# )
+)
 
  
 
@@ -66,19 +62,19 @@ router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
  
 
-@router.post("/", response_model=None)  # TODO: response_model=AgentResponse
+@router.post("/", response_model=AgentResponse)
 
 async def create_agent(
 
-    agent_data: None,  # TODO: agent_data: AgentCreate
+    agent_data: AgentCreate,
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """Create a new agent
 
- 
+
 
     Validates:
 
@@ -90,179 +86,179 @@ async def create_agent(
 
     """
 
-    # TODO: Implement validation
+    # Create agent from request data
 
-    # - Check model_path exists and has config.json or .safetensors
+    # Flatten the nested config structures to match DB columns
 
-    # - Check adapter_path exists if provided
+    agent = Agent(
 
-    # - Check embedding_model_path exists
+        name=agent_data.name,
+
+        description=agent_data.description,
+
+        model_path=agent_data.model_path,
+
+        adapter_path=agent_data.adapter_path,
+
+        system_instructions=agent_data.system_instructions,
+
+        reasoning_enabled=agent_data.llm_config.reasoning_enabled,
+
+        temperature=agent_data.llm_config.temperature,
+
+        seed=agent_data.llm_config.seed,
+
+        max_output_tokens_enabled=agent_data.llm_config.max_output_tokens_enabled,
+
+        max_output_tokens=agent_data.llm_config.max_output_tokens,
+
+        embedding_model_path=agent_data.embedding_config.model_path,
+
+        embedding_dimensions=agent_data.embedding_config.dimensions,
+
+        embedding_chunk_size=agent_data.embedding_config.chunk_size,
+
+    )
+
+
+
+    db.add(agent)
+
+    db.commit()
+
+    db.refresh(agent)
+
+    return agent.to_dict()
 
  
 
-    # TODO: Create agent in database
-
-    # agent = Agent(**agent_data.model_dump())
-
-    # db.add(agent)
-
-    # db.commit()
-
-    # db.refresh(agent)
-
-    # return agent.to_dict()
-
  
 
-    raise HTTPException(501, "Not implemented yet")
-
- 
-
- 
-
-@router.get("/", response_model=None)  # TODO: response_model=AgentListResponse
+@router.get("/", response_model=List[AgentResponse])
 
 async def list_agents(
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """List all agents
 
- 
+
 
     Returns agents sorted by creation date (newest first)
 
     """
 
-    # TODO: Implement
+    agents = db.query(Agent).order_by(Agent.created_at.desc()).all()
 
-    # agents = db.query(Agent).order_by(Agent.created_at.desc()).all()
-
-    # return {
-
-    #     "agents": [agent.to_dict() for agent in agents],
-
-    #     "total": len(agents)
-
-    # }
-
- 
-
-    raise HTTPException(501, "Not implemented yet")
+    return [agent.to_dict() for agent in agents]
 
  
 
  
 
-@router.get("/{agent_id}", response_model=None)  # TODO: response_model=AgentResponse
+@router.get("/{agent_id}", response_model=AgentResponse)
 
 async def get_agent(
 
     agent_id: UUID,
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """Get a specific agent by ID"""
 
-    # TODO: Implement
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
 
-    # agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
 
-    # if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
 
-    #     raise HTTPException(404, f"Agent {agent_id} not found")
-
-    # return agent.to_dict()
-
- 
-
-    raise HTTPException(501, "Not implemented yet")
+    return agent.to_dict()
 
  
 
  
 
-@router.patch("/{agent_id}", response_model=None)  # TODO: response_model=AgentResponse
+@router.patch("/{agent_id}", response_model=AgentResponse)
 
 async def update_agent(
 
     agent_id: UUID,
 
-    updates: None,  # TODO: updates: AgentUpdate
+    updates: AgentUpdate,
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """Update an agent's settings
 
- 
+
 
     Only updates fields that are provided (partial update)
 
     """
 
-    # TODO: Implement
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
 
-    # agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
 
-    # if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
 
-    #     raise HTTPException(404, f"Agent {agent_id} not found")
 
- 
 
-    # update_data = updates.model_dump(exclude_unset=True)
+    update_data = updates.model_dump(exclude_unset=True)
 
- 
 
-    # # Flatten nested configs if provided
 
-    # if "llm_config" in update_data:
+    # Flatten nested configs if provided
 
-    #     for key, value in update_data["llm_config"].items():
+    if "llm_config" in update_data:
 
-    #         setattr(agent, key, value)
+        for key, value in update_data["llm_config"].items():
 
-    #     del update_data["llm_config"]
+            setattr(agent, key, value)
 
-    #
+        del update_data["llm_config"]
 
-    # if "embedding_config" in update_data:
 
-    #     embed_config = update_data["embedding_config"]
 
-    #     agent.embedding_model_path = embed_config.get("model_path", agent.embedding_model_path)
+    if "embedding_config" in update_data:
 
-    #     agent.embedding_dimensions = embed_config.get("dimensions", agent.embedding_dimensions)
+        embed_config = update_data["embedding_config"]
 
-    #     agent.embedding_chunk_size = embed_config.get("chunk_size", agent.embedding_chunk_size)
+        if "model_path" in embed_config:
 
-    #     del update_data["embedding_config"]
+            agent.embedding_model_path = embed_config["model_path"]
 
- 
+        if "dimensions" in embed_config:
 
-    # # Apply remaining updates
+            agent.embedding_dimensions = embed_config["dimensions"]
 
-    # for key, value in update_data.items():
+        if "chunk_size" in embed_config:
 
-    #     setattr(agent, key, value)
+            agent.embedding_chunk_size = embed_config["chunk_size"]
 
- 
+        del update_data["embedding_config"]
 
-    # db.commit()
 
-    # db.refresh(agent)
 
-    # return agent.to_dict()
+    # Apply remaining updates
 
- 
+    for key, value in update_data.items():
 
-    raise HTTPException(501, "Not implemented yet")
+        setattr(agent, key, value)
+
+
+
+    db.commit()
+
+    db.refresh(agent)
+
+    return agent.to_dict()
 
  
 
@@ -274,37 +270,31 @@ async def delete_agent(
 
     agent_id: UUID,
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """Delete an agent
 
- 
+
 
     Note: This doesn't delete the model files, just the agent configuration
 
     """
 
-    # TODO: Implement
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
 
-    # agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
 
-    # if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
 
-    #     raise HTTPException(404, f"Agent {agent_id} not found")
 
- 
 
-    # db.delete(agent)
+    db.delete(agent)
 
-    # db.commit()
+    db.commit()
 
-    # return {"message": f"Agent {agent_id} deleted successfully"}
-
- 
-
-    raise HTTPException(501, "Not implemented yet")
+    return {"message": f"Agent {agent_id} deleted successfully"}
 
  
 
@@ -318,19 +308,19 @@ async def delete_agent(
 
  
 
-@router.post("/{agent_id}/clone", response_model=None)  # TODO: response_model=AgentResponse
+@router.post("/{agent_id}/clone", response_model=AgentResponse)
 
 async def clone_agent(
 
     agent_id: UUID,
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """Clone an agent with all its settings
 
- 
+
 
     Creates a new agent with:
 
@@ -344,61 +334,55 @@ async def clone_agent(
 
     """
 
-    # TODO: Implement
+    original = db.query(Agent).filter(Agent.id == agent_id).first()
 
-    # original = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not original:
 
-    # if not original:
+        raise HTTPException(404, f"Agent {agent_id} not found")
 
-    #     raise HTTPException(404, f"Agent {agent_id} not found")
 
- 
 
-    # # Create new agent with same settings
+    # Create new agent with same settings
 
-    # cloned = Agent(
+    cloned = Agent(
 
-    #     name=f"{original.name}-copy",
+        name=f"{original.name}-copy",
 
-    #     description=original.description,
+        description=original.description,
 
-    #     model_path=original.model_path,
+        model_path=original.model_path,
 
-    #     adapter_path=original.adapter_path,
+        adapter_path=original.adapter_path,
 
-    #     system_instructions=original.system_instructions,
+        system_instructions=original.system_instructions,
 
-    #     reasoning_enabled=original.reasoning_enabled,
+        reasoning_enabled=original.reasoning_enabled,
 
-    #     temperature=original.temperature,
+        temperature=original.temperature,
 
-    #     seed=original.seed,
+        seed=original.seed,
 
-    #     max_output_tokens_enabled=original.max_output_tokens_enabled,
+        max_output_tokens_enabled=original.max_output_tokens_enabled,
 
-    #     max_output_tokens=original.max_output_tokens,
+        max_output_tokens=original.max_output_tokens,
 
-    #     embedding_model_path=original.embedding_model_path,
+        embedding_model_path=original.embedding_model_path,
 
-    #     embedding_dimensions=original.embedding_dimensions,
+        embedding_dimensions=original.embedding_dimensions,
 
-    #     embedding_chunk_size=original.embedding_chunk_size,
+        embedding_chunk_size=original.embedding_chunk_size,
 
-    # )
+    )
 
- 
 
-    # db.add(cloned)
 
-    # db.commit()
+    db.add(cloned)
 
-    # db.refresh(cloned)
+    db.commit()
 
-    # return cloned.to_dict()
+    db.refresh(cloned)
 
- 
-
-    raise HTTPException(501, "Not implemented yet")
+    return cloned.to_dict()
 
  
 
@@ -410,67 +394,61 @@ async def export_agent(
 
     agent_id: UUID,
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """Export agent as .af file (JSON download)
 
- 
+
 
     Returns a JSON file that can be imported to recreate the agent
 
     """
 
-    # TODO: Implement
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
 
-    # agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
 
-    # if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
 
-    #     raise HTTPException(404, f"Agent {agent_id} not found")
 
- 
 
-    # agent_file = agent.to_agent_file()
+    agent_file = agent.to_agent_file()
 
-    # filename = f"{agent.name.replace(' ', '_')}.af"
+    filename = f"{agent.name.replace(' ', '_')}.af"
 
- 
 
-    # return JSONResponse(
 
-    #     content=agent_file,
+    return JSONResponse(
 
-    #     headers={
+        content=agent_file,
 
-    #         "Content-Disposition": f'attachment; filename="{filename}"'
+        headers={
 
-    #     }
+            "Content-Disposition": f'attachment; filename="{filename}"'
 
-    # )
+        }
 
- 
-
-    raise HTTPException(501, "Not implemented yet")
+    )
 
  
 
  
 
-@router.post("/import", response_model=None)  # TODO: response_model=AgentResponse
+@router.post("/import", response_model=AgentResponse)
 
 async def import_agent(
 
     file: UploadFile = File(...),
 
-    # db: Session = Depends(get_db)
+    db: Session = Depends(get_db)
 
 ):
 
     """Import agent from .af file
 
- 
+
 
     Validates:
 
@@ -480,62 +458,52 @@ async def import_agent(
 
     - Model paths exist
 
- 
+
 
     Creates new agent with imported settings
 
     """
 
-    # TODO: Implement
+    if not file.filename.endswith('.af'):
 
-    # if not file.filename.endswith('.af'):
+        raise HTTPException(400, "File must be .af format")
 
-    #     raise HTTPException(400, "File must be .af format")
 
- 
 
-    # try:
+    try:
 
-    #     content = await file.read()
+        content = await file.read()
 
-    #     agent_data = json.loads(content)
+        agent_data = json.loads(content)
 
-    # except json.JSONDecodeError:
+    except json.JSONDecodeError:
 
-    #     raise HTTPException(400, "Invalid JSON in .af file")
+        raise HTTPException(400, "Invalid JSON in .af file")
 
- 
 
-    # # Validate structure
 
-    # try:
+    # Validate structure
 
-    #     agent_file = AgentFile(**agent_data)
+    try:
 
-    # except Exception as e:
+        agent_file = AgentFile(**agent_data)
 
-    #     raise HTTPException(400, f"Invalid .af file structure: {e}")
+    except Exception as e:
 
- 
+        raise HTTPException(400, f"Invalid .af file structure: {e}")
 
-    # # TODO: Validate model paths exist
 
- 
 
-    # # Create agent from file
+    # Create agent from file
 
-    # agent = Agent.from_agent_file(agent_data)
+    agent = Agent.from_agent_file(agent_data)
 
-    # db.add(agent)
+    db.add(agent)
 
-    # db.commit()
+    db.commit()
 
-    # db.refresh(agent)
+    db.refresh(agent)
 
-    # return agent.to_dict()
-
- 
-
-    raise HTTPException(501, "Not implemented yet")
+    return agent.to_dict()
 
  

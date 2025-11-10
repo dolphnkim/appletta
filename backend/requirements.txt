@@ -1,0 +1,15 @@
+# FastAPI and web server
+fastapi==0.115.0
+uvicorn[standard]==0.31.0
+python-multipart==0.0.12  # For file uploads
+
+# Database
+sqlalchemy==2.0.35
+alembic==1.13.3
+
+# Validation
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Python version compatibility
+typing-extensions==4.12.2
