@@ -1,0 +1,127 @@
+.file-picker {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-picker-dropdown {
+  position: relative;
+}
+
+.file-picker-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.file-picker-button:hover {
+  border-color: #555;
+  background: #2d2d2d;
+}
+
+.file-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  max-height: 400px;
+  overflow: hidden;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-picker-path {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+  font-size: 12px;
+  color: #888;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.path-up-button {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.path-up-button:hover {
+  background: #333;
+  color: #e0e0e0;
+}
+
+.file-picker-items {
+  overflow-y: auto;
+  max-height: 340px;
+}
+
+.file-picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.file-picker-item:hover {
+  background: #333;
+}
+
+.file-picker-item.directory {
+  color: #7cc5ff;
+}
+
+.file-picker-item svg {
+  flex-shrink: 0;
+}
+
+.item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-picker-loading,
+.file-picker-error {
+  padding: 20px;
+  text-align: center;
+  font-size: 13px;
+  color: #888;
+}
+
+.file-picker-error {
+  color: #f48771;
+}
