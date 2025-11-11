@@ -3,6 +3,10 @@
 *.sqlite
 *.sqlite3
 
+# PostgreSQL dumps
+*.sql.gz
+*_backup.sql
+
 # Python
 __pycache__/
 *.py[cod]
@@ -12,10 +16,12 @@ __pycache__/
 env/
 venv/
 ENV/
+.venv/
 
 # Environment
 .env
 .env.local
+.env.*.local
 
 # IDE
 .vscode/
@@ -30,3 +36,6 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Alembic
+alembic/versions/__pycache__/
