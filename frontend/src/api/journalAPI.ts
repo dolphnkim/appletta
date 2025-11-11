@@ -1,13 +1,13 @@
 import type { JournalBlock, JournalBlockCreate, JournalBlockUpdate } from '../types/journal';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'http://localhost:8000/api/v1';
 
 export const journalAPI = {
   /**
    * List all journal blocks for an agent
    */
   async list(agentId: string): Promise<JournalBlock[]> {
-    const response = await fetch(`${API_BASE}/agents/${agentId}/journal-blocks`);
+    const response = await fetch(`${API_BASE}/journal-blocks?agent_id=${agentId}`);
     if (!response.ok) {
       throw new Error('Failed to fetch journal blocks');
     }
@@ -18,7 +18,7 @@ export const journalAPI = {
    * Get a specific journal block
    */
   async get(agentId: string, blockId: string): Promise<JournalBlock> {
-    const response = await fetch(`${API_BASE}/agents/${agentId}/journal-blocks/${blockId}`);
+    const response = await fetch(`${API_BASE}/journal-blocks/${blockId}`);
     if (!response.ok) {
       throw new Error('Failed to fetch journal block');
     }
@@ -29,12 +29,15 @@ export const journalAPI = {
    * Create a new journal block
    */
   async create(agentId: string, data: JournalBlockCreate): Promise<JournalBlock> {
-    const response = await fetch(`${API_BASE}/agents/${agentId}/journal-blocks`, {
+    const response = await fetch(`${API_BASE}/journal-blocks`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        agent_id: agentId,
+        ...data,
+      }),
     });
     if (!response.ok) {
       const error = await response.json();
@@ -47,7 +50,7 @@ export const journalAPI = {
    * Update a journal block
    */
   async update(agentId: string, blockId: string, data: JournalBlockUpdate): Promise<JournalBlock> {
-    const response = await fetch(`${API_BASE}/agents/${agentId}/journal-blocks/${blockId}`, {
+    const response = await fetch(`${API_BASE}/journal-blocks/${blockId}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -65,7 +68,7 @@ export const journalAPI = {
    * Delete a journal block
    */
   async delete(agentId: string, blockId: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/agents/${agentId}/journal-blocks/${blockId}`, {
+    const response = await fetch(`${API_BASE}/journal-blocks/${blockId}`, {
       method: 'DELETE',
     });
     if (!response.ok) {
