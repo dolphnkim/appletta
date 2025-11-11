@@ -27,6 +27,8 @@ CREATE TABLE agents (
     -- LLM config
     reasoning_enabled BOOLEAN DEFAULT FALSE,
     temperature FLOAT DEFAULT 0.7,
+    top_p FLOAT DEFAULT 1.0,
+    top_k INTEGER DEFAULT 0,
     seed INTEGER,
     max_output_tokens_enabled BOOLEAN DEFAULT FALSE,
     max_output_tokens INTEGER DEFAULT 8192,
