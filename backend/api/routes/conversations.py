@@ -502,7 +502,7 @@ async def chat(
     # === MEMORY RETRIEVAL ===
     # 1. Search for memory candidates across all sources
     memory_candidates = search_memories(
-        query_text=request.message,
+        query_text=message,
         agent_id=agent.id,
         db=db,
         limit=50
@@ -690,18 +690,12 @@ async def chat(
     )
 
 
-@router.post("/{conversation_id}/chat/stream")
-async def chat_stream(
+async def _chat_stream_internal(
     conversation_id: UUID,
-    request: ChatRequest,
-    db: Session = Depends(get_db)
+    message: str,
+    db: Session
 ):
-    """Send a message and get streaming LLM response with SSE
-
-    Returns Server-Sent Events stream of response chunks.
-    Handles tool calling between streaming chunks.
-    Saves complete message to database after streaming completes.
-    """
+    """Internal streaming logic shared by POST and GET endpoints"""
 
     # Verify conversation exists
     conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
@@ -717,12 +711,12 @@ async def chat_stream(
     user_message = Message(
         conversation_id=conversation_id,
         role="user",
-        content=request.message
+        content=message
     )
 
     # Generate embedding for user message
     embedding_service = get_embedding_service()
-    user_embedding = embedding_service.embed_text(request.message)
+    user_embedding = embedding_service.embed_text(message)
     user_message.embedding = user_embedding
 
     db.add(user_message)
@@ -732,7 +726,7 @@ async def chat_stream(
     # === MEMORY RETRIEVAL ===
     # 1. Search for memory candidates across all sources
     memory_candidates = search_memories(
-        query_text=request.message,
+        query_text=message,
         agent_id=agent.id,
         db=db,
         limit=50
@@ -754,7 +748,7 @@ async def chat_stream(
     # 3. Use memory coordinator to select which memories to surface
     selected_memory_ids = await coordinate_memories(
         candidates=memory_candidates,
-        query_context=request.message,
+        query_context=message,
         memory_agent=memory_agent,
         target_count=7
     )
@@ -907,3 +901,29 @@ async def chat_stream(
             "Connection": "keep-alive",
         }
     )
+
+@router.post("/{conversation_id}/chat/stream")
+async def chat_stream_post(
+    conversation_id: UUID,
+    request: ChatRequest,
+    db: Session = Depends(get_db)
+):
+    """Send a message and get streaming LLM response with SSE (POST endpoint)
+
+    Returns Server-Sent Events stream of response chunks.
+    """
+    return await _chat_stream_internal(conversation_id, request.message, db)
+
+
+@router.get("/{conversation_id}/chat/stream")
+async def chat_stream_get(
+    conversation_id: UUID,
+    message: str,
+    db: Session = Depends(get_db)
+):
+    """Send a message and get streaming LLM response with SSE (GET endpoint for EventSource)
+
+    Returns Server-Sent Events stream of response chunks.
+    Query parameter: message
+    """
+    return await _chat_stream_internal(conversation_id, message, db)
