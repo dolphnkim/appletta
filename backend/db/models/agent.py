@@ -79,6 +79,10 @@ class Agent(Base):
 
     temperature = Column(Float, default=0.7)  # 0.0 - 2.0
 
+    top_p = Column(Float, default=1.0)  # 0.0 - 1.0, nucleus sampling
+
+    top_k = Column(Integer, default=0)  # 0 = disabled, else top-k sampling
+
     seed = Column(Integer, nullable=True)  # For reproducible outputs
 
     max_output_tokens_enabled = Column(Boolean, default=False)
@@ -141,6 +145,10 @@ class Agent(Base):
 
                 "temperature": self.temperature,
 
+                "top_p": self.top_p,
+
+                "top_k": self.top_k,
+
                 "seed": self.seed,
 
                 "max_output_tokens_enabled": self.max_output_tokens_enabled,
@@ -192,6 +200,10 @@ class Agent(Base):
                     "reasoning_enabled": self.reasoning_enabled,
 
                     "temperature": self.temperature,
+
+                    "top_p": self.top_p,
+
+                    "top_k": self.top_k,
 
                     "seed": self.seed,
 
@@ -250,6 +262,10 @@ class Agent(Base):
             reasoning_enabled=llm_config.get("reasoning_enabled", False),
 
             temperature=llm_config.get("temperature", 0.7),
+
+            top_p=llm_config.get("top_p", 1.0),
+
+            top_k=llm_config.get("top_k", 0),
 
             seed=llm_config.get("seed"),
 

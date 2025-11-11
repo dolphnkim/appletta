@@ -26,6 +26,10 @@ class LLMConfig(BaseModel):
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    top_k: int = Field(default=0, ge=0)
+
     seed: Optional[int] = None
 
     max_output_tokens_enabled: bool = False
