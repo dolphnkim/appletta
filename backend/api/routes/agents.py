@@ -106,6 +106,10 @@ async def create_agent(
 
         temperature=agent_data.llm_config.temperature,
 
+        top_p=agent_data.llm_config.top_p,
+
+        top_k=agent_data.llm_config.top_k,
+
         seed=agent_data.llm_config.seed,
 
         max_output_tokens_enabled=agent_data.llm_config.max_output_tokens_enabled,
@@ -359,6 +363,10 @@ async def clone_agent(
         reasoning_enabled=original.reasoning_enabled,
 
         temperature=original.temperature,
+
+        top_p=original.top_p,
+
+        top_k=original.top_k,
 
         seed=original.seed,
 

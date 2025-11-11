@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core.config import settings
-from backend.api.routes import agents, files, rag, search
+from backend.api.routes import agents, files, rag, search, conversations
 from backend.db.base import Base
 from backend.db.session import engine
 
@@ -31,6 +31,7 @@ app.include_router(agents.router)
 app.include_router(files.router)
 app.include_router(rag.router)
 app.include_router(search.router)
+app.include_router(conversations.router)
 
 
 @app.get("/")

@@ -3,6 +3,8 @@
 export interface LLMConfig {
   reasoning_enabled: boolean;
   temperature: number;
+  top_p: number;
+  top_k: number;
   seed?: number;
   max_output_tokens_enabled: boolean;
   max_output_tokens: number;
