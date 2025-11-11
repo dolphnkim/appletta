@@ -1,413 +1,228 @@
-# Appletta Backend - Agent Settings Tab
+# Appletta Backend
 
- 
+FastAPI backend for managing AI agent configurations and MLX model integration.
 
-This directory contains the backend implementation for the **Agent Settings** tab (Left Panel, Tab 1).
+## Features
 
- 
+- **Agent Management**: Full CRUD API for agent configurations
+- **File Browser**: Browse filesystem for model/adapter selection
+- **Agent Import/Export**: Save and load agents as `.af` files
+- **MLX Integration**: Configuration for launching MLX model servers
+- **Database**: SQLite/PostgreSQL support via SQLAlchemy
 
-## Status: 🚧 SKELETON - Ready for Implementation
+## Tech Stack
 
- 
+- **FastAPI** - Modern async web framework
+- **SQLAlchemy** - ORM for database operations
+- **Pydantic** - Data validation and settings
+- **Uvicorn** - ASGI server
 
-All files are scaffolded with TODOs. The structure is complete, now needs:
+## Project Structure
 
-1. Database connection setup
+```
+backend/
+├── api/
+│   └── routes/
+│       ├── agents.py           # Agent CRUD endpoints
+│       └── files.py            # File browser endpoints
+├── core/
+│   └── config.py               # App configuration
+├── db/
+│   ├── base.py                 # SQLAlchemy base
+│   ├── session.py              # Database session management
+│   └── models/
+│       └── agent.py            # Agent database model
+├── schemas/
+│   └── agent.py                # Pydantic schemas for API
+├── services/
+│   └── mlx_manager.py          # MLX subprocess management
+├── main.py                     # FastAPI app entry point
+├── init_db.py                  # Database initialization script
+└── requirements.txt            # Python dependencies
+```
 
-2. FastAPI app integration
+## Getting Started
 
-3. Frontend integration
+### Prerequisites
 
-4. Testing
+- Python 3.10+
+- pip
 
- 
+### Installation
 
-## What's Built
+1. **Create virtual environment**:
+   ```bash
+   cd backend
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
- 
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### Database Models (`db/models/`)
+3. **Initialize database**:
+   ```bash
+   python3 init_db.py
+   ```
 
-- **agent.py** - Agent configuration storage
+### Running the Server
 
-  - Model/adapter/embedding paths
+**Development mode** (with auto-reload):
+```bash
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-  - System instructions
+Or use the built-in script:
+```bash
+python3 -m backend.main
+```
 
-  - LLM generation parameters
+The API will be available at:
+- **API**: http://localhost:8000
+- **Interactive docs**: http://localhost:8000/docs
+- **Alternative docs**: http://localhost:8000/redoc
 
-  - Export/import to `.af` format
+## API Endpoints
 
- 
+### Agents
 
-### API Schemas (`schemas/`)
+- `POST /api/v1/agents` - Create new agent
+- `GET /api/v1/agents` - List all agents
+- `GET /api/v1/agents/{id}` - Get specific agent
+- `PATCH /api/v1/agents/{id}` - Update agent
+- `DELETE /api/v1/agents/{id}` - Delete agent
+- `POST /api/v1/agents/{id}/clone` - Clone agent
+- `GET /api/v1/agents/{id}/export` - Export agent as .af file
+- `POST /api/v1/agents/import` - Import agent from .af file
 
-- **agent.py** - Pydantic validation schemas
+### Files
 
-  - AgentCreate, AgentUpdate, AgentResponse
-
-  - LLMConfig, EmbeddingConfig sub-schemas
-
-  - AgentFile format for import/export
-
- 
-
-### API Routes (`api/routes/`)
-
-- **agents.py** - Agent CRUD + operations
-
-  - `POST /api/v1/agents` - Create agent
-
-  - `GET /api/v1/agents` - List all agents
-
-  - `GET /api/v1/agents/{id}` - Get specific agent
-
-  - `PATCH /api/v1/agents/{id}` - Update agent
-
-  - `DELETE /api/v1/agents/{id}` - Delete agent
-
-  - `POST /api/v1/agents/{id}/clone` - Clone agent
-
-  - `GET /api/v1/agents/{id}/export` - Export as .af file
-
-  - `POST /api/v1/agents/import` - Import from .af file
-
- 
-
-- **files.py** - Filesystem browser for model selection
-
-  - `GET /api/v1/files/browse?path=...` - Browse directories
-
-  - `GET /api/v1/files/validate-model?path=...` - Validate model path
-
-  - `GET /api/v1/files/suggested-paths` - Common model locations
-
- 
-
-### Services (`services/`)
-
-- **mlx_manager.py** - MLX subprocess management
-
-  - Starts `mlx_lm.server` with agent's config
-
-  - Manages multiple servers (one per agent)
-
-  - Port allocation, graceful shutdown
-
-  - Process lifecycle tracking
-
- 
+- `GET /api/v1/files/browse?path=...` - Browse filesystem
+- `GET /api/v1/files/validate-model?path=...` - Validate model path
+- `GET /api/v1/files/suggested-paths` - Get common model locations
 
 ## Database Schema
 
- 
+### Agents Table
 
 ```sql
-
 CREATE TABLE agents (
-
     id UUID PRIMARY KEY,
-
     name VARCHAR(255) NOT NULL,
-
     description TEXT,
 
- 
-
     -- Model paths
-
     model_path VARCHAR(1024) NOT NULL,
-
     adapter_path VARCHAR(1024),
-
     embedding_model_path VARCHAR(1024) NOT NULL,
 
- 
-
     -- System prompt
-
     system_instructions TEXT NOT NULL,
 
- 
-
     -- LLM config
-
     reasoning_enabled BOOLEAN DEFAULT FALSE,
-
     temperature FLOAT DEFAULT 0.7,
-
     seed INTEGER,
-
     max_output_tokens_enabled BOOLEAN DEFAULT FALSE,
-
     max_output_tokens INTEGER DEFAULT 8192,
 
- 
-
     -- Embedding config
-
     embedding_dimensions INTEGER DEFAULT 2000,
-
     embedding_chunk_size INTEGER DEFAULT 300,
 
- 
-
     -- Timestamps
-
     created_at TIMESTAMP DEFAULT NOW(),
-
     updated_at TIMESTAMP DEFAULT NOW()
-
 );
-
- 
-
-CREATE INDEX idx_agents_name ON agents(name);
-
-CREATE INDEX idx_agents_created_at ON agents(created_at);
-
 ```
 
- 
+## Configuration
+
+Edit `backend/core/config.py` or set environment variables:
+
+```bash
+# Database
+DATABASE_URL=sqlite:///./appletta.db
+
+# CORS
+BACKEND_CORS_ORIGINS=["http://localhost:5173", "http://localhost:3000"]
+```
 
 ## Agent File Format (.af)
 
- 
+Agents can be exported/imported as JSON files:
 
 ```json
-
 {
-
   "version": "1.0",
-
   "agent": {
-
-    "name": "agent-name",
-
-    "description": "Agent description",
-
+    "name": "MyAgent",
+    "description": "A helpful AI assistant",
     "model_path": "/Users/you/Models/Qwen2.5-14B-Instruct-4bit",
-
     "adapter_path": "/Users/you/Models/adapters/claude",
-
-    "system_instructions": "You are MemoryMate...",
-
+    "system_instructions": "You are a helpful AI assistant...",
     "llm_config": {
-
       "reasoning_enabled": false,
-
       "temperature": 0.7,
-
       "seed": 42,
-
       "max_output_tokens_enabled": true,
-
       "max_output_tokens": 8192
-
     },
-
     "embedding_config": {
-
       "model_path": "/Users/you/Models/embedding-model",
-
       "dimensions": 2000,
-
       "chunk_size": 300
-
     }
-
   }
-
 }
-
 ```
 
- 
+## Development
 
-## UI → Backend Flow
+### Running Tests
+```bash
+pytest
+```
 
- 
+### Code Quality
+```bash
+# Format code
+black .
 
-### Creating an Agent
+# Lint
+flake8 .
+ruff check .
+```
 
-1. User clicks "New Agent"
+### Database Migrations
 
-2. User fills out form:
+If you need to modify the schema:
 
-   - Name: text input
+```bash
+# Create migration
+alembic revision --autogenerate -m "description"
 
-   - Description: text input
+# Apply migration
+alembic upgrade head
+```
 
-   - Model: file browser → `/api/v1/files/browse`
+## MLX Integration
 
-   - Adapter: file browser (optional)
-
-   - System Instructions: popup editor
-
-   - LLM Config: sliders/toggles
-
-   - Embedding Model: file browser
-
-3. User clicks "Save"
-
-4. Frontend validates and POSTs to `/api/v1/agents`
-
-5. Backend validates paths exist
-
-6. Backend saves to database
-
-7. Returns agent object
-
- 
-
-### Starting an Agent
-
-1. User clicks "Run" on agent
-
-2. Frontend POSTs to `/api/v1/agents/{id}/start` (TODO: Add this endpoint)
-
-3. Backend calls `mlx_manager.start_agent_server(agent)`
-
-4. MLX server launches with agent's model/adapter
-
-5. Returns server info (port, status)
-
-6. Frontend can now send messages to agent
-
- 
+The `services/mlx_manager.py` module handles launching MLX model servers for agents. When an agent is started, it spawns an `mlx_lm.server` subprocess with the agent's configured model and parameters.
 
 ## Next Steps
 
- 
-
-### 1. Database Setup
-
-```bash
-
-# TODO: Create migration
-
-alembic revision --autogenerate -m "create agents table"
-
-alembic upgrade head
-
-```
-
- 
-
-### 2. FastAPI Integration
-
-```python
-
-# TODO: In main.py or app.py
-
-from backend.api.routes import agents, files
-
- 
-
-app.include_router(agents.router)
-
-app.include_router(files.router)
-
- 
-
-# Cleanup on shutdown
-
-@app.on_event("shutdown")
-
-async def shutdown():
-
-    mlx_manager = get_mlx_manager()
-
-    await mlx_manager.stop_all_servers()
-
-```
-
- 
-
-### 3. Frontend Integration
-
-```typescript
-
-// TODO: API client
-
-const agentAPI = {
-
-  list: () => fetch('/api/v1/agents'),
-
-  get: (id) => fetch(`/api/v1/agents/${id}`),
-
-  create: (data) => fetch('/api/v1/agents', {
-
-    method: 'POST',
-
-    body: JSON.stringify(data)
-
-  }),
-
-  update: (id, data) => fetch(`/api/v1/agents/${id}`, {
-
-    method: 'PATCH',
-
-    body: JSON.stringify(data)
-
-  }),
-
-  // ... etc
-
-}
-
-```
-
- 
-
-### 4. Testing
-
-- Test model path validation
-
-- Test agent CRUD operations
-
-- Test MLX server lifecycle
-
-- Test .af file import/export
-
-- Test concurrent MLX servers for different agents
-
- 
-
-## TODO Items
-
- 
-
-Search codebase for `TODO:` comments - there are many! Key ones:
-
- 
-
-- [ ] Database connection setup
-
-- [ ] FastAPI router registration
-
-- [ ] MLX server log capture to files
-
-- [ ] Model path validation (check for config.json, .safetensors)
-
-- [ ] Port availability checking (not just unused by us)
-
-- [ ] Reasoning mode configuration (might need model-specific config)
-
-- [ ] Agent start/stop endpoints
-
-- [ ] WebSocket for agent streaming responses
-
-- [ ] Error handling and user-friendly messages
-
- 
-
-## Related Files
-
- 
-
-- `/AGENT_SETTINGS_TAB.md` - Detailed specification
-
-- `/agent_settings-left_panel-tab1/` - UI screenshots with annotations
-
- 
+- [ ] Add authentication/authorization
+- [ ] Implement agent start/stop endpoints
+- [ ] Add WebSocket support for streaming responses
+- [ ] Implement model path validation
+- [ ] Add comprehensive error handling
+- [ ] Write unit tests
+- [ ] Add PostgreSQL support documentation
+- [ ] Implement logging and monitoring
+
+## License
+
+See main project LICENSE
