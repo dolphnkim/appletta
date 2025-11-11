@@ -213,6 +213,20 @@ def create_journal_block(
     db: Session
 ) -> Dict[str, Any]:
     """Create a new journal block"""
+    # Generate block_id from label
+    block_id = JournalBlock.generate_block_id(label)
+
+    # Check if block_id already exists for this agent
+    existing = db.query(JournalBlock).filter(
+        JournalBlock.agent_id == agent_id,
+        JournalBlock.block_id == block_id
+    ).first()
+
+    if existing:
+        return {
+            "error": f"Journal block with label '{label}' (block_id: '{block_id}') already exists. Consider updating it instead or using a different label."
+        }
+
     # Generate embedding for the value
     embedding_service = get_embedding_service()
     block_embedding = embedding_service.embed_text(value)
@@ -220,8 +234,12 @@ def create_journal_block(
     block = JournalBlock(
         agent_id=agent_id,
         label=label,
+        block_id=block_id,
         value=value,
-        embedding=block_embedding
+        embedding=block_embedding,
+        editable_by_main_agent=True,  # Main agent can edit blocks it creates
+        editable_by_memory_agent=False,
+        read_only=False
     )
 
     db.add(block)
@@ -230,8 +248,9 @@ def create_journal_block(
 
     return {
         "success": True,
-        "block_id": str(block.id),
-        "message": f"Created journal block '{label}'"
+        "id": str(block.id),
+        "block_id": block_id,
+        "message": f"Created journal block '{label}' (block_id: {block_id})"
     }
 
 
@@ -249,6 +268,13 @@ def update_journal_block(
 
         if not block:
             return {"error": f"Journal block {block_id} not found"}
+
+        # Check permissions
+        if block.read_only:
+            return {"error": f"Journal block '{block.label}' is read-only and cannot be modified"}
+
+        if not block.editable_by_main_agent:
+            return {"error": f"Journal block '{block.label}' cannot be edited by the main agent"}
 
         if label is not None:
             block.label = label
@@ -277,6 +303,13 @@ def delete_journal_block(block_id: str, db: Session) -> Dict[str, Any]:
 
         if not block:
             return {"error": f"Journal block {block_id} not found"}
+
+        # Check permissions
+        if block.read_only:
+            return {"error": f"Journal block '{block.label}' is read-only and cannot be deleted"}
+
+        if not block.editable_by_main_agent:
+            return {"error": f"Journal block '{block.label}' cannot be deleted by the main agent"}
 
         label = block.label
         db.delete(block)
