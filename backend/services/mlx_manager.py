@@ -155,11 +155,11 @@ class MLXManager:
 
  
 
-    async def start_agent_server(self, agent) -> MLXServerProcess:  # TODO: agent: Agent
+    async def start_agent_server(self, agent, port_override: int = None) -> MLXServerProcess:  # TODO: agent: Agent
 
         """Start mlx_lm.server for an agent
 
- 
+
 
         Uses agent's configuration to launch server with:
 
@@ -169,13 +169,21 @@ class MLXManager:
 
         - LLM generation parameters
 
- 
+
+
+        Args:
+
+            agent: Agent configuration object
+
+            port_override: Optional specific port to use (for special services like memory coordinator)
+
+
 
         Returns:
 
             MLXServerProcess instance tracking the running server
 
- 
+
 
         Raises:
 
@@ -187,7 +195,7 @@ class MLXManager:
 
         agent_id = agent.id  # TODO: Remove when Agent is imported
 
- 
+
 
         # Check if already running
 
@@ -195,7 +203,7 @@ class MLXManager:
 
             raise RuntimeError(f"Agent {agent_id} already has a running MLX server")
 
- 
+
 
         # Validate paths exist
 
@@ -205,7 +213,7 @@ class MLXManager:
 
             raise FileNotFoundError(f"Model path does not exist: {agent.model_path}")
 
- 
+
 
         if agent.adapter_path:
 
@@ -215,11 +223,11 @@ class MLXManager:
 
                 raise FileNotFoundError(f"Adapter path does not exist: {agent.adapter_path}")
 
- 
 
-        # Find available port
 
-        port = self._find_available_port()
+        # Find available port or use override
+
+        port = port_override if port_override else self._find_available_port()
 
  
 
@@ -249,13 +257,25 @@ class MLXManager:
 
         cmd.extend(["--temp", str(agent.temperature)])
 
- 
+
+
+        if hasattr(agent, 'top_p') and agent.top_p is not None:
+
+            cmd.extend(["--top-p", str(agent.top_p)])
+
+
+
+        if hasattr(agent, 'top_k') and agent.top_k is not None and agent.top_k > 0:
+
+            cmd.extend(["--top-k", str(agent.top_k)])
+
+
 
         if agent.seed is not None:
 
             cmd.extend(["--seed", str(agent.seed)])
 
- 
+
 
         if agent.max_output_tokens_enabled:
 

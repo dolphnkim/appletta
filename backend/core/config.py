@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     # Vector dimensions (must match embedding model)
     EMBEDDING_DIMENSIONS: int = 768
 
+    # Memory coordinator model (Qwen2.5-3B for memory selection)
+    MEMORY_COORDINATOR_MODEL_PATH: str = os.getenv(
+        "MEMORY_COORDINATOR_MODEL_PATH",
+        ""  # Default empty, user must configure
+    )
+    MEMORY_COORDINATOR_PORT: int = 8002  # Dedicated port for memory coordinator
+
     # API
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "Appletta"

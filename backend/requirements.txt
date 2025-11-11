@@ -2,12 +2,18 @@
 fastapi==0.115.0
 uvicorn[standard]==0.31.0
 python-multipart==0.0.12  # For file uploads
+httpx==0.27.2  # Async HTTP client for MLX server
 
 # Database
 sqlalchemy==2.0.35
 alembic==1.13.3
 psycopg2-binary==2.9.9  # PostgreSQL driver
 pgvector==0.3.5  # PostgreSQL vector extension
+
+# Embeddings
+sentence-transformers==3.0.1  # For gte-base embeddings
+torch==2.4.0  # Required by sentence-transformers
+numpy==1.26.4  # Vector operations
 
 # Validation
 pydantic==2.9.2

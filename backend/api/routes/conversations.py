@@ -1,6 +1,7 @@
 """API routes for conversation management and chat inference"""
 
 import httpx
+import json
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +19,10 @@ from backend.schemas.conversation import (
     ChatResponse,
 )
 from backend.services.mlx_manager import get_mlx_manager
+from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journal_blocks
+from backend.services.memory_service import search_memories, fetch_full_memories
+from backend.services.memory_coordinator import coordinate_memories
+from backend.services.embedding_service import get_embedding_service
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
 
@@ -150,13 +155,14 @@ async def chat(
     request: ChatRequest,
     db: Session = Depends(get_db)
 ):
-    """Send a message and get LLM response
+    """Send a message and get LLM response with tool calling support
 
     1. Saves user message to database
-    2. Gets conversation history
-    3. Calls MLX server for inference
-    4. Saves assistant response to database
-    5. Returns both messages
+    2. Gets conversation history + journal blocks list
+    3. Calls MLX server for inference with tools available
+    4. Handles tool calls (executes and loops back to LLM)
+    5. Saves assistant response to database
+    6. Returns both messages
     """
 
     # Verify conversation exists
@@ -169,29 +175,73 @@ async def chat(
     if not agent:
         raise HTTPException(404, "Agent not found for this conversation")
 
-    # Save user message
+    # Save user message and embed it
     user_message = Message(
         conversation_id=conversation_id,
         role="user",
         content=request.message
     )
+
+    # Generate embedding for user message
+    embedding_service = get_embedding_service()
+    user_embedding = embedding_service.embed_text(request.message)
+    user_message.embedding = user_embedding
+
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
 
-    # Get conversation history (last N messages for context)
+    # === MEMORY RETRIEVAL ===
+    # 1. Search for memory candidates across all sources
+    memory_candidates = search_memories(
+        query_text=request.message,
+        agent_id=agent.id,
+        db=db,
+        limit=50
+    )
+
+    # 2. Use memory coordinator to select which memories to surface
+    selected_memory_ids = await coordinate_memories(
+        candidates=memory_candidates,
+        query_context=request.message,
+        target_count=7
+    )
+
+    # 3. Fetch full content of selected memories
+    surfaced_memories = fetch_full_memories(selected_memory_ids, db)
+
+    # Get conversation history
     history = db.query(Message).filter(
         Message.conversation_id == conversation_id
     ).order_by(Message.created_at.asc()).all()
 
-    # Build messages for LLM
-    messages = []
-    if agent.system_instructions:
-        messages.append({
-            "role": "system",
-            "content": agent.system_instructions
-        })
+    # Get journal blocks for system prompt
+    journal_blocks_info = list_journal_blocks(agent.id, db)
+    blocks_list = "\n".join([
+        f"- {block['label']} (ID: {block['id']})"
+        for block in journal_blocks_info.get("blocks", [])
+    ])
 
+    # Build system message with journal blocks and memories
+    system_content = agent.system_instructions or ""
+
+    # Add surfaced memories
+    if surfaced_memories:
+        memories_text = "\n\n=== Surfaced Memories ===\n"
+        memories_text += "The following memories may be relevant to the current conversation:\n\n"
+        for memory in surfaced_memories:
+            memories_text += f"[{memory['source_type']}] {memory.get('title', 'Untitled')}\n"
+            memories_text += f"{memory['content']}\n\n"
+        system_content += memories_text
+
+    # Add journal blocks
+    if blocks_list:
+        system_content += f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
+    else:
+        system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
+
+    # Build messages for LLM
+    messages = [{"role": "system", "content": system_content}]
     for msg in history:
         messages.append({
             "role": msg.role,
@@ -203,41 +253,85 @@ async def chat(
     mlx_process = mlx_manager.get_agent_server(agent.id)
 
     if not mlx_process:
-        # Start MLX server for this agent
         try:
             mlx_process = await mlx_manager.start_agent_server(agent)
         except Exception as e:
             raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
 
-    # Call MLX server for inference
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                json={
-                    "messages": messages,
-                    "temperature": agent.temperature,
-                    "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-    except httpx.HTTPError as e:
-        raise HTTPException(500, f"MLX server request failed: {str(e)}")
+    # Call LLM with tools (may need multiple iterations for tool calling)
+    max_iterations = 5
+    iteration = 0
+    final_response = None
 
-    # Extract assistant response
-    assistant_content = result["choices"][0]["message"]["content"]
+    while iteration < max_iterations:
+        iteration += 1
 
-    # Save assistant message
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                    json={
+                        "messages": messages,
+                        "tools": JOURNAL_BLOCK_TOOLS,
+                        "temperature": agent.temperature,
+                        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
+                    }
+                )
+                response.raise_for_status()
+                result = response.json()
+        except httpx.HTTPError as e:
+            raise HTTPException(500, f"MLX server request failed: {str(e)}")
+
+        assistant_message_data = result["choices"][0]["message"]
+
+        # Check if there are tool calls
+        tool_calls = assistant_message_data.get("tool_calls")
+
+        if not tool_calls:
+            # No more tool calls, we have the final response
+            final_response = assistant_message_data.get("content", "")
+            break
+
+        # Add assistant's tool call message to history
+        messages.append(assistant_message_data)
+
+        # Execute each tool call
+        for tool_call in tool_calls:
+            tool_name = tool_call["function"]["name"]
+            tool_args = json.loads(tool_call["function"]["arguments"])
+
+            # Execute the tool
+            tool_result = execute_tool(tool_name, tool_args, agent.id, db)
+
+            # Add tool result to messages
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call["id"],
+                "name": tool_name,
+                "content": json.dumps(tool_result)
+            })
+
+    # If we hit max iterations without final response, use last content
+    if final_response is None:
+        final_response = "I apologize, but I encountered an issue completing the request."
+
+    # Save assistant message and embed it
     assistant_message = Message(
         conversation_id=conversation_id,
         role="assistant",
-        content=assistant_content,
+        content=final_response,
         metadata={
             "model": agent.model_path,
             "usage": result.get("usage", {}),
+            "tool_calls_count": iteration - 1,
+            "surfaced_memories_count": len(surfaced_memories)
         }
     )
+
+    # Generate embedding for assistant message
+    assistant_embedding = embedding_service.embed_text(final_response)
+    assistant_message.embedding = assistant_embedding
+
     db.add(assistant_message)
     db.commit()
     db.refresh(assistant_message)
