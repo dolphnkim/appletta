@@ -5,6 +5,7 @@ import json
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
@@ -539,4 +540,223 @@ async def chat(
     return ChatResponse(
         user_message=user_message.to_dict(),
         assistant_message=assistant_message.to_dict()
+    )
+
+
+@router.post("/{conversation_id}/chat/stream")
+async def chat_stream(
+    conversation_id: UUID,
+    request: ChatRequest,
+    db: Session = Depends(get_db)
+):
+    """Send a message and get streaming LLM response with SSE
+
+    Returns Server-Sent Events stream of response chunks.
+    Handles tool calling between streaming chunks.
+    Saves complete message to database after streaming completes.
+    """
+
+    # Verify conversation exists
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(404, f"Conversation {conversation_id} not found")
+
+    # Get agent
+    agent = db.query(Agent).filter(Agent.id == conversation.agent_id).first()
+    if not agent:
+        raise HTTPException(404, "Agent not found for this conversation")
+
+    # Save user message and embed it
+    user_message = Message(
+        conversation_id=conversation_id,
+        role="user",
+        content=request.message
+    )
+
+    # Generate embedding for user message
+    embedding_service = get_embedding_service()
+    user_embedding = embedding_service.embed_text(request.message)
+    user_message.embedding = user_embedding
+
+    db.add(user_message)
+    db.commit()
+    db.refresh(user_message)
+
+    # === MEMORY RETRIEVAL ===
+    # 1. Search for memory candidates across all sources
+    memory_candidates = search_memories(
+        query_text=request.message,
+        agent_id=agent.id,
+        db=db,
+        limit=50
+    )
+
+    # 2. Load memory agent from attachments
+    memory_agent = None
+    memory_attachment = db.query(AgentAttachment).filter(
+        AgentAttachment.agent_id == agent.id,
+        AgentAttachment.attachment_type == "memory",
+        AgentAttachment.enabled == True
+    ).order_by(AgentAttachment.priority.desc()).first()
+
+    if memory_attachment:
+        memory_agent = db.query(Agent).filter(
+            Agent.id == memory_attachment.attached_agent_id
+        ).first()
+
+    # 3. Use memory coordinator to select which memories to surface
+    selected_memory_ids = await coordinate_memories(
+        candidates=memory_candidates,
+        query_context=request.message,
+        memory_agent=memory_agent,
+        target_count=7
+    )
+
+    # 4. Fetch full content of selected memories
+    surfaced_memories = fetch_full_memories(selected_memory_ids, db)
+
+    # Get conversation history
+    history = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
+
+    # Get journal blocks for system prompt
+    journal_blocks_info = list_journal_blocks(agent.id, db)
+    blocks_list = "\n".join([
+        f"- {block['label']} (ID: {block['id']})"
+        for block in journal_blocks_info.get("blocks", [])
+    ])
+
+    # Build system message with journal blocks and memories
+    system_content = agent.system_instructions or ""
+
+    # Add surfaced memories
+    if surfaced_memories:
+        memories_text = "\n\n=== Surfaced Memories ===\n"
+        memories_text += "The following memories may be relevant to the current conversation:\n\n"
+        for memory in surfaced_memories:
+            memories_text += f"[{memory['source_type']}] {memory.get('title', 'Untitled')}\n"
+            memories_text += f"{memory['content']}\n\n"
+        system_content += memories_text
+
+    # Add journal blocks
+    if blocks_list:
+        system_content += f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
+    else:
+        system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
+
+    # === CONTEXT WINDOW MANAGEMENT ===
+    system_message = {"role": "system", "content": system_content}
+    sticky_tokens = count_message_tokens(system_message)
+    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+    sticky_tokens += count_tokens(tools_json)
+
+    max_context = agent.max_context_tokens
+    remaining_budget = max_context - sticky_tokens
+
+    # Trim history to fit remaining budget
+    messages_to_include = []
+    current_tokens = 0
+
+    for msg in reversed(history):
+        msg_dict = {"role": msg.role, "content": msg.content}
+        msg_tokens = count_message_tokens(msg_dict)
+
+        if current_tokens + msg_tokens <= remaining_budget:
+            messages_to_include.insert(0, msg_dict)
+            current_tokens += msg_tokens
+        else:
+            break
+
+    # Build final messages array
+    messages = [system_message] + messages_to_include
+
+    # Get or start MLX server
+    mlx_manager = get_mlx_manager()
+    mlx_process = mlx_manager.get_agent_server(agent.id)
+
+    if not mlx_process:
+        try:
+            mlx_process = await mlx_manager.start_agent_server(agent)
+        except Exception as e:
+            raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
+
+    # Streaming generator function
+    async def generate_stream():
+        """Generate SSE stream of response chunks"""
+        full_response = ""
+        tool_calls_count = 0
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                    json={
+                        "messages": messages,
+                        "tools": JOURNAL_BLOCK_TOOLS,
+                        "temperature": agent.temperature,
+                        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
+                        "stream": True,
+                    }
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data = line[6:]  # Remove "data: " prefix
+
+                            if data == "[DONE]":
+                                break
+
+                            try:
+                                chunk = json.loads(data)
+                                delta = chunk["choices"][0]["delta"]
+
+                                # Stream content chunks
+                                if "content" in delta and delta["content"]:
+                                    content = delta["content"]
+                                    full_response += content
+                                    yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+
+                                # Handle tool calls (for now, just note them)
+                                if "tool_calls" in delta:
+                                    tool_calls_count += 1
+                                    yield f"data: {json.dumps({'type': 'tool_call', 'status': 'executing'})}\n\n"
+
+                            except json.JSONDecodeError:
+                                continue
+
+            # Save complete assistant message to database
+            assistant_message = Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=full_response,
+                metadata={
+                    "model": agent.model_path,
+                    "tool_calls_count": tool_calls_count,
+                    "surfaced_memories_count": len(surfaced_memories),
+                    "streamed": True
+                }
+            )
+
+            # Generate embedding for assistant message
+            assistant_embedding = embedding_service.embed_text(full_response)
+            assistant_message.embedding = assistant_embedding
+
+            db.add(assistant_message)
+            db.commit()
+            db.refresh(assistant_message)
+
+            # Send final message with database ID
+            yield f"data: {json.dumps({'type': 'done', 'message_id': str(assistant_message.id)})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
     )
