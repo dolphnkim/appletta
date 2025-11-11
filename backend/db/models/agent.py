@@ -27,7 +27,9 @@ from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime
 
 from sqlalchemy.dialects.postgresql import UUID as pgUUID
 
- 
+from sqlalchemy.orm import relationship
+
+
 
 from backend.db.base import Base
 
@@ -113,7 +115,15 @@ class Agent(Base):
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
- 
+
+
+    # Relationships
+
+    attachments = relationship("AgentAttachment", foreign_keys="AgentAttachment.agent_id",
+
+                              back_populates="agent", cascade="all, delete-orphan")
+
+
 
     def __repr__(self):
 

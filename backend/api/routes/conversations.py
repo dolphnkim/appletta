@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.db.session import get_db
 from backend.db.models.conversation import Conversation, Message
 from backend.db.models.agent import Agent
+from backend.db.models.agent_attachment import AgentAttachment
 from backend.schemas.conversation import (
     ConversationCreate,
     ConversationUpdate,
@@ -200,14 +201,28 @@ async def chat(
         limit=50
     )
 
-    # 2. Use memory coordinator to select which memories to surface
+    # 2. Load memory agent from attachments
+    memory_agent = None
+    memory_attachment = db.query(AgentAttachment).filter(
+        AgentAttachment.agent_id == agent.id,
+        AgentAttachment.attachment_type == "memory",
+        AgentAttachment.enabled == True
+    ).order_by(AgentAttachment.priority.desc()).first()
+
+    if memory_attachment:
+        memory_agent = db.query(Agent).filter(
+            Agent.id == memory_attachment.attached_agent_id
+        ).first()
+
+    # 3. Use memory coordinator to select which memories to surface
     selected_memory_ids = await coordinate_memories(
         candidates=memory_candidates,
         query_context=request.message,
+        memory_agent=memory_agent,  # Pass the attached memory agent (or None)
         target_count=7
     )
 
-    # 3. Fetch full content of selected memories
+    # 4. Fetch full content of selected memories
     surfaced_memories = fetch_full_memories(selected_memory_ids, db)
 
     # Get conversation history

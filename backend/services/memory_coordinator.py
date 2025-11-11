@@ -1,4 +1,4 @@
-"""Memory coordinator service - uses Qwen2.5-3B to select relevant memories
+"""Memory coordinator service - uses attached agent to select relevant memories
 
 The memory coordinator is like the "subconscious" - it receives candidates
 from vector search and decides which memories to surface organically.
@@ -6,77 +6,24 @@ from vector search and decides which memories to surface organically.
 
 import httpx
 import json
-from typing import List, Dict, Any
-from uuid import UUID
+from typing import List, Optional
 
-from backend.core.config import settings
 from backend.services.mlx_manager import get_mlx_manager
 from backend.services.memory_service import MemoryCandidate
-
-
-class MemoryCoordinatorProcess:
-    """Singleton process for the memory coordinator MLX server"""
-
-    def __init__(self, port: int):
-        self.port = port
-        self.process = None
-        self.model_path = settings.MEMORY_COORDINATOR_MODEL_PATH
-
-
-# Global instance
-_coordinator_process = None
-
-
-async def get_coordinator_process() -> MemoryCoordinatorProcess:
-    """Get or start the memory coordinator server"""
-    global _coordinator_process
-
-    if not settings.MEMORY_COORDINATOR_MODEL_PATH:
-        raise RuntimeError("MEMORY_COORDINATOR_MODEL_PATH not configured")
-
-    if _coordinator_process is None:
-        _coordinator_process = MemoryCoordinatorProcess(
-            port=settings.MEMORY_COORDINATOR_PORT
-        )
-
-        # Start MLX server for memory coordinator
-        mlx_manager = get_mlx_manager()
-
-        # Create a minimal agent-like object for the MLX manager
-        class CoordinatorConfig:
-            id = UUID("00000000-0000-0000-0000-000000000001")  # Special ID
-            model_path = settings.MEMORY_COORDINATOR_MODEL_PATH
-            adapter_path = None
-            temperature = 0.3  # Lower temperature for more focused selection
-            max_output_tokens_enabled = True
-            max_output_tokens = 2048
-            top_p = 1.0
-            top_k = 0
-            seed = None
-            reasoning_enabled = False
-
-        try:
-            process = await mlx_manager.start_agent_server(
-                CoordinatorConfig(),
-                port_override=settings.MEMORY_COORDINATOR_PORT
-            )
-            _coordinator_process.process = process
-        except Exception as e:
-            raise RuntimeError(f"Failed to start memory coordinator: {str(e)}")
-
-    return _coordinator_process
 
 
 async def coordinate_memories(
     candidates: List[MemoryCandidate],
     query_context: str,
+    memory_agent,  # The attached memory agent (can be None)
     target_count: int = 7
 ) -> List[str]:
-    """Use memory coordinator to select which memories to surface
+    """Use memory coordinator agent to select which memories to surface
 
     Args:
         candidates: List of memory candidates from vector search
         query_context: The current message/context
+        memory_agent: The Agent object to use for coordination (or None for fallback)
         target_count: Target number of memories to select (default 7)
 
     Returns:
@@ -86,12 +33,20 @@ async def coordinate_memories(
     if not candidates:
         return []
 
-    # Get coordinator process
-    try:
-        coordinator = await get_coordinator_process()
-    except RuntimeError:
-        # If coordinator not configured, fall back to top-N by similarity
+    # If no memory agent attached, fall back to top-N by similarity
+    if memory_agent is None:
         return [c.id for c in candidates[:target_count]]
+
+    # Get or start MLX server for memory agent
+    mlx_manager = get_mlx_manager()
+    mlx_process = mlx_manager.get_agent_server(memory_agent.id)
+
+    if not mlx_process:
+        try:
+            mlx_process = await mlx_manager.start_agent_server(memory_agent)
+        except Exception:
+            # If we can't start memory agent, fall back to top-N
+            return [c.id for c in candidates[:target_count]]
 
     # Build prompt for coordinator
     candidates_text = ""
@@ -129,20 +84,20 @@ Select memory IDs to surface (respond with JSON array only):"""
         {"role": "user", "content": user_prompt}
     ]
 
-    # Call coordinator model
+    # Call memory coordinator agent
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"http://localhost:{coordinator.port}/v1/chat/completions",
+                f"http://localhost:{mlx_process.port}/v1/chat/completions",
                 json={
                     "messages": messages,
-                    "temperature": 0.3,
+                    "temperature": memory_agent.temperature,
                     "max_tokens": 512,
                 }
             )
             response.raise_for_status()
             result = response.json()
-    except httpx.HTTPError as e:
+    except httpx.HTTPError:
         # Fall back to top-N on error
         return [c.id for c in candidates[:target_count]]
 
