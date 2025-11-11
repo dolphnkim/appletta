@@ -36,6 +36,11 @@ class MessageCreate(BaseModel):
     role: str = "user"  # 'user', 'assistant', 'system'
 
 
+class MessageEdit(BaseModel):
+    """Request to edit a message"""
+    content: str = Field(..., min_length=1, description="New message content")
+
+
 class MessageResponse(BaseModel):
     id: str
     conversation_id: str

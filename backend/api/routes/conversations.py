@@ -17,6 +17,7 @@ from backend.schemas.conversation import (
     ConversationUpdate,
     ConversationResponse,
     MessageResponse,
+    MessageEdit,
     ChatRequest,
     ChatResponse,
 )
@@ -304,6 +305,152 @@ async def get_messages(
     ).order_by(Message.created_at.asc()).all()
 
     return [msg.to_dict() for msg in messages]
+
+
+# ============================================================================
+# Message Actions
+# ============================================================================
+
+@router.patch("/{conversation_id}/messages/{message_id}", response_model=MessageResponse)
+async def edit_message(
+    conversation_id: UUID,
+    message_id: UUID,
+    edit: MessageEdit,
+    db: Session = Depends(get_db)
+):
+    """Edit a message and update its embedding
+
+    Edits the specified message content and updates its embedding.
+    Does NOT automatically regenerate - frontend should call regenerate endpoint if needed.
+    """
+
+    # Verify conversation exists
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(404, f"Conversation {conversation_id} not found")
+
+    # Get message
+    message = db.query(Message).filter(
+        Message.id == message_id,
+        Message.conversation_id == conversation_id
+    ).first()
+
+    if not message:
+        raise HTTPException(404, f"Message {message_id} not found in this conversation")
+
+    # Update content
+    message.content = edit.content
+
+    # Re-generate embedding
+    embedding_service = get_embedding_service()
+    message.embedding = embedding_service.embed_text(edit.content)
+
+    db.commit()
+    db.refresh(message)
+
+    return message.to_dict()
+
+
+@router.post("/{conversation_id}/messages/{message_id}/regenerate")
+async def regenerate_from_message(
+    conversation_id: UUID,
+    message_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Regenerate response from a specific message
+
+    Deletes all messages after the specified message and returns
+    ready status. Frontend should then call /chat endpoint with
+    the user message content to generate new response.
+    """
+
+    # Verify conversation exists
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(404, f"Conversation {conversation_id} not found")
+
+    # Get the message to regenerate from
+    from_message = db.query(Message).filter(
+        Message.id == message_id,
+        Message.conversation_id == conversation_id
+    ).first()
+
+    if not from_message:
+        raise HTTPException(404, f"Message {message_id} not found in this conversation")
+
+    # Must be a user message to regenerate from
+    if from_message.role != "user":
+        raise HTTPException(400, "Can only regenerate from user messages")
+
+    # Delete all messages after this one
+    db.query(Message).filter(
+        Message.conversation_id == conversation_id,
+        Message.created_at > from_message.created_at
+    ).delete()
+    db.commit()
+
+    return {
+        "status": "ready_to_regenerate",
+        "message": "Subsequent messages deleted. Call /chat endpoint to regenerate.",
+        "user_message_id": str(from_message.id),
+        "user_message_content": from_message.content
+    }
+
+
+@router.post("/{conversation_id}/fork/{message_id}", response_model=ConversationResponse)
+async def fork_conversation(
+    conversation_id: UUID,
+    message_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Fork conversation from a specific message
+
+    Creates a new conversation with all messages up to and including
+    the specified message. Useful for exploring alternative paths.
+    """
+
+    # Verify original conversation exists
+    original = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not original:
+        raise HTTPException(404, f"Conversation {conversation_id} not found")
+
+    # Get the fork point message
+    fork_point = db.query(Message).filter(
+        Message.id == message_id,
+        Message.conversation_id == conversation_id
+    ).first()
+
+    if not fork_point:
+        raise HTTPException(404, f"Message {message_id} not found in this conversation")
+
+    # Create new conversation
+    new_conversation = Conversation(
+        agent_id=original.agent_id,
+        title=f"{original.title} (fork)"
+    )
+    db.add(new_conversation)
+    db.flush()  # Get ID without committing
+
+    # Copy messages up to and including fork point
+    messages_to_copy = db.query(Message).filter(
+        Message.conversation_id == conversation_id,
+        Message.created_at <= fork_point.created_at
+    ).order_by(Message.created_at.asc()).all()
+
+    for msg in messages_to_copy:
+        new_message = Message(
+            conversation_id=new_conversation.id,
+            role=msg.role,
+            content=msg.content,
+            embedding=msg.embedding,
+            metadata=msg.metadata
+        )
+        db.add(new_message)
+
+    db.commit()
+    db.refresh(new_conversation)
+
+    return new_conversation.to_dict()
 
 
 # ============================================================================
