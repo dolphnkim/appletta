@@ -52,4 +52,29 @@ export const conversationAPI = {
       method: 'POST',
       body: JSON.stringify(request),
     }),
+
+  // Streaming chat - returns EventSource URL
+  getStreamURL: (conversationId: string): string =>
+    `${API_BASE}/conversations/${conversationId}/chat/stream`,
+
+  // Message actions
+  editMessage: (conversationId: string, messageId: string, content: string): Promise<Message> =>
+    fetchAPI(`/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ content }),
+    }),
+
+  regenerateMessage: (conversationId: string, messageId: string): Promise<ChatResponse> =>
+    fetchAPI(`/conversations/${conversationId}/messages/${messageId}/regenerate`, {
+      method: 'POST',
+    }),
+
+  forkConversation: (conversationId: string, messageId: string): Promise<Conversation> =>
+    fetchAPI(`/conversations/${conversationId}/messages/${messageId}/fork`, {
+      method: 'POST',
+    }),
+
+  copyMessage: (content: string): void => {
+    navigator.clipboard.writeText(content);
+  },
 };

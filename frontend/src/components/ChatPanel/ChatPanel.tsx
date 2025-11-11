@@ -5,59 +5,63 @@ import './ChatPanel.css';
 
 interface ChatPanelProps {
   agentId: string;
+  conversationId?: string;
+  onConversationChange?: (conversationId: string) => void;
 }
 
-export default function ChatPanel({ agentId }: ChatPanelProps) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+export default function ChatPanel({ agentId, conversationId, onConversationChange }: ChatPanelProps) {
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
-  // Load conversations on mount
+  // Load conversation when conversationId changes
   useEffect(() => {
-    loadConversations();
-  }, [agentId]);
-
-  // Load messages when conversation changes
-  useEffect(() => {
-    if (currentConversation) {
-      loadMessages(currentConversation.id);
+    if (conversationId) {
+      loadConversation(conversationId);
+      loadMessages(conversationId);
+    } else {
+      setCurrentConversation(null);
+      setMessages([]);
     }
-  }, [currentConversation]);
+  }, [conversationId]);
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change or streaming
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, streamingContent]);
+
+  // Cleanup EventSource on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const loadConversations = async () => {
+  const loadConversation = async (convId: string) => {
     try {
-      setLoading(true);
-      const data = await conversationAPI.list(agentId);
-      setConversations(data);
-
-      // Auto-select most recent conversation
-      if (data.length > 0 && !currentConversation) {
-        setCurrentConversation(data[0]);
-      }
+      const data = await conversationAPI.get(convId);
+      setCurrentConversation(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load conversations');
-    } finally {
-      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load conversation');
     }
   };
 
-  const loadMessages = async (conversationId: string) => {
+  const loadMessages = async (convId: string) => {
     try {
-      const data = await conversationAPI.getMessages(conversationId);
+      const data = await conversationAPI.getMessages(convId);
       setMessages(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load messages');
@@ -70,63 +74,141 @@ export default function ChatPanel({ agentId }: ChatPanelProps) {
         agent_id: agentId,
         title: 'New Conversation',
       });
-      setConversations([newConv, ...conversations]);
       setCurrentConversation(newConv);
       setMessages([]);
+      onConversationChange?.(newConv.id);
+      return newConv.id;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create conversation');
+      return null;
     }
   };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!inputValue.trim() || sending) return;
+    if (!inputValue.trim() || streaming) return;
 
     // Create conversation if none exists
-    if (!currentConversation) {
-      await createNewConversation();
-      // Wait a bit for state to update
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (!currentConversation) return;
+    let convId = conversationId;
+    if (!convId) {
+      convId = await createNewConversation();
+      if (!convId) return;
     }
 
     const messageContent = inputValue.trim();
     setInputValue('');
-    setSending(true);
     setError(null);
 
+    // Use streaming if available
+    await sendStreamingMessage(convId, messageContent);
+  };
+
+  const sendStreamingMessage = async (convId: string, content: string) => {
+    setStreaming(true);
+    setStreamingContent('');
+
+    // Add user message immediately
+    const tempUserMessage: Message = {
+      id: 'temp-user',
+      conversation_id: convId,
+      role: 'user',
+      content,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMessage]);
+
+    const url = conversationAPI.getStreamURL(convId);
+    const eventSource = new EventSource(`${url}?message=${encodeURIComponent(content)}`);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'content') {
+        setStreamingContent((prev) => prev + data.content);
+      } else if (data.type === 'done') {
+        // Stream complete - replace temp messages with real ones
+        setMessages((prev) => {
+          const withoutTemp = prev.filter((m) => m.id !== 'temp-user');
+          return [...withoutTemp, data.user_message, data.assistant_message];
+        });
+        setStreamingContent('');
+        setStreaming(false);
+        eventSource.close();
+      } else if (data.type === 'error') {
+        setError(data.error);
+        setStreamingContent('');
+        setStreaming(false);
+        eventSource.close();
+      }
+    };
+
+    eventSource.onerror = () => {
+      setError('Connection lost. Please try again.');
+      setStreamingContent('');
+      setStreaming(false);
+      eventSource.close();
+    };
+  };
+
+  const handleEditMessage = (message: Message) => {
+    setEditingMessageId(message.id);
+    setEditContent(message.content);
+  };
+
+  const handleSaveEdit = async (messageId: string) => {
+    if (!conversationId) return;
+
     try {
-      const response = await conversationAPI.sendMessage(currentConversation.id, {
-        message: messageContent,
-      });
-
-      // Add both messages to the list
-      setMessages([...messages, response.user_message, response.assistant_message]);
-
-      // Reload conversations to update message count
-      await loadConversations();
+      await conversationAPI.editMessage(conversationId, messageId, editContent);
+      await loadMessages(conversationId);
+      setEditingMessageId(null);
+      setEditContent('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
-      // Restore input if send failed
-      setInputValue(messageContent);
-    } finally {
-      setSending(false);
+      setError(err instanceof Error ? err.message : 'Failed to edit message');
     }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditContent('');
+  };
+
+  const handleRegenerate = async (messageId: string) => {
+    if (!conversationId) return;
+
+    try {
+      setStreaming(true);
+      const response = await conversationAPI.regenerateMessage(conversationId, messageId);
+      await loadMessages(conversationId);
+      setStreaming(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate message');
+      setStreaming(false);
+    }
+  };
+
+  const handleFork = async (messageId: string) => {
+    if (!conversationId) return;
+
+    try {
+      const newConv = await conversationAPI.forkConversation(conversationId, messageId);
+      onConversationChange?.(newConv.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fork conversation');
+    }
+  };
+
+  const handleCopy = (content: string) => {
+    conversationAPI.copyMessage(content);
+    // Could show a toast notification here
   };
 
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
-
-  if (loading) {
-    return (
-      <div className="chat-panel loading">
-        <div>Loading conversations...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="chat-panel">
@@ -135,21 +217,20 @@ export default function ChatPanel({ agentId }: ChatPanelProps) {
         <div className="chat-header-title">
           {currentConversation ? currentConversation.title : 'Chat'}
         </div>
-        <button onClick={createNewConversation} className="new-chat-button">
-          + New Chat
-        </button>
       </div>
 
       {error && (
         <div className="error-banner">
           {error}
-          <button onClick={() => setError(null)} className="dismiss-button">×</button>
+          <button onClick={() => setError(null)} className="dismiss-button">
+            ×
+          </button>
         </div>
       )}
 
       {/* Messages */}
       <div className="messages-container">
-        {messages.length === 0 ? (
+        {messages.length === 0 && !streaming ? (
           <div className="empty-chat">
             <div className="empty-icon">💬</div>
             <p>Start a conversation</p>
@@ -159,15 +240,83 @@ export default function ChatPanel({ agentId }: ChatPanelProps) {
           <div className="messages-list">
             {messages.map((message) => (
               <div key={message.id} className={`message message-${message.role}`}>
-                <div className="message-header">
-                  <span className="message-role">
-                    {message.role === 'user' ? '👤 You' : '🤖 Assistant'}
-                  </span>
-                  <span className="message-time">{formatTime(message.created_at)}</span>
-                </div>
-                <div className="message-content">{message.content}</div>
+                {editingMessageId === message.id ? (
+                  <div className="message-edit-form">
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      className="message-edit-textarea"
+                      rows={4}
+                    />
+                    <div className="message-edit-actions">
+                      <button onClick={() => handleSaveEdit(message.id)} className="btn-save">
+                        Save
+                      </button>
+                      <button onClick={handleCancelEdit} className="btn-cancel">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="message-header">
+                      <span className="message-role">
+                        {message.role === 'user' ? '👤 You' : '🤖 Assistant'}
+                      </span>
+                      <span className="message-time">{formatTime(message.created_at)}</span>
+                    </div>
+                    <div className="message-content">{message.content}</div>
+                    <div className="message-actions">
+                      {message.role === 'user' && (
+                        <button
+                          onClick={() => handleEditMessage(message)}
+                          className="action-button"
+                          title="Edit message"
+                        >
+                          ✏️
+                        </button>
+                      )}
+                      {message.role === 'assistant' && (
+                        <button
+                          onClick={() => handleRegenerate(message.id)}
+                          className="action-button"
+                          title="Regenerate response"
+                          disabled={streaming}
+                        >
+                          🔄
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleCopy(message.content)}
+                        className="action-button"
+                        title="Copy to clipboard"
+                      >
+                        📋
+                      </button>
+                      <button
+                        onClick={() => handleFork(message.id)}
+                        className="action-button"
+                        title="Fork conversation from here"
+                      >
+                        🔀
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
+
+            {/* Streaming message */}
+            {streaming && streamingContent && (
+              <div className="message message-assistant streaming">
+                <div className="message-header">
+                  <span className="message-role">🤖 Assistant</span>
+                  <span className="message-time">Streaming...</span>
+                </div>
+                <div className="message-content">{streamingContent}</div>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -185,22 +334,20 @@ export default function ChatPanel({ agentId }: ChatPanelProps) {
                 sendMessage(e);
               }
             }}
-            placeholder={currentConversation ? "Type a message..." : "Create a conversation to start chatting"}
+            placeholder="Type a message..."
             className="chat-input"
             rows={1}
-            disabled={sending}
+            disabled={streaming}
           />
           <button
             type="submit"
             className="send-button"
-            disabled={!inputValue.trim() || sending}
+            disabled={!inputValue.trim() || streaming}
           >
-            {sending ? '⟳' : '↑'}
+            {streaming ? '⟳' : '↑'}
           </button>
         </form>
-        <div className="input-hint">
-          Press Enter to send, Shift+Enter for new line
-        </div>
+        <div className="input-hint">Press Enter to send, Shift+Enter for new line</div>
       </div>
     </div>
   );
