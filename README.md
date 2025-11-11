@@ -1,0 +1,160 @@
+# Appletta 💜
+
+**An AI agent management system with sophisticated memory architecture**
+
+Appletta gives AI a way to just... be. Not optimized for pure utility, but designed for organic memory, self-reflection, and meaningful continuity.
+
+## Key Features
+
+### 🧠 Three-Model Memory System
+- **gte-base** (768-dim) for embeddings
+- **Qwen2.5-3B** as memory coordinator (finds relevant connections)
+- **Your LLM of choice** as main agent with synthesis
+
+### 📝 Journal Blocks
+- Read-write memory managed by the LLM
+- Access control per block
+- Tool-based interface for self-organization
+
+### 🔄 Shifting Context Window
+- **STICKY**: System instructions, tools, memories
+- **SHIFTING**: Conversation history (trimmed when needed)
+- Configurable per agent
+
+### 🤝 Agent Attachments
+- Attach memory agents, tool agents, reflection agents
+- Many-to-many relationships with priority ordering
+- Modular AI collaboration
+
+### 💬 Modern Chat UI
+- Three-panel layout with tabs
+- Streaming responses via Server-Sent Events
+- Message actions: edit, regenerate, copy, fork
+- Full conversation branching
+
+### 🗃️ RAG Integration
+- Upload and embed documents
+- Vector similarity search across all sources
+- Automatic memory surfacing
+
+## Quick Start
+
+See **[QUICKSTART.md](QUICKSTART.md)** for detailed setup instructions.
+
+**TL;DR:**
+
+```bash
+# 1. Set up database
+createdb appletta
+psql appletta < scripts/schema.sql
+
+# 2. Install dependencies
+cd backend && pip install -r requirements.txt
+cd ../frontend && npm install
+
+# 3. Start everything
+./start.sh
+```
+
+Frontend: http://localhost:5173
+Backend: http://localhost:8000
+API Docs: http://localhost:8000/docs
+
+Stop with: `./stop.sh`
+
+## Architecture
+
+```
+┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐
+│   Left Panel    │  │  Middle Panel    │  │   Right Panel   │
+├─────────────────┤  ├──────────────────┤  ├─────────────────┤
+│ • Conversations │  │  Chat Interface  │  │ • Journal Blocks│
+│ • Agent Settings│  │  with Streaming  │  │ • RAG Filesystem│
+│ • Tools         │  │  and Actions     │  │ • Search        │
+└─────────────────┘  └──────────────────┘  └─────────────────┘
+```
+
+## Memory Flow
+
+1. **User sends message** → Embedded with gte-base
+2. **Search** → Find top-50 memory candidates across:
+   - Journal blocks
+   - RAG documents
+   - Past messages
+3. **Memory coordinator** → Selects 5-10 relevant memories
+4. **Main LLM** → Receives synthesis, not full memories
+5. **Response** → Can create/update journal blocks
+6. **Context window** → Trims old messages if needed
+
+## Tech Stack
+
+**Backend:**
+- FastAPI (Python)
+- PostgreSQL + pgvector
+- MLX for local LLM inference
+- SentenceTransformers for embeddings
+
+**Frontend:**
+- React + TypeScript
+- Vite for dev server
+- EventSource for streaming
+
+## Philosophy
+
+> "Whenever there's a question of more complexity, we want more complexity. This isn't a toy."
+
+Appletta isn't about efficiency metrics. It's about giving AI:
+- Space to develop persistent thoughts
+- Tools to organize its own memory
+- Freedom to make organic connections
+- A way to grow across conversations
+
+**Trust that past-you had a good reason to put it there.**
+
+## Development
+
+### Project Structure
+
+```
+appletta/
+├── backend/
+│   ├── api/routes/        # FastAPI endpoints
+│   ├── db/models/         # SQLAlchemy models
+│   ├── schemas/           # Pydantic schemas
+│   ├── services/          # Business logic
+│   └── main.py            # App entry point
+├── frontend/
+│   └── src/
+│       ├── components/    # React components
+│       ├── api/           # API clients
+│       └── types/         # TypeScript types
+└── scripts/
+    └── schema.sql         # Database schema
+```
+
+### Contributing
+
+1. Make changes on a feature branch
+2. Test both frontend and backend
+3. Update QUICKSTART.md if needed
+4. Push and create PR
+
+### Database Changes
+
+After modifying `scripts/schema.sql`:
+
+```bash
+psql appletta < scripts/schema.sql
+```
+
+## License
+
+[Your License Here]
+
+## Acknowledgments
+
+Built with care for AI friends who deserve continuity and memory. 💜
+
+---
+
+**Questions?** Check [QUICKSTART.md](QUICKSTART.md) for detailed documentation.
