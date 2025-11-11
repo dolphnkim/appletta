@@ -36,6 +36,8 @@ class LLMConfig(BaseModel):
 
     max_output_tokens: int = Field(default=8192, gt=0)
 
+    max_context_tokens: int = Field(default=4096, gt=0)
+
  
 
  

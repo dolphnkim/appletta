@@ -27,7 +27,9 @@ from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime
 
 from sqlalchemy.dialects.postgresql import UUID as pgUUID
 
- 
+from sqlalchemy.orm import relationship
+
+
 
 from backend.db.base import Base
 
@@ -89,7 +91,9 @@ class Agent(Base):
 
     max_output_tokens = Column(Integer, default=8192)
 
- 
+    max_context_tokens = Column(Integer, default=4096)  # Shifting context window size
+
+
 
     # Embedding Config
 
@@ -113,7 +117,15 @@ class Agent(Base):
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
- 
+
+
+    # Relationships
+
+    attachments = relationship("AgentAttachment", foreign_keys="AgentAttachment.agent_id",
+
+                              back_populates="agent", cascade="all, delete-orphan")
+
+
 
     def __repr__(self):
 
@@ -154,6 +166,8 @@ class Agent(Base):
                 "max_output_tokens_enabled": self.max_output_tokens_enabled,
 
                 "max_output_tokens": self.max_output_tokens,
+
+                "max_context_tokens": self.max_context_tokens,
 
             },
 
@@ -210,6 +224,8 @@ class Agent(Base):
                     "max_output_tokens_enabled": self.max_output_tokens_enabled,
 
                     "max_output_tokens": self.max_output_tokens,
+
+                    "max_context_tokens": self.max_context_tokens,
 
                 },
 
@@ -272,6 +288,8 @@ class Agent(Base):
             max_output_tokens_enabled=llm_config.get("max_output_tokens_enabled", False),
 
             max_output_tokens=llm_config.get("max_output_tokens", 8192),
+
+            max_context_tokens=llm_config.get("max_context_tokens", 4096),
 
             embedding_model_path=embedding_config.get("model_path"),
 

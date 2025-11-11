@@ -32,6 +32,7 @@ CREATE TABLE agents (
     seed INTEGER,
     max_output_tokens_enabled BOOLEAN DEFAULT FALSE,
     max_output_tokens INTEGER DEFAULT 8192,
+    max_context_tokens INTEGER DEFAULT 4096,
 
     -- Embedding config
     embedding_dimensions INTEGER DEFAULT 768,
@@ -44,6 +45,39 @@ CREATE TABLE agents (
 
 CREATE INDEX idx_agents_name ON agents(name);
 CREATE INDEX idx_agents_created_at ON agents(created_at);
+
+-- ============================================================================
+-- AGENT ATTACHMENTS
+-- ============================================================================
+
+CREATE TABLE agent_attachments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_id UUID REFERENCES agents(id) ON DELETE CASCADE,
+    attached_agent_id UUID REFERENCES agents(id) ON DELETE CASCADE,
+
+    -- Type of attachment: 'memory', 'tool', 'reflection', etc.
+    attachment_type VARCHAR(50) NOT NULL,
+
+    -- Display label
+    label VARCHAR(255),
+
+    -- Order/priority for multiple attachments of same type
+    priority INTEGER DEFAULT 0,
+
+    -- Enable/disable without deleting
+    enabled BOOLEAN DEFAULT TRUE,
+
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    -- Unique constraint: agent can't attach same agent twice for same type
+    UNIQUE(agent_id, attached_agent_id, attachment_type)
+);
+
+CREATE INDEX idx_agent_attachments_agent ON agent_attachments(agent_id);
+CREATE INDEX idx_agent_attachments_type ON agent_attachments(attachment_type);
+CREATE INDEX idx_agent_attachments_enabled ON agent_attachments(enabled);
 
 -- ============================================================================
 -- RAG FILESYSTEM
@@ -244,6 +278,9 @@ $$ LANGUAGE plpgsql;
 
 -- Apply to all tables with updated_at
 CREATE TRIGGER update_agents_updated_at BEFORE UPDATE ON agents
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_agent_attachments_updated_at BEFORE UPDATE ON agent_attachments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_rag_folders_updated_at BEFORE UPDATE ON rag_folders
