@@ -1,4 +1,5 @@
 import AgentSettings from './components/AgentSettings/AgentSettings';
+import { DatabasePanel } from './components/DatabasePanel';
 import './App.css';
 
 function App() {
@@ -18,11 +19,16 @@ function App() {
 
   return (
     <div className="app">
-      <AgentSettings
-        agentId={demoAgentId}
-        onDelete={handleDelete}
-        onClone={handleClone}
-      />
+      <div className="app-left-panel">
+        <AgentSettings
+          agentId={demoAgentId}
+          onDelete={handleDelete}
+          onClone={handleClone}
+        />
+      </div>
+      <div className="app-right-panel">
+        <DatabasePanel agentId={demoAgentId} />
+      </div>
     </div>
   );
 }

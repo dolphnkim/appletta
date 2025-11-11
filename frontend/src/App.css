@@ -1,4 +1,13 @@
 .app {
   min-height: 100vh;
   background-color: #1e1e1e;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.app-left-panel,
+.app-right-panel {
+  height: 100vh;
+  overflow-y: auto;
 }
