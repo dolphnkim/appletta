@@ -1,0 +1,68 @@
+.database-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+.database-panel-header {
+  border-bottom: 1px solid #333;
+  background: #1a1a1a;
+}
+
+.database-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #888;
+  padding: 12px 16px 8px 16px;
+}
+
+.database-panel-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 8px;
+}
+
+.tab-button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #888;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab-button:hover:not(:disabled) {
+  color: #e0e0e0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-button.active {
+  color: #e0e0e0;
+  border-bottom-color: #007aff;
+}
+
+.tab-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.database-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.coming-soon {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+  font-size: 14px;
+}
