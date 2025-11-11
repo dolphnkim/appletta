@@ -29,15 +29,11 @@ from sqlalchemy.dialects.postgresql import UUID as pgUUID
 
  
 
-# TODO: Import Base from your DB setup
+from backend.db.base import Base
 
-# from backend.db.base import Base
 
- 
 
- 
-
-class Agent:  # TODO: Add (Base) when DB is set up
+class Agent(Base):
 
     """Agent configuration and settings"""
 

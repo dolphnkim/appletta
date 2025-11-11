@@ -1,0 +1,44 @@
+.system-instructions-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.system-instructions-preview {
+  width: 100%;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.system-instructions-preview:hover {
+  border-color: #555;
+  background: #2d2d2d;
+}
+
+.preview-text {
+  font-size: 13px;
+  color: #c0c0c0;
+  line-height: 1.5;
+  font-family: 'Monaco', 'Menlo', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+.edit-hint {
+  font-size: 12px;
+  color: #f48771;
+  font-style: italic;
+}
+
+.edit-hint-text {
+  display: inline;
+}
