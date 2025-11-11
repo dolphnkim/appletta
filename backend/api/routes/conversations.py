@@ -20,6 +20,9 @@ from backend.schemas.conversation import (
 )
 from backend.services.mlx_manager import get_mlx_manager
 from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journal_blocks
+from backend.services.memory_service import search_memories, fetch_full_memories
+from backend.services.memory_coordinator import coordinate_memories
+from backend.services.embedding_service import get_embedding_service
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
 
@@ -172,15 +175,40 @@ async def chat(
     if not agent:
         raise HTTPException(404, "Agent not found for this conversation")
 
-    # Save user message
+    # Save user message and embed it
     user_message = Message(
         conversation_id=conversation_id,
         role="user",
         content=request.message
     )
+
+    # Generate embedding for user message
+    embedding_service = get_embedding_service()
+    user_embedding = embedding_service.embed_text(request.message)
+    user_message.embedding = user_embedding
+
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
+
+    # === MEMORY RETRIEVAL ===
+    # 1. Search for memory candidates across all sources
+    memory_candidates = search_memories(
+        query_text=request.message,
+        agent_id=agent.id,
+        db=db,
+        limit=50
+    )
+
+    # 2. Use memory coordinator to select which memories to surface
+    selected_memory_ids = await coordinate_memories(
+        candidates=memory_candidates,
+        query_context=request.message,
+        target_count=7
+    )
+
+    # 3. Fetch full content of selected memories
+    surfaced_memories = fetch_full_memories(selected_memory_ids, db)
 
     # Get conversation history
     history = db.query(Message).filter(
@@ -194,8 +222,19 @@ async def chat(
         for block in journal_blocks_info.get("blocks", [])
     ])
 
-    # Build system message with journal blocks
+    # Build system message with journal blocks and memories
     system_content = agent.system_instructions or ""
+
+    # Add surfaced memories
+    if surfaced_memories:
+        memories_text = "\n\n=== Surfaced Memories ===\n"
+        memories_text += "The following memories may be relevant to the current conversation:\n\n"
+        for memory in surfaced_memories:
+            memories_text += f"[{memory['source_type']}] {memory.get('title', 'Untitled')}\n"
+            memories_text += f"{memory['content']}\n\n"
+        system_content += memories_text
+
+    # Add journal blocks
     if blocks_list:
         system_content += f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
     else:
@@ -276,7 +315,7 @@ async def chat(
     if final_response is None:
         final_response = "I apologize, but I encountered an issue completing the request."
 
-    # Save assistant message
+    # Save assistant message and embed it
     assistant_message = Message(
         conversation_id=conversation_id,
         role="assistant",
@@ -284,9 +323,15 @@ async def chat(
         metadata={
             "model": agent.model_path,
             "usage": result.get("usage", {}),
-            "tool_calls_count": iteration - 1
+            "tool_calls_count": iteration - 1,
+            "surfaced_memories_count": len(surfaced_memories)
         }
     )
+
+    # Generate embedding for assistant message
+    assistant_embedding = embedding_service.embed_text(final_response)
+    assistant_message.embedding = assistant_embedding
+
     db.add(assistant_message)
     db.commit()
     db.refresh(assistant_message)

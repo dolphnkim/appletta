@@ -14,6 +14,7 @@ from backend.schemas.journal_block import (
     JournalBlockResponse,
     JournalBlockList,
 )
+from backend.services.embedding_service import get_embedding_service
 
 router = APIRouter(prefix="/api/v1/journal-blocks", tags=["journal-blocks"])
 
@@ -34,10 +35,15 @@ async def create_journal_block(
     if not agent:
         raise HTTPException(404, f"Agent {data.agent_id} not found")
 
+    # Generate embedding for the block value
+    embedding_service = get_embedding_service()
+    block_embedding = embedding_service.embed_text(data.value)
+
     block = JournalBlock(
         agent_id=UUID(data.agent_id),
         label=data.label,
         value=data.value,
+        embedding=block_embedding,
         metadata=data.metadata,
     )
 
@@ -101,6 +107,9 @@ async def update_journal_block(
         block.label = updates.label
     if updates.value is not None:
         block.value = updates.value
+        # Re-generate embedding if value changed
+        embedding_service = get_embedding_service()
+        block.embedding = embedding_service.embed_text(updates.value)
     if updates.metadata is not None:
         block.metadata = updates.metadata
 

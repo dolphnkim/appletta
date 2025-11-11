@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from backend.db.models.journal_block import JournalBlock
+from backend.services.embedding_service import get_embedding_service
 
 
 # ============================================================================
@@ -212,10 +213,15 @@ def create_journal_block(
     db: Session
 ) -> Dict[str, Any]:
     """Create a new journal block"""
+    # Generate embedding for the value
+    embedding_service = get_embedding_service()
+    block_embedding = embedding_service.embed_text(value)
+
     block = JournalBlock(
         agent_id=agent_id,
         label=label,
-        value=value
+        value=value,
+        embedding=block_embedding
     )
 
     db.add(block)
@@ -248,6 +254,9 @@ def update_journal_block(
             block.label = label
         if value is not None:
             block.value = value
+            # Re-generate embedding if value changed
+            embedding_service = get_embedding_service()
+            block.embedding = embedding_service.embed_text(value)
 
         db.commit()
 
