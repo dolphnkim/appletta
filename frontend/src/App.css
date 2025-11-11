@@ -2,12 +2,18 @@
   min-height: 100vh;
   background-color: #1e1e1e;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 2fr 1fr;
   gap: 0;
 }
 
 .app-left-panel,
+.app-center-panel,
 .app-right-panel {
   height: 100vh;
   overflow-y: auto;
+  border-right: 1px solid #333;
+}
+
+.app-right-panel {
+  border-right: none;
 }
