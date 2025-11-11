@@ -24,8 +24,167 @@ from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journ
 from backend.services.memory_service import search_memories, fetch_full_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
+from backend.services.token_counter import count_tokens, count_messages_tokens, count_message_tokens
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
+
+
+# ============================================================================
+# Context Window
+# ============================================================================
+
+@router.get("/{conversation_id}/context-window")
+async def get_context_window(
+    conversation_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Get context window breakdown showing token usage for modal
+
+    Returns:
+        - System instructions tokens + percentage
+        - Tools descriptions tokens + percentage
+        - External summary (surfaced memories) tokens + percentage
+        - Messages tokens + percentage
+        - Total tokens
+    """
+
+    # Verify conversation exists
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(404, f"Conversation {conversation_id} not found")
+
+    # Get agent
+    agent = db.query(Agent).filter(Agent.id == conversation.agent_id).first()
+    if not agent:
+        raise HTTPException(404, "Agent not found for this conversation")
+
+    # Get the last user message for memory retrieval (simulate current turn)
+    last_user_message = db.query(Message).filter(
+        Message.conversation_id == conversation_id,
+        Message.role == "user"
+    ).order_by(Message.created_at.desc()).first()
+
+    if not last_user_message:
+        # No messages yet, return empty breakdown
+        return {
+            "sections": [],
+            "total_tokens": 0,
+            "max_context_tokens": agent.max_context_tokens,
+            "percentage_used": 0
+        }
+
+    # Perform memory retrieval (same as chat flow)
+    memory_candidates = search_memories(
+        query_text=last_user_message.content,
+        agent_id=agent.id,
+        db=db,
+        limit=50
+    )
+
+    memory_agent = None
+    memory_attachment = db.query(AgentAttachment).filter(
+        AgentAttachment.agent_id == agent.id,
+        AgentAttachment.attachment_type == "memory",
+        AgentAttachment.enabled == True
+    ).order_by(AgentAttachment.priority.desc()).first()
+
+    if memory_attachment:
+        memory_agent = db.query(Agent).filter(
+            Agent.id == memory_attachment.attached_agent_id
+        ).first()
+
+    selected_memory_ids = await coordinate_memories(
+        candidates=memory_candidates,
+        query_context=last_user_message.content,
+        memory_agent=memory_agent,
+        target_count=7
+    )
+
+    surfaced_memories = fetch_full_memories(selected_memory_ids, db)
+
+    # Build system content sections
+    system_instructions = agent.system_instructions or ""
+    system_instructions_tokens = count_tokens(system_instructions)
+
+    # Build surfaced memories text
+    memories_text = ""
+    if surfaced_memories:
+        memories_text = "\n\n=== Surfaced Memories ===\n"
+        memories_text += "The following memories may be relevant to the current conversation:\n\n"
+        for memory in surfaced_memories:
+            memories_text += f"[{memory['source_type']}] {memory.get('title', 'Untitled')}\n"
+            memories_text += f"{memory['content']}\n\n"
+
+    external_summary_tokens = count_tokens(memories_text)
+
+    # Build journal blocks text
+    journal_blocks_info = list_journal_blocks(agent.id, db)
+    blocks_list = "\n".join([
+        f"- {block['label']} (ID: {block['id']})"
+        for block in journal_blocks_info.get("blocks", [])
+    ])
+
+    blocks_text = ""
+    if blocks_list:
+        blocks_text = f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
+    else:
+        blocks_text = "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
+
+    # System instructions includes blocks text
+    system_instructions_with_blocks_tokens = count_tokens(system_instructions + blocks_text)
+
+    # Tools tokens
+    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+    tools_tokens = count_tokens(tools_json)
+
+    # Messages tokens
+    history = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
+
+    messages_for_count = [
+        {"role": msg.role, "content": msg.content}
+        for msg in history
+    ]
+    messages_tokens = count_messages_tokens(messages_for_count)
+
+    # Calculate totals and percentages
+    total_tokens = system_instructions_with_blocks_tokens + tools_tokens + external_summary_tokens + messages_tokens
+    max_context = agent.max_context_tokens
+
+    sections = [
+        {
+            "name": "System Instructions",
+            "tokens": system_instructions_with_blocks_tokens,
+            "percentage": round((system_instructions_with_blocks_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": system_instructions + blocks_text
+        },
+        {
+            "name": "Tools descriptions",
+            "tokens": tools_tokens,
+            "percentage": round((tools_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": tools_json
+        },
+        {
+            "name": "External summary",
+            "tokens": external_summary_tokens,
+            "percentage": round((external_summary_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": memories_text
+        },
+        {
+            "name": "Messages",
+            "tokens": messages_tokens,
+            "percentage": round((messages_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": f"{len(history)} messages"
+        }
+    ]
+
+    return {
+        "sections": sections,
+        "total_tokens": total_tokens,
+        "max_context_tokens": max_context,
+        "percentage_used": round((total_tokens / max_context) * 100, 1) if max_context > 0 else 0
+    }
 
 
 # ============================================================================
@@ -255,13 +414,39 @@ async def chat(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
-    # Build messages for LLM
-    messages = [{"role": "system", "content": system_content}]
-    for msg in history:
-        messages.append({
-            "role": msg.role,
-            "content": msg.content
-        })
+    # === CONTEXT WINDOW MANAGEMENT ===
+    # Calculate token budget for STICKY vs SHIFTING sections
+
+    # Count STICKY section tokens (system message + tools)
+    system_message = {"role": "system", "content": system_content}
+    sticky_tokens = count_message_tokens(system_message)
+
+    # Count tool definitions tokens (approximate)
+    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+    sticky_tokens += count_tokens(tools_json)
+
+    # Calculate remaining budget for messages (SHIFTING section)
+    max_context = agent.max_context_tokens
+    remaining_budget = max_context - sticky_tokens
+
+    # Trim history to fit remaining budget
+    # Start from newest messages and work backwards
+    messages_to_include = []
+    current_tokens = 0
+
+    for msg in reversed(history):
+        msg_dict = {"role": msg.role, "content": msg.content}
+        msg_tokens = count_message_tokens(msg_dict)
+
+        if current_tokens + msg_tokens <= remaining_budget:
+            messages_to_include.insert(0, msg_dict)  # Insert at beginning to maintain order
+            current_tokens += msg_tokens
+        else:
+            # Budget exceeded, stop adding messages
+            break
+
+    # Build final messages array with system first, then trimmed history
+    messages = [system_message] + messages_to_include
 
     # Get or start MLX server
     mlx_manager = get_mlx_manager()

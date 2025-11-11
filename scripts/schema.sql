@@ -32,6 +32,7 @@ CREATE TABLE agents (
     seed INTEGER,
     max_output_tokens_enabled BOOLEAN DEFAULT FALSE,
     max_output_tokens INTEGER DEFAULT 8192,
+    max_context_tokens INTEGER DEFAULT 4096,
 
     -- Embedding config
     embedding_dimensions INTEGER DEFAULT 768,

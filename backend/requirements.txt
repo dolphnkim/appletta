@@ -15,6 +15,9 @@ sentence-transformers==3.0.1  # For gte-base embeddings
 torch==2.4.0  # Required by sentence-transformers
 numpy==1.26.4  # Vector operations
 
+# Token counting
+tiktoken==0.7.0  # For context window management
+
 # Validation
 pydantic==2.9.2
 pydantic-settings==2.5.2

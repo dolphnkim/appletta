@@ -91,7 +91,9 @@ class Agent(Base):
 
     max_output_tokens = Column(Integer, default=8192)
 
- 
+    max_context_tokens = Column(Integer, default=4096)  # Shifting context window size
+
+
 
     # Embedding Config
 
@@ -165,6 +167,8 @@ class Agent(Base):
 
                 "max_output_tokens": self.max_output_tokens,
 
+                "max_context_tokens": self.max_context_tokens,
+
             },
 
             "embedding_config": {
@@ -220,6 +224,8 @@ class Agent(Base):
                     "max_output_tokens_enabled": self.max_output_tokens_enabled,
 
                     "max_output_tokens": self.max_output_tokens,
+
+                    "max_context_tokens": self.max_context_tokens,
 
                 },
 
@@ -282,6 +288,8 @@ class Agent(Base):
             max_output_tokens_enabled=llm_config.get("max_output_tokens_enabled", False),
 
             max_output_tokens=llm_config.get("max_output_tokens", 8192),
+
+            max_context_tokens=llm_config.get("max_context_tokens", 4096),
 
             embedding_model_path=embedding_config.get("model_path"),
 

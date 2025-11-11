@@ -116,6 +116,8 @@ async def create_agent(
 
         max_output_tokens=agent_data.llm_config.max_output_tokens,
 
+        max_context_tokens=agent_data.llm_config.max_context_tokens,
+
         embedding_model_path=agent_data.embedding_config.model_path,
 
         embedding_dimensions=agent_data.embedding_config.dimensions,
@@ -373,6 +375,8 @@ async def clone_agent(
         max_output_tokens_enabled=original.max_output_tokens_enabled,
 
         max_output_tokens=original.max_output_tokens,
+
+        max_context_tokens=original.max_context_tokens,
 
         embedding_model_path=original.embedding_model_path,
 
