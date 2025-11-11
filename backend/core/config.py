@@ -1,13 +1,20 @@
 """Application configuration"""
 
+import os
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings"""
 
-    # Database
-    DATABASE_URL: str = "sqlite:///./appletta.db"
+    # Database - PostgreSQL with pgvector for embeddings
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        f"postgresql://{os.getenv('USER', 'postgres')}@localhost/appletta"
+    )
+
+    # Vector dimensions (must match embedding model)
+    EMBEDDING_DIMENSIONS: int = 768
 
     # API
     API_V1_PREFIX: str = "/api/v1"

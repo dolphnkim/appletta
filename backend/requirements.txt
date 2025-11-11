@@ -6,6 +6,8 @@ python-multipart==0.0.12  # For file uploads
 # Database
 sqlalchemy==2.0.35
 alembic==1.13.3
+psycopg2-binary==2.9.9  # PostgreSQL driver
+pgvector==0.3.5  # PostgreSQL vector extension
 
 # Validation
 pydantic==2.9.2
