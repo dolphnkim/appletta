@@ -1,0 +1,19 @@
+.source-instructions-textarea {
+  flex: 1;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  line-height: 1.6;
+  padding: 12px;
+  resize: none;
+  outline: none;
+  min-height: 300px;
+}
+
+.source-instructions-textarea:focus {
+  border-color: #0066cc;
+  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+}
