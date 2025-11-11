@@ -1,0 +1,156 @@
+.conversations-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #1e1e1e;
+}
+
+.conversations-header {
+  padding: 16px;
+  border-bottom: 1px solid #333;
+}
+
+.new-conversation-button {
+  width: 100%;
+  padding: 10px 16px;
+  background-color: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.new-conversation-button:hover {
+  background-color: #6d28d9;
+}
+
+.conversations-loading,
+.conversations-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: #888;
+  text-align: center;
+}
+
+.conversations-empty .empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.conversations-empty p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.conversations-empty .hint {
+  font-size: 12px;
+  color: #666;
+}
+
+.conversations-error {
+  margin: 16px;
+  padding: 12px 16px;
+  background-color: #dc2626;
+  color: white;
+  border-radius: 6px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.conversations-error .dismiss-button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.conversations-items {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.conversation-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.conversation-item:hover {
+  background-color: #252525;
+}
+
+.conversation-item.active {
+  background-color: #2a2a2a;
+  border-left: 3px solid #7c3aed;
+  padding-left: 13px;
+}
+
+.conversation-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 8px;
+}
+
+.conversation-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+}
+
+.conversation-delete {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.conversation-delete:hover {
+  color: #dc2626;
+}
+
+.conversation-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #888;
+}
+
+.conversation-message-count {
+  flex: 1;
+}
+
+.conversation-date {
+  color: #666;
+}

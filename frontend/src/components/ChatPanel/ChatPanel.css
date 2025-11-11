@@ -118,6 +118,7 @@
   padding: 16px;
   border-radius: 8px;
   max-width: 80%;
+  position: relative;
 }
 
 .message-user {
@@ -155,6 +156,100 @@
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.message-assistant.streaming {
+  opacity: 0.9;
+}
+
+/* Message Actions */
+.message-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.action-button {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+.action-button:hover:not(:disabled) {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.action-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Message Edit Form */
+.message-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-edit-textarea {
+  width: 100%;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  color: #e0e0e0;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+.message-edit-textarea:focus {
+  border-color: #007aff;
+}
+
+.message-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.btn-save,
+.btn-cancel {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-save {
+  background: #007aff;
+  color: white;
+}
+
+.btn-save:hover {
+  background: #0051d5;
+}
+
+.btn-cancel {
+  background: #333;
+  color: #ccc;
+}
+
+.btn-cancel:hover {
+  background: #444;
+  color: #fff;
 }
 
 /* Input */

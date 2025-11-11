@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import RagFilesystem from './RagFilesystem';
 import Search from './Search';
+import JournalBlocks from './JournalBlocks';
 import './DatabasePanel.css';
 
 interface DatabasePanelProps {
@@ -32,7 +33,6 @@ export default function DatabasePanel({ agentId }: DatabasePanelProps) {
           <button
             className={`tab-button ${activeTab === 'journals' ? 'active' : ''}`}
             onClick={() => setActiveTab('journals')}
-            disabled
           >
             Journals
           </button>
@@ -42,7 +42,7 @@ export default function DatabasePanel({ agentId }: DatabasePanelProps) {
       <div className="database-panel-content">
         {activeTab === 'filesystem' && <RagFilesystem agentId={agentId} />}
         {activeTab === 'search' && <Search agentId={agentId} />}
-        {activeTab === 'journals' && <div className="coming-soon">Coming soon...</div>}
+        {activeTab === 'journals' && <JournalBlocks agentId={agentId} />}
       </div>
     </div>
   );
