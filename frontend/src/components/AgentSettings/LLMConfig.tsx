@@ -1,14 +1,31 @@
 import { useState } from 'react';
 import type { LLMConfig as LLMConfigType } from '../../types/agent';
+import FilePicker from './FilePicker';
+import SystemInstructionsField from './SystemInstructionsField';
 import './LLMConfig.css';
 
 interface LLMConfigProps {
   config: LLMConfigType;
   onUpdate: (updates: Partial<LLMConfigType>) => void;
+  modelPath: string;
+  adapterPath: string;
+  systemInstructions: string;
+  onModelPathUpdate: (path: string) => void;
+  onAdapterPathUpdate: (path: string) => void;
+  onSystemInstructionsClick: () => void;
 }
 
-export default function LLMConfig({ config, onUpdate }: LLMConfigProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+export default function LLMConfig({
+  config,
+  onUpdate,
+  modelPath,
+  adapterPath,
+  systemInstructions,
+  onModelPathUpdate,
+  onAdapterPathUpdate,
+  onSystemInstructionsClick
+}: LLMConfigProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const handleTemperatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onUpdate({ temperature: parseFloat(e.target.value) });
@@ -51,6 +68,30 @@ export default function LLMConfig({ config, onUpdate }: LLMConfigProps) {
 
       {isExpanded && (
         <div className="config-section-content">
+          {/* Model Path */}
+          <FilePicker
+            label="Model"
+            value={modelPath}
+            onSelect={onModelPathUpdate}
+            helpText="choose model from filepath"
+            required
+          />
+
+          {/* Adapter Path */}
+          <FilePicker
+            label="Adapter"
+            value={adapterPath}
+            onSelect={onAdapterPathUpdate}
+            helpText="choose adapter folder"
+            selectFolders={true}
+          />
+
+          {/* System Instructions */}
+          <SystemInstructionsField
+            value={systemInstructions}
+            onClick={onSystemInstructionsClick}
+          />
+
           {/* Reasoning Toggle */}
           <div className="config-item">
             <div className="config-label">

@@ -15,10 +15,6 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
 
-  useEffect(() => {
-    loadBlocks();
-  }, [agentId]);
-
   const loadBlocks = async () => {
     try {
       setLoading(true);
@@ -31,6 +27,11 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadBlocks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId]);
 
   const handleCreate = async (data: JournalBlockCreate) => {
     try {

@@ -122,7 +122,7 @@ class AgentResponse(BaseModel):
 
     """Schema for agent API responses"""
 
-    model_config = ConfigDict(protected_namespaces=())
+    model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
 
     id: UUID
 
@@ -143,12 +143,6 @@ class AgentResponse(BaseModel):
     created_at: datetime
 
     updated_at: datetime
-
- 
-
-    class Config:
-
-        from_attributes = True  # Allows creation from ORM models
 
  
 

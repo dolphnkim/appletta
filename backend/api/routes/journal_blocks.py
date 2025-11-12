@@ -70,7 +70,7 @@ async def create_journal_block(
     return block.to_dict()
 
 
-@router.get("/", response_model=List[JournalBlockList])
+@router.get("/", response_model=List[JournalBlockResponse])
 async def list_journal_blocks(
     agent_id: str,
     db: Session = Depends(get_db)

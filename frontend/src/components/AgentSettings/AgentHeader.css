@@ -64,6 +64,7 @@
 
 .menu-container {
   position: relative;
+  z-index: 100;
 }
 
 .dropdown-menu {

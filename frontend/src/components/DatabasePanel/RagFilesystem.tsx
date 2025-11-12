@@ -387,12 +387,15 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
               </button>
             </div>
             <div className="modal-body">
+              <p style={{ marginTop: 0, fontSize: '13px', color: '#888', marginBottom: '16px' }}>
+                Navigate to the folder you want to attach and click "✓ Select"
+              </p>
               <FilePicker
-                label="Folder Path"
+                label="Folder Browser"
                 value=""
                 onSelect={handleFolderSelected}
                 selectFolders={true}
-                helpText="Navigate to and select the folder you want to attach for RAG"
+                helpText="Browse to your desired folder, then click '✓ Select' to attach it"
               />
             </div>
           </div>

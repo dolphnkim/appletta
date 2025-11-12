@@ -2,27 +2,31 @@ import { useState, useEffect } from 'react';
 import LeftPanel from './components/LeftPanel/LeftPanel';
 import ChatPanel from './components/ChatPanel/ChatPanel';
 import DatabasePanel from './components/DatabasePanel/DatabasePanel';
+import type { Agent } from './types/agent';
 import './App.css';
 
 function App() {
   const [agentId, setAgentId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
 
-  // Fetch first available agent on mount
+  // Fetch agents on mount
   useEffect(() => {
-    const fetchAgent = async () => {
-      try {
-        const response = await fetch('http://localhost:8000/api/v1/agents/');
-        const agents = await response.json();
-        if (agents && agents.length > 0) {
-          setAgentId(agents[0].id);
-        }
-      } catch (error) {
-        console.error('Failed to fetch agents:', error);
-      }
-    };
-    fetchAgent();
+    fetchAgents();
   }, []);
+
+  const fetchAgents = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/agents/');
+      const agentsData = await response.json();
+      setAgents(agentsData);
+      if (agentsData && agentsData.length > 0 && !agentId) {
+        setAgentId(agentsData[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to fetch agents:', error);
+    }
+  };
 
   const handleDelete = () => {
     console.log('Agent deleted');
@@ -41,6 +45,11 @@ function App() {
   const handleNewConversation = () => {
     // Clear current conversation - ChatPanel will create new one
     setCurrentConversationId(undefined);
+  };
+
+  const handleAgentChange = (newAgentId: string) => {
+    setAgentId(newAgentId);
+    setCurrentConversationId(undefined); // Clear conversation when switching agents
   };
 
   if (!agentId) {
@@ -66,8 +75,10 @@ function App() {
       <div className="app-center-panel">
         <ChatPanel
           agentId={agentId}
+          agents={agents}
           conversationId={currentConversationId}
           onConversationChange={setCurrentConversationId}
+          onAgentChange={handleAgentChange}
         />
       </div>
       <div className="app-right-panel">

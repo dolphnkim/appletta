@@ -9,7 +9,7 @@ interface EmbeddingConfigProps {
 }
 
 export default function EmbeddingConfig({ config, onUpdate }: EmbeddingConfigProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const handleDimensionsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onUpdate({ dimensions: parseInt(e.target.value, 10) });

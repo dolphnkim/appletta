@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { useAgent } from '../../hooks/useAgent';
 import AgentHeader from './AgentHeader';
 import EditableField from './EditableField';
-import FilePicker from './FilePicker';
-import SystemInstructionsField from './SystemInstructionsField';
 import SystemInstructionsModal from './SystemInstructionsModal';
+import AgentManagement from './AgentManagement';
 import LLMConfig from './LLMConfig';
 import EmbeddingConfig from './EmbeddingConfig';
 import './AgentSettings.css';
@@ -82,6 +81,16 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
     }
   };
 
+  const handleCreateAgent = () => {
+    alert('Create agent functionality coming soon!');
+    // TODO: Implement create agent modal
+  };
+
+  const handleManageAgents = () => {
+    alert('Manage agents functionality coming soon!');
+    // TODO: Implement manage agents modal or page
+  };
+
   return (
     <div className="agent-settings">
       <div className="agent-settings-header-label">AGENT SETTINGS</div>
@@ -108,30 +117,21 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
           helpText="A brief description of this agent's purpose"
         />
 
-        <FilePicker
-          label="Model"
-          value={agent.model_path}
-          onSelect={handleModelPathUpdate}
-          helpText="choose model from filepath"
-          required
-        />
-
-        <FilePicker
-          label="Adapter"
-          value={agent.adapter_path || ''}
-          onSelect={handleAdapterPathUpdate}
-          helpText="choose adapter folder"
-          selectFolders={true}
-        />
-
-        <SystemInstructionsField
-          value={agent.system_instructions}
-          onClick={() => setShowSystemInstructionsModal(true)}
+        <AgentManagement
+          agentId={agentId}
+          onCreateAgent={handleCreateAgent}
+          onManageAgents={handleManageAgents}
         />
 
         <LLMConfig
           config={agent.llm_config}
           onUpdate={handleLLMConfigUpdate}
+          modelPath={agent.model_path}
+          adapterPath={agent.adapter_path || ''}
+          systemInstructions={agent.system_instructions}
+          onModelPathUpdate={handleModelPathUpdate}
+          onAdapterPathUpdate={handleAdapterPathUpdate}
+          onSystemInstructionsClick={() => setShowSystemInstructionsModal(true)}
         />
 
         <EmbeddingConfig

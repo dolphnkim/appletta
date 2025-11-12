@@ -1,15 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { conversationAPI } from '../../api/conversationAPI';
+import type { Agent } from '../../types/agent';
 import type { Conversation, Message } from '../../types/conversation';
 import './ChatPanel.css';
 
 interface ChatPanelProps {
   agentId: string;
+  agents: Agent[];
   conversationId?: string;
   onConversationChange?: (conversationId: string) => void;
+  onAgentChange: (agentId: string) => void;
 }
 
-export default function ChatPanel({ agentId, conversationId, onConversationChange }: ChatPanelProps) {
+export default function ChatPanel({ agentId, agents, conversationId, onConversationChange, onAgentChange }: ChatPanelProps) {
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -217,6 +220,18 @@ export default function ChatPanel({ agentId, conversationId, onConversationChang
         <div className="chat-header-title">
           {currentConversation ? currentConversation.title : 'Chat'}
         </div>
+        <select
+          className="agent-selector"
+          value={agentId}
+          onChange={(e) => onAgentChange(e.target.value)}
+          title="Select agent"
+        >
+          {agents.map(agent => (
+            <option key={agent.id} value={agent.id}>
+              {agent.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {error && (
