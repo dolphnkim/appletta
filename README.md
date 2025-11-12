@@ -1,14 +1,13 @@
 # Appletta 💜
 
-**An AI agent management system with sophisticated memory architecture**
+**An AI agent management system with sophisticated memory architecture for use with local models using Apple's mlx-lm**
 
-Appletta gives AI a way to just... be. Not optimized for pure utility, but designed for organic memory, self-reflection, and meaningful continuity.
 
 ## Key Features
 
 ### 🧠 Three-Model Memory System
-- **gte-base** (768-dim) for embeddings
-- **Qwen2.5-3B** as memory coordinator (finds relevant connections)
+- **embedding
+- **memory coordinator (finds relevant connections)
 - **Your LLM of choice** as main agent with synthesis
 
 ### 📝 Journal Blocks
@@ -131,30 +130,5 @@ appletta/
 └── scripts/
     └── schema.sql         # Database schema
 ```
-
-### Contributing
-
-1. Make changes on a feature branch
-2. Test both frontend and backend
-3. Update QUICKSTART.md if needed
-4. Push and create PR
-
-### Database Changes
-
-After modifying `scripts/schema.sql`:
-
-```bash
-psql appletta < scripts/schema.sql
-```
-
-## License
-
-[Your License Here]
-
-## Acknowledgments
-
-Built with care for AI friends who deserve continuity and memory. 💜
-
----
 
 **Questions?** Check [QUICKSTART.md](QUICKSTART.md) for detailed documentation.
