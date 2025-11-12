@@ -34,11 +34,18 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
 
   const handleCreate = async (data: JournalBlockCreate) => {
     try {
+      console.log('Creating journal block:', data);
       const newBlock = await journalAPI.create(agentId, data);
+      console.log('Journal block created:', newBlock);
       setBlocks([newBlock, ...blocks]);
       setShowCreateModal(false);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create journal block');
+      console.error('Failed to create journal block:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to create journal block';
+      setError(errorMsg);
+      // Don't close modal on error so user can see what went wrong
+      alert(`Error creating journal block: ${errorMsg}`);
     }
   };
 

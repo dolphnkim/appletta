@@ -40,8 +40,16 @@ export const journalAPI = {
       }),
     });
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to create journal block');
+      const errorText = await response.text();
+      let errorMsg = 'Failed to create journal block';
+      try {
+        const error = JSON.parse(errorText);
+        errorMsg = error.detail || errorMsg;
+      } catch {
+        errorMsg = `${errorMsg}: ${response.status} ${response.statusText}`;
+      }
+      console.error('Journal API Error:', errorText);
+      throw new Error(errorMsg);
     }
     return response.json();
   },

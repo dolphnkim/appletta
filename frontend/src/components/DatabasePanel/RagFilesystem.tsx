@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ragAPI } from '../../api/ragAPI';
 import type { RagFolder, RagFile } from '../../types/rag';
 import SourceInstructionsModal from './SourceInstructionsModal';
+import FilePicker from '../AgentSettings/FilePicker';
 import './RagFilesystem.css';
 
 interface RagFilesystemProps {
@@ -15,8 +16,11 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showInstructionsModal, setShowInstructionsModal] = useState(false);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounter = useRef(0);
 
   useEffect(() => {
     loadFolders();
@@ -49,11 +53,11 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
     loadFiles(folder.id);
   };
 
-  const handleAttachFolder = async () => {
-    // For now, use a simple prompt. In production, use native file dialog
-    const path = prompt('Enter folder path:');
-    if (!path) return;
+  const handleAttachFolder = () => {
+    setShowFolderPicker(true);
+  };
 
+  const handleFolderSelected = async (path: string) => {
     try {
       setError(null);
       const newFolder = await ragAPI.attachFolder({
@@ -63,6 +67,7 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
         per_file_char_limit: 15000,
       });
       setFolders([newFolder, ...folders]);
+      setShowFolderPicker(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to attach folder');
     }
@@ -153,16 +158,68 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
     }
   };
 
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+
+    // Check if files/folders were dropped
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      // Note: Browsers don't give us full folder paths for security reasons
+      // We'll open the folder picker as a fallback
+      setShowFolderPicker(true);
+    }
+  };
+
   if (loading) {
     return <div className="rag-filesystem loading">Loading folders...</div>;
   }
 
   return (
-    <div className="rag-filesystem">
+    <div
+      className={`rag-filesystem ${isDragging ? 'dragging' : ''}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       {error && (
         <div className="error-banner">
           {error}
           <button onClick={() => setError(null)} className="dismiss-button">×</button>
+        </div>
+      )}
+
+      {isDragging && (
+        <div className="drag-overlay">
+          <div className="drag-message">
+            <div className="drag-icon">📁</div>
+            <p>Drop folder here to attach</p>
+          </div>
         </div>
       )}
 
@@ -318,6 +375,28 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
           onSave={handleUpdateInstructions}
           onClose={() => setShowInstructionsModal(false)}
         />
+      )}
+
+      {showFolderPicker && (
+        <div className="modal-overlay" onClick={() => setShowFolderPicker(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Select Folder to Attach</h2>
+              <button onClick={() => setShowFolderPicker(false)} className="modal-close">
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <FilePicker
+                label="Folder Path"
+                value=""
+                onSelect={handleFolderSelected}
+                selectFolders={true}
+                helpText="Navigate to and select the folder you want to attach for RAG"
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

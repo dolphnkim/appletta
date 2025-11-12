@@ -1,5 +1,5 @@
 #!/bin/bash
-# Appletta - Start Development Servers
+# Appletta - Start Development Servers with tmux
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -37,64 +37,72 @@ fi
 
 echo ""
 
-# Start backend
-echo -e "${YELLOW}[2/3] Starting backend server...${NC}"
-
 # Check if virtual environment exists
+echo -e "${YELLOW}[2/3] Checking dependencies...${NC}"
 if [ ! -d ".venv" ]; then
-    echo -e "${YELLOW}  No virtual environment found. Install dependencies first:${NC}"
+    echo -e "${RED}✗ No virtual environment found. Install dependencies first:${NC}"
     echo "  python -m venv .venv"
     echo "  source .venv/bin/activate"
     echo "  pip install -r requirements.txt"
     exit 1
 fi
-
-# Activate virtual environment and start backend from project root
-source .venv/bin/activate
-python -m backend.main > backend.log 2>&1 &
-BACKEND_PID=$!
-echo -e "${GREEN}✓ Backend started (PID: $BACKEND_PID)${NC}"
-echo "  http://localhost:8000"
-echo "  API docs: http://localhost:8000/docs"
-echo "  Logs: backend.log"
-echo ""
-
-# Start frontend
-echo -e "${YELLOW}[3/3] Starting frontend dev server...${NC}"
-cd frontend || exit 1
+echo -e "${GREEN}✓ Virtual environment found${NC}"
 
 # Check if node_modules exists
+cd frontend
 if [ ! -d "node_modules" ]; then
     echo -e "${YELLOW}  Installing frontend dependencies...${NC}"
     npm install
 fi
-
-# Start frontend in background
-npm run dev > ../frontend.log 2>&1 &
-FRONTEND_PID=$!
-echo -e "${GREEN}✓ Frontend started (PID: $FRONTEND_PID)${NC}"
-echo "  http://localhost:5173"
-echo "  Logs: frontend.log"
-
 cd ..
+echo -e "${GREEN}✓ Frontend dependencies ready${NC}"
+
+echo ""
+echo -e "${YELLOW}[3/3] Starting servers in tmux...${NC}"
 echo ""
 
-# Save PIDs for stop script
-echo "$BACKEND_PID" > .backend.pid
-echo "$FRONTEND_PID" > .frontend.pid
+# Kill any existing appletta tmux session
+tmux has-session -t appletta 2>/dev/null && tmux kill-session -t appletta
 
+# Get absolute path to project root
+PROJECT_ROOT=$(pwd)
+
+# Start a new tmux session with 3 panes
+tmux new-session -d -s appletta -n "appletta"
+
+# Split window horizontally for backend (top) and frontend (bottom)
+tmux split-window -v -t appletta
+
+# Select the top pane for backend
+tmux select-pane -t 0
+tmux send-keys "cd '$PROJECT_ROOT'" C-m
+tmux send-keys "source .venv/bin/activate" C-m
+tmux send-keys "echo '🔧 BACKEND (http://localhost:8000)'" C-m
+tmux send-keys "echo 'API Docs: http://localhost:8000/docs'" C-m
+tmux send-keys "echo ''" C-m
+tmux send-keys "python -m backend.main" C-m
+
+# Select the bottom pane for frontend
+tmux select-pane -t 1
+tmux send-keys "cd '$PROJECT_ROOT/frontend'" C-m
+tmux send-keys "echo '⚛️  FRONTEND (http://localhost:5173)'" C-m
+tmux send-keys "echo ''" C-m
+tmux send-keys "npm run dev" C-m
+
+# Attach to the session
 echo -e "${GREEN}╔═══════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     Appletta is running! 💜           ║${NC}"
+echo -e "${GREEN}║     Appletta is starting! 💜          ║${NC}"
 echo -e "${GREEN}╚═══════════════════════════════════════╝${NC}"
 echo ""
 echo "Frontend: http://localhost:5173"
 echo "Backend:  http://localhost:8000"
 echo "API Docs: http://localhost:8000/docs"
 echo ""
-echo "View logs:"
-echo "  tail -f backend.log"
-echo "  tail -f frontend.log"
+echo "Press Ctrl+B then D to detach from tmux"
+echo "Run 'tmux attach -t appletta' to reattach"
+echo "Run './stop.sh' to stop all servers"
 echo ""
-echo "Stop servers:"
-echo "  ./stop.sh"
-echo ""
+echo "Attaching to tmux session in 2 seconds..."
+sleep 2
+
+tmux attach-session -t appletta
