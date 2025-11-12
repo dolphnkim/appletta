@@ -1,23 +1,42 @@
-.journal-blocks {
-  display: flex;
-  flex-direction: column;
+/* Journal Blocks - Split Screen Layout */
+.journal-blocks-container {
+  display: grid;
+  grid-template-columns: 300px 1fr;
   height: 100%;
   background-color: #1e1e1e;
+  color: #fff;
 }
 
-.journal-header {
+/* Left Panel - Block List */
+.journal-blocks-list-panel {
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  background-color: #1a1a1a;
+}
+
+.journal-list-header {
   padding: 16px;
   border-bottom: 1px solid #333;
 }
 
+.journal-list-header h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .new-block-button {
   width: 100%;
-  padding: 10px 16px;
+  padding: 8px 12px;
   background-color: #7c3aed;
   color: white;
   border: none;
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: 4px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: background-color 0.2s;
@@ -27,39 +46,21 @@
   background-color: #6d28d9;
 }
 
-.journal-loading,
-.journal-empty {
+.journal-loading {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
   color: #888;
-  text-align: center;
-}
-
-.journal-empty .empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.journal-empty p {
-  margin: 4px 0;
-  font-size: 14px;
-}
-
-.journal-empty .hint {
-  font-size: 12px;
-  color: #666;
 }
 
 .journal-error {
-  margin: 16px;
-  padding: 12px 16px;
+  margin: 12px;
+  padding: 10px 12px;
   background-color: #dc2626;
   color: white;
-  border-radius: 6px;
-  font-size: 13px;
+  border-radius: 4px;
+  font-size: 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -69,7 +70,7 @@
   background: none;
   border: none;
   color: white;
-  font-size: 20px;
+  font-size: 18px;
   cursor: pointer;
   padding: 0;
   width: 20px;
@@ -85,12 +86,32 @@
   padding: 8px;
 }
 
+.journal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: #666;
+  text-align: center;
+}
+
+.journal-empty p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.journal-empty .hint {
+  font-size: 11px;
+  color: #555;
+}
+
 .journal-block-item {
-  padding: 12px;
-  margin-bottom: 8px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
   background-color: #252525;
-  border: 1px solid #333;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -101,255 +122,157 @@
 }
 
 .journal-block-item.active {
-  border-color: #7c3aed;
   background-color: #2a2a2a;
+  border-color: #7c3aed;
 }
 
 .block-item-header {
   display: flex;
   justify-content: space-between;
-  align-items: start;
+  align-items: center;
   margin-bottom: 6px;
 }
 
 .block-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #fff;
-  flex: 1;
 }
 
-.block-badges {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.badge {
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.badge.read-only {
-  background-color: #dc2626;
-  color: white;
-}
-
-.badge.no-main {
-  background-color: #6b7280;
-  color: white;
-}
-
-.badge.memory-yes {
-  background-color: #10b981;
-  color: white;
-}
-
-.block-item-id {
-  font-size: 11px;
-  font-family: 'Courier New', monospace;
-  color: #7c3aed;
-  margin-bottom: 4px;
-}
-
-.block-item-description {
+.badge-readonly {
   font-size: 12px;
-  color: #aaa;
-  margin-bottom: 6px;
-  font-style: italic;
 }
 
 .block-item-preview {
-  font-size: 13px;
-  color: #ccc;
-  margin-bottom: 8px;
-  line-height: 1.4;
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.block-item-meta {
+.block-item-chars {
   font-size: 11px;
   color: #666;
-  display: flex;
-  justify-content: space-between;
 }
 
-/* Modal Styles */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modal-content {
-  background-color: #252525;
-  border: 1px solid #444;
-  border-radius: 8px;
-  max-width: 600px;
-  width: 100%;
-  max-height: 90vh;
+/* Right Panel - Editor */
+.journal-editor-panel {
   display: flex;
   flex-direction: column;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  background-color: #1e1e1e;
+  overflow-y: auto;
 }
 
-.modal-header {
+.journal-editor-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  text-align: center;
+}
+
+.journal-editor-empty p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.journal-editor-empty .hint {
+  font-size: 12px;
+  color: #555;
+}
+
+.journal-editor-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
+  padding: 16px 20px;
   border-bottom: 1px solid #333;
 }
 
-.modal-header h2 {
+.journal-editor-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 600;
   color: #fff;
 }
 
-.modal-close {
+.journal-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-edit,
+.btn-copy,
+.btn-delete {
   background: none;
-  border: none;
-  color: #888;
-  font-size: 28px;
-  cursor: pointer;
-  padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.2s;
-}
-
-.modal-close:hover {
-  color: #fff;
-}
-
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.modal-footer {
-  padding: 16px 20px;
-  border-top: 1px solid #333;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-/* Block Details */
-.block-details {
-  margin-bottom: 20px;
-}
-
-.detail-row {
-  display: flex;
-  margin-bottom: 12px;
-  gap: 12px;
-}
-
-.detail-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #888;
-  min-width: 120px;
-}
-
-.detail-value {
-  font-size: 13px;
-  color: #fff;
-  flex: 1;
-}
-
-.detail-value.monospace {
-  font-family: 'Courier New', monospace;
-  color: #7c3aed;
-}
-
-.access-flags {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.access-flags label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  border: 1px solid #444;
   color: #ccc;
-  cursor: pointer;
-}
-
-.access-flags input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
-
-.access-flags input[type='checkbox']:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.block-value-section {
-  margin-top: 20px;
-}
-
-.block-value-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #888;
-  margin-bottom: 8px;
-}
-
-.block-value {
-  padding: 12px;
-  background-color: #1e1e1e;
-  border: 1px solid #333;
+  padding: 6px 12px;
   border-radius: 4px;
-  font-size: 13px;
-  color: #fff;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-/* Form Styles */
-.form-group {
+.btn-edit:hover:not(:disabled),
+.btn-copy:hover {
+  background-color: #2a2a2a;
+  border-color: #7c3aed;
+  color: #fff;
+}
+
+.btn-delete {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.btn-delete:hover {
+  background-color: #dc2626;
+  color: white;
+}
+
+.btn-edit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Editor Form */
+.journal-editor-form {
+  padding: 20px;
+}
+
+.form-field {
   margin-bottom: 20px;
 }
 
-.form-group label {
+.form-field label {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #888;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.form-group input[type='text'],
-.form-group textarea {
+.field-hint {
+  font-size: 11px;
+  font-weight: normal;
+  color: #666;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.form-field input[type='text'],
+.form-field input[type='number'],
+.form-field textarea {
   width: 100%;
-  padding: 10px 12px;
-  background-color: #1e1e1e;
+  padding: 8px 12px;
+  background-color: #252525;
   border: 1px solid #333;
   border-radius: 4px;
   color: #fff;
@@ -358,22 +281,90 @@
   transition: border-color 0.2s;
 }
 
-.form-group input[type='text']:focus,
-.form-group textarea:focus {
+.form-field input[type='text']:focus,
+.form-field input[type='number']:focus,
+.form-field textarea:focus {
   outline: none;
   border-color: #7c3aed;
 }
 
-.form-group textarea {
-  resize: vertical;
-  line-height: 1.5;
+.form-field input[type='text']:disabled,
+.form-field input[type='number']:disabled,
+.form-field textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: #1a1a1a;
 }
 
-/* Button Styles */
-.button-primary,
-.button-secondary,
-.button-delete {
-  padding: 8px 16px;
+.form-field input.monospace {
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  color: #7c3aed;
+}
+
+.form-field-large {
+  position: relative;
+}
+
+.form-field textarea {
+  resize: vertical;
+  line-height: 1.5;
+  min-height: 200px;
+}
+
+.char-count {
+  font-size: 11px;
+  color: #666;
+  text-align: right;
+  margin-top: 4px;
+}
+
+.form-field-checkbox {
+  margin-bottom: 20px;
+}
+
+.form-field-checkbox label {
+  display: flex;
+  align-items: start;
+  cursor: pointer;
+  font-size: 13px;
+  color: #ccc;
+}
+
+.form-field-checkbox input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  margin-top: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.form-field-checkbox input[type='checkbox']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checkbox-hint {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* Editor Footer */
+.journal-editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid #333;
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 10px 20px;
   border: none;
   border-radius: 4px;
   font-size: 13px;
@@ -382,35 +373,22 @@
   transition: all 0.2s;
 }
 
-.button-primary {
+.btn-primary {
   background-color: #7c3aed;
   color: white;
 }
 
-.button-primary:hover:not(:disabled) {
+.btn-primary:hover {
   background-color: #6d28d9;
 }
 
-.button-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.button-secondary {
+.btn-secondary {
   background-color: #333;
   color: #ccc;
+  border: 1px solid #444;
 }
 
-.button-secondary:hover {
-  background-color: #444;
+.btn-secondary:hover {
+  background-color: #3a3a3a;
   color: #fff;
-}
-
-.button-delete {
-  background-color: #dc2626;
-  color: white;
-}
-
-.button-delete:hover {
-  background-color: #b91c1c;
 }
