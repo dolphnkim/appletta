@@ -33,8 +33,8 @@ class JournalBlock(Base):
     # Embedding for semantic search
     embedding = Column(Vector(768))
 
-    # Metadata (flexible storage for future use)
-    metadata = Column(JSONB)
+    # Metadata (flexible storage for future use, using metadata_ to avoid SQLAlchemy reserved name)
+    metadata_ = Column("metadata", JSONB)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -74,7 +74,7 @@ class JournalBlock(Base):
             "read_only": self.read_only,
             "editable_by_main_agent": self.editable_by_main_agent,
             "editable_by_memory_agent": self.editable_by_memory_agent,
-            "metadata": self.metadata,
+            "metadata": self.metadata_,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

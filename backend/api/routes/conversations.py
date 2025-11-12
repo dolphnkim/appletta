@@ -443,7 +443,7 @@ async def fork_conversation(
             role=msg.role,
             content=msg.content,
             embedding=msg.embedding,
-            metadata=msg.metadata
+            metadata_=msg.metadata_
         )
         db.add(new_message)
 
@@ -668,7 +668,7 @@ async def chat(
         conversation_id=conversation_id,
         role="assistant",
         content=final_response,
-        metadata={
+        metadata_={
             "model": agent.model_path,
             "usage": result.get("usage", {}),
             "tool_calls_count": iteration - 1,
@@ -871,7 +871,7 @@ async def _chat_stream_internal(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=full_response,
-                metadata={
+                metadata_={
                     "model": agent.model_path,
                     "tool_calls_count": tool_calls_count,
                     "surfaced_memories_count": len(surfaced_memories),

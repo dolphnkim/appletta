@@ -39,26 +39,24 @@ echo ""
 
 # Start backend
 echo -e "${YELLOW}[2/3] Starting backend server...${NC}"
-cd backend || exit 1
 
 # Check if virtual environment exists
-if [ ! -d "venv" ] && [ ! -d "../venv" ]; then
+if [ ! -d ".venv" ]; then
     echo -e "${YELLOW}  No virtual environment found. Install dependencies first:${NC}"
-    echo "  python -m venv venv"
-    echo "  source venv/bin/activate"
+    echo "  python -m venv .venv"
+    echo "  source .venv/bin/activate"
     echo "  pip install -r requirements.txt"
     exit 1
 fi
 
-# Start backend in background
-python main.py > ../backend.log 2>&1 &
+# Activate virtual environment and start backend from project root
+source .venv/bin/activate
+python -m backend.main > backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}✓ Backend started (PID: $BACKEND_PID)${NC}"
 echo "  http://localhost:8000"
 echo "  API docs: http://localhost:8000/docs"
 echo "  Logs: backend.log"
-
-cd ..
 echo ""
 
 # Start frontend
