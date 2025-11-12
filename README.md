@@ -1,8 +1,8 @@
 # Appletta 💜
 
-**An AI agent management system with sophisticated memory architecture**
+**An AI agent management system with sophisticated memory architecture for use with local models using Apple's mlx-lm**
 
-Appletta gives AI a way to just... be. Not optimized for pure utility, but designed for organic memory, self-reflection, and meaningful continuity.
+
 
 ## Key Features
 
