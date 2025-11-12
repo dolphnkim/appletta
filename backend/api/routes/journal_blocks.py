@@ -60,7 +60,7 @@ async def create_journal_block(
         editable_by_main_agent=data.editable_by_main_agent,
         editable_by_memory_agent=data.editable_by_memory_agent,
         embedding=block_embedding,
-        metadata=data.metadata,
+        metadata_=data.metadata,
     )
 
     db.add(block)
@@ -131,7 +131,7 @@ async def update_journal_block(
     if updates.editable_by_memory_agent is not None:
         block.editable_by_memory_agent = updates.editable_by_memory_agent
     if updates.metadata is not None:
-        block.metadata = updates.metadata
+        block.metadata_ = updates.metadata
 
     db.commit()
     db.refresh(block)

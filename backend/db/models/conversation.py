@@ -48,8 +48,8 @@ class Message(Base):
     # Embedding for semantic search
     embedding = Column(Vector(768))
 
-    # Metadata (e.g., model used, tokens, etc.)
-    metadata = Column(JSONB)
+    # Metadata (e.g., model used, tokens, etc., using metadata_ to avoid SQLAlchemy reserved name)
+    metadata_ = Column("metadata", JSONB)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -62,6 +62,6 @@ class Message(Base):
             "conversation_id": str(self.conversation_id),
             "role": self.role,
             "content": self.content,
-            "metadata": self.metadata,
+            "metadata": self.metadata_,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

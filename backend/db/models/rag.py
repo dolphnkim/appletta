@@ -127,8 +127,8 @@ class RagChunk(Base):
     # Embedding (768 dimensions for thenlper/gte-base)
     embedding = Column(Vector(768))
 
-    # Metadata
-    metadata = Column(JSONB)
+    # Metadata (using metadata_ to avoid SQLAlchemy reserved name)
+    metadata_ = Column("metadata", JSONB)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -147,6 +147,6 @@ class RagChunk(Base):
             "chunk_index": self.chunk_index,
             "start_char": self.start_char,
             "end_char": self.end_char,
-            "metadata": self.metadata,
+            "metadata": self.metadata_,
             "created_at": self.created_at.isoformat(),
         }
