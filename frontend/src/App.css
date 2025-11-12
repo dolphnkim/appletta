@@ -4,27 +4,30 @@
   display: grid;
   grid-template-columns: 1fr 2fr 1fr;
   gap: 0;
-}
-
-.app-left-panel,
-.app-center-panel,
-.app-right-panel {
-  height: 100vh;
-  overflow-y: auto;
-  border-right: 1px solid #333;
-  position: relative;
+  overflow: visible;
 }
 
 .app-left-panel {
+  height: 100vh;
+  border-right: 1px solid #333;
+  position: relative;
   z-index: 10;
+  overflow: visible;
 }
 
 .app-center-panel {
+  height: 100vh;
+  border-right: 1px solid #333;
+  position: relative;
   z-index: 5;
+  overflow: visible;
 }
 
 .app-right-panel {
-  z-index: 1;
+  height: 100vh;
+  position: relative;
+  z-index: 10;
+  overflow: visible;
 }
 
 .app-right-panel {

@@ -93,7 +93,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     if (!inputValue.trim() || streaming) return;
 
     // Create conversation if none exists
-    let convId = conversationId;
+    let convId: string | null | undefined = conversationId;
     if (!convId) {
       convId = await createNewConversation();
       if (!convId) return;

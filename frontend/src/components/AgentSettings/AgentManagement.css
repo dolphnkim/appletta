@@ -8,7 +8,6 @@
   position: relative;
   display: inline-block;
   width: fit-content;
-  z-index: 100;
 }
 
 .three-dot-menu-button {
@@ -40,7 +39,7 @@
   border: 1px solid #444;
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
+  z-index: 100;
   min-width: 200px;
   padding: 4px;
 }

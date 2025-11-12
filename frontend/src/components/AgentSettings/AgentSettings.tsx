@@ -103,6 +103,12 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
         onExport={exportAgent}
       />
 
+      <AgentManagement
+        agentId={agentId}
+        onCreateAgent={handleCreateAgent}
+        onManageAgents={handleManageAgents}
+      />
+
       <div className="agent-settings-content">
         <EditableField
           label="Name"
@@ -115,12 +121,6 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
           value={agent.description || ''}
           onSave={handleDescriptionUpdate}
           helpText="A brief description of this agent's purpose"
-        />
-
-        <AgentManagement
-          agentId={agentId}
-          onCreateAgent={handleCreateAgent}
-          onManageAgents={handleManageAgents}
         />
 
         <LLMConfig

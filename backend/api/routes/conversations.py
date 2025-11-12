@@ -502,7 +502,7 @@ async def chat(
     # === MEMORY RETRIEVAL ===
     # 1. Search for memory candidates across all sources
     memory_candidates = search_memories(
-        query_text=message,
+        query_text=request.message,
         agent_id=agent.id,
         db=db,
         limit=50

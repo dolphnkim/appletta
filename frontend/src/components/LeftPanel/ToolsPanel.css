@@ -2,6 +2,8 @@
   padding: 20px;
   background-color: #1e1e1e;
   color: #fff;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .tools-header {
