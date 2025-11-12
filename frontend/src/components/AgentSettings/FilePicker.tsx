@@ -9,6 +9,7 @@ interface FilePickerProps {
   onSelect: (path: string) => void;
   helpText?: string;
   required?: boolean;
+  selectFolders?: boolean;  // If true, can select folders; if false, only files
 }
 
 export default function FilePicker({
@@ -17,6 +18,7 @@ export default function FilePicker({
   onSelect,
   helpText,
   required = false,
+  selectFolders = false,
 }: FilePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentPath, setCurrentPath] = useState('');
@@ -65,9 +67,26 @@ export default function FilePicker({
 
   const handleItemClick = (item: FileItem) => {
     if (item.is_directory) {
-      loadPath(item.path);
+      if (selectFolders) {
+        // For folder selection, allow selecting the folder
+        loadPath(item.path);
+      } else {
+        // For file selection, navigate into the folder
+        loadPath(item.path);
+      }
     } else {
-      onSelect(item.path);
+      // Always allow selecting files when not in folder-only mode
+      if (!selectFolders) {
+        onSelect(item.path);
+        setIsOpen(false);
+      }
+    }
+  };
+
+  const handleSelectCurrentFolder = () => {
+    // Select the current folder when in folder selection mode
+    if (selectFolders && currentPath) {
+      onSelect(currentPath);
       setIsOpen(false);
     }
   };
@@ -113,17 +132,28 @@ export default function FilePicker({
               <>
                 <div className="file-picker-path">
                   {currentPath}
-                  {currentPath !== '/' && (
-                    <button
-                      className="path-up-button"
-                      onClick={handleParentClick}
-                      title="Go up one directory"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z" />
-                      </svg>
-                    </button>
-                  )}
+                  <div className="path-actions">
+                    {selectFolders && (
+                      <button
+                        className="select-folder-button"
+                        onClick={handleSelectCurrentFolder}
+                        title="Select this folder"
+                      >
+                        ✓ Select
+                      </button>
+                    )}
+                    {currentPath !== '/' && (
+                      <button
+                        className="path-up-button"
+                        onClick={handleParentClick}
+                        title="Go up one directory"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M7.78 12.53a.75.75 0 01-1.06 0L2.47 8.28a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 1.06L4.81 7h7.44a.75.75 0 010 1.5H4.81l2.97 2.97a.75.75 0 010 1.06z" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="file-picker-items">
                   {items.map((item) => (
