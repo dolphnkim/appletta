@@ -7,23 +7,13 @@ interface JournalBlocksProps {
   agentId: string;
 }
 
-type EditorMode = 'none' | 'create' | 'view' | 'edit';
-
 export default function JournalBlocks({ agentId }: JournalBlocksProps) {
   const [blocks, setBlocks] = useState<JournalBlock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<JournalBlock | null>(null);
-  const [editorMode, setEditorMode] = useState<EditorMode>('none');
-
-  // Form state
-  const [formLabel, setFormLabel] = useState('');
-  const [formValue, setFormValue] = useState('');
-  const [formDescription, setFormDescription] = useState('');
-  const [formCharLimit, setFormCharLimit] = useState(5000);
-  const [formReadOnly, setFormReadOnly] = useState(false);
-  const [formEditableByMain, setFormEditableByMain] = useState(true);
-  const [formEditableByMemory, setFormEditableByMemory] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     loadBlocks();
@@ -42,315 +32,365 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
     }
   };
 
-  const handleNewBlock = () => {
-    setEditorMode('create');
-    setSelectedBlock(null);
-    // Reset form
-    setFormLabel('');
-    setFormValue('');
-    setFormDescription('');
-    setFormCharLimit(5000);
-    setFormReadOnly(false);
-    setFormEditableByMain(true);
-    setFormEditableByMemory(false);
-  };
-
-  const handleSelectBlock = (block: JournalBlock) => {
-    setSelectedBlock(block);
-    setEditorMode('view');
-    // Load into form for potential editing
-    setFormLabel(block.label);
-    setFormValue(block.value);
-    setFormDescription(block.description || '');
-    setFormReadOnly(block.read_only);
-    setFormEditableByMain(block.editable_by_main_agent);
-    setFormEditableByMemory(block.editable_by_memory_agent);
-  };
-
-  const handleEditBlock = () => {
-    setEditorMode('edit');
-  };
-
-  const handleCancelEdit = () => {
-    if (selectedBlock) {
-      setEditorMode('view');
-      // Restore original values
-      setFormLabel(selectedBlock.label);
-      setFormValue(selectedBlock.value);
-      setFormDescription(selectedBlock.description || '');
-      setFormReadOnly(selectedBlock.read_only);
-      setFormEditableByMain(selectedBlock.editable_by_main_agent);
-      setFormEditableByMemory(selectedBlock.editable_by_memory_agent);
-    } else {
-      setEditorMode('none');
-    }
-  };
-
-  const handleCreate = async () => {
-    if (!formLabel.trim() || !formValue.trim()) {
-      setError('Label and Value are required');
-      return;
-    }
-
+  const handleCreate = async (data: JournalBlockCreate) => {
     try {
-      const newBlock = await journalAPI.create(agentId, {
-        label: formLabel,
-        value: formValue,
-        description: formDescription || undefined,
-        read_only: formReadOnly,
-        editable_by_main_agent: formEditableByMain,
-        editable_by_memory_agent: formEditableByMemory,
-      });
+      const newBlock = await journalAPI.create(agentId, data);
       setBlocks([newBlock, ...blocks]);
-      setSelectedBlock(newBlock);
-      setEditorMode('view');
-      setError(null);
+      setShowCreateModal(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create journal block');
     }
   };
 
-  const handleUpdate = async () => {
-    if (!selectedBlock) return;
-
+  const handleUpdate = async (blockId: string, value: string) => {
     try {
-      const updated = await journalAPI.update(agentId, selectedBlock.id, {
-        label: formLabel,
-        value: formValue,
-        description: formDescription || undefined,
-        read_only: formReadOnly,
-        editable_by_main_agent: formEditableByMain,
-        editable_by_memory_agent: formEditableByMemory,
-      });
-      setBlocks(blocks.map((b) => (b.id === selectedBlock.id ? updated : b)));
+      const updated = await journalAPI.update(agentId, blockId, { value });
+      setBlocks(blocks.map((b) => (b.id === blockId ? updated : b)));
       setSelectedBlock(updated);
-      setEditorMode('view');
-      setError(null);
+      setShowEditModal(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update journal block');
     }
   };
 
-  const handleDelete = async () => {
-    if (!selectedBlock) return;
-    if (!confirm('Delete this journal block? This cannot be undone.')) return;
+  const handleDelete = async (blockId: string) => {
+    if (!confirm('Delete this journal block? This cannot be undone.')) {
+      return;
+    }
 
     try {
-      await journalAPI.delete(agentId, selectedBlock.id);
-      setBlocks(blocks.filter((b) => b.id !== selectedBlock.id));
-      setSelectedBlock(null);
-      setEditorMode('none');
-      setError(null);
+      await journalAPI.delete(agentId, blockId);
+      setBlocks(blocks.filter((b) => b.id !== blockId));
+      if (selectedBlock?.id === blockId) {
+        setSelectedBlock(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete journal block');
     }
   };
 
-  const handleCopyBlockId = () => {
-    if (selectedBlock) {
-      navigator.clipboard.writeText(selectedBlock.block_id);
-    }
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   if (loading) {
     return (
-      <div className="journal-blocks-container">
+      <div className="journal-blocks">
         <div className="journal-loading">Loading journal blocks...</div>
       </div>
     );
   }
 
   return (
-    <div className="journal-blocks-container">
-      {/* Left side - Block list */}
-      <div className="journal-blocks-list-panel">
-        <div className="journal-list-header">
-          <h3>Journal Block Editor</h3>
-          <button onClick={handleNewBlock} className="new-block-button">
-            + New block
+    <div className="journal-blocks">
+      <div className="journal-header">
+        <button onClick={() => setShowCreateModal(true)} className="new-block-button">
+          + New Block
+        </button>
+      </div>
+
+      {error && (
+        <div className="journal-error">
+          {error}
+          <button onClick={() => setError(null)} className="dismiss-button">
+            ×
           </button>
         </div>
+      )}
 
-        {error && (
-          <div className="journal-error">
-            {error}
-            <button onClick={() => setError(null)} className="dismiss-button">
+      <div className="journal-blocks-list">
+        {blocks.length === 0 ? (
+          <div className="journal-empty">
+            <div className="empty-icon">📔</div>
+            <p>No journal blocks yet</p>
+            <p className="hint">Create blocks to store thoughts and insights</p>
+          </div>
+        ) : (
+          blocks.map((block) => (
+            <div
+              key={block.id}
+              className={`journal-block-item ${selectedBlock?.id === block.id ? 'active' : ''}`}
+              onClick={() => setSelectedBlock(block)}
+            >
+              <div className="block-item-header">
+                <div className="block-label">{block.label}</div>
+                <div className="block-badges">
+                  {block.read_only && <span className="badge read-only">Read-only</span>}
+                  {!block.editable_by_main_agent && (
+                    <span className="badge no-main">Main: No</span>
+                  )}
+                  {block.editable_by_memory_agent && (
+                    <span className="badge memory-yes">Memory: Yes</span>
+                  )}
+                </div>
+              </div>
+              <div className="block-item-id">{block.block_id}</div>
+              {block.description && <div className="block-item-description">{block.description}</div>}
+              <div className="block-item-preview">{block.value.substring(0, 100)}...</div>
+              <div className="block-item-meta">
+                <span>Updated: {formatDate(block.updated_at)}</span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {selectedBlock && (
+        <BlockViewModal
+          block={selectedBlock}
+          onClose={() => setSelectedBlock(null)}
+          onEdit={() => {
+            setShowEditModal(true);
+            setSelectedBlock(null);
+          }}
+          onDelete={() => handleDelete(selectedBlock.id)}
+        />
+      )}
+
+      {showCreateModal && (
+        <BlockCreateModal onClose={() => setShowCreateModal(false)} onCreate={handleCreate} />
+      )}
+
+      {showEditModal && selectedBlock && (
+        <BlockEditModal
+          block={selectedBlock}
+          onClose={() => setShowEditModal(false)}
+          onSave={(value) => handleUpdate(selectedBlock.id, value)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Block View Modal
+interface BlockViewModalProps {
+  block: JournalBlock;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function BlockViewModal({ block, onClose, onEdit, onDelete }: BlockViewModalProps) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{block.label}</h2>
+          <button onClick={onClose} className="modal-close">
+            ×
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="block-details">
+            <div className="detail-row">
+              <span className="detail-label">Block ID:</span>
+              <span className="detail-value monospace">{block.block_id}</span>
+            </div>
+            {block.description && (
+              <div className="detail-row">
+                <span className="detail-label">Description:</span>
+                <span className="detail-value">{block.description}</span>
+              </div>
+            )}
+            <div className="detail-row">
+              <span className="detail-label">Access Control:</span>
+              <div className="detail-value">
+                <div className="access-flags">
+                  <label>
+                    <input type="checkbox" checked={block.read_only} disabled />
+                    Read-only
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={block.editable_by_main_agent} disabled />
+                    Main Agent
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={block.editable_by_memory_agent} disabled />
+                    Memory Agent
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="block-value-section">
+            <div className="block-value-label">Content:</div>
+            <div className="block-value">{block.value}</div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button onClick={onDelete} className="button-delete">
+            Delete
+          </button>
+          <button onClick={onEdit} className="button-primary" disabled={block.read_only}>
+            Edit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Block Create Modal
+interface BlockCreateModalProps {
+  onClose: () => void;
+  onCreate: (data: JournalBlockCreate) => void;
+}
+
+function BlockCreateModal({ onClose, onCreate }: BlockCreateModalProps) {
+  const [label, setLabel] = useState('');
+  const [value, setValue] = useState('');
+  const [description, setDescription] = useState('');
+  const [readOnly, setReadOnly] = useState(false);
+  const [editableByMain, setEditableByMain] = useState(true);
+  const [editableByMemory, setEditableByMemory] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onCreate({
+      label,
+      value,
+      description: description || undefined,
+      read_only: readOnly,
+      editable_by_main_agent: editableByMain,
+      editable_by_memory_agent: editableByMemory,
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-header">
+            <h2>Create Journal Block</h2>
+            <button type="button" onClick={onClose} className="modal-close">
               ×
             </button>
           </div>
-        )}
-
-        <div className="journal-blocks-list">
-          {blocks.length === 0 ? (
-            <div className="journal-empty">
-              <p>No journal blocks yet</p>
-              <p className="hint">Click "+ New block" to create one</p>
+          <div className="modal-body">
+            <div className="form-group">
+              <label>Label *</label>
+              <input
+                type="text"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g., User Preferences"
+                required
+              />
             </div>
-          ) : (
-            blocks.map((block) => (
-              <div
-                key={block.id}
-                className={`journal-block-item ${
-                  selectedBlock?.id === block.id ? 'active' : ''
-                }`}
-                onClick={() => handleSelectBlock(block)}
-              >
-                <div className="block-item-header">
-                  <div className="block-label">{block.label}</div>
-                  {block.read_only && <span className="badge-readonly">👁️</span>}
-                </div>
-                <div className="block-item-preview">
-                  {block.value.substring(0, 60)}...
-                </div>
-                <div className="block-item-chars">{block.value.length} Chars</div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* Right side - Editor */}
-      <div className="journal-editor-panel">
-        {editorMode === 'none' ? (
-          <div className="journal-editor-empty">
-            <p>Select a block to view or edit</p>
-            <p className="hint">Or create a new block</p>
-          </div>
-        ) : (
-          <>
-            <div className="journal-editor-header">
-              <h3>{editorMode === 'create' ? 'New Block' : selectedBlock?.label}</h3>
-              <div className="journal-editor-actions">
-                {editorMode === 'view' && (
-                  <>
-                    <button onClick={handleEditBlock} className="btn-edit" disabled={selectedBlock?.read_only}>
-                      Edit label ✏️
-                    </button>
-                    <button onClick={handleCopyBlockId} className="btn-copy">
-                      Copy block_id 📋
-                    </button>
-                    <button onClick={handleDelete} className="btn-delete">
-                      🗑️
-                    </button>
-                  </>
-                )}
-              </div>
+            <div className="form-group">
+              <label>Description</label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Brief description of this block's purpose"
+              />
             </div>
-
-            <div className="journal-editor-form">
-              {/* Label */}
-              <div className="form-field">
-                <label>Label</label>
-                <input
-                  type="text"
-                  value={formLabel}
-                  onChange={(e) => setFormLabel(e.target.value)}
-                  disabled={editorMode === 'view'}
-                  placeholder="e.g., human"
-                />
-              </div>
-
-              {/* Block ID (view only) */}
-              {editorMode !== 'create' && selectedBlock && (
-                <div className="form-field">
-                  <label>Block ID</label>
-                  <input
-                    type="text"
-                    value={selectedBlock.block_id}
-                    disabled
-                    className="monospace"
-                  />
-                </div>
-              )}
-
-              {/* Character Limit */}
-              <div className="form-field">
-                <label>Character Limit</label>
-                <input
-                  type="number"
-                  value={formCharLimit}
-                  onChange={(e) => setFormCharLimit(Number(e.target.value))}
-                  disabled={editorMode === 'view'}
-                />
-              </div>
-
-              {/* Description */}
-              <div className="form-field">
-                <label>
-                  Description{' '}
-                  <span className="field-hint">
-                    ⓘ A short description to help you remember what this block is for
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  disabled={editorMode === 'view'}
-                  placeholder="Brief description..."
-                />
-              </div>
-
-              {/* Value */}
-              <div className="form-field form-field-large">
-                <label>Value</label>
-                <textarea
-                  value={formValue}
-                  onChange={(e) => setFormValue(e.target.value)}
-                  disabled={editorMode === 'view'}
-                  placeholder="Block content..."
-                  rows={12}
-                  maxLength={formCharLimit}
-                />
-                <div className="char-count">
-                  {formValue.length} / {formCharLimit} Chars
-                </div>
-              </div>
-
-              {/* Read-only checkbox */}
-              <div className="form-field-checkbox">
+            <div className="form-group">
+              <label>Content *</label>
+              <textarea
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder="Block content..."
+                rows={8}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Access Control</label>
+              <div className="access-flags">
                 <label>
                   <input
                     type="checkbox"
-                    checked={formReadOnly}
-                    onChange={(e) => setFormReadOnly(e.target.checked)}
-                    disabled={editorMode === 'view'}
+                    checked={readOnly}
+                    onChange={(e) => setReadOnly(e.target.checked)}
                   />
-                  <span>
-                    Read-only{' '}
-                    <span className="checkbox-hint">
-                      ⓘ CLAUDE: optional read-only checkbox or toggle for blocks agents can't edit
-                    </span>
-                  </span>
+                  Read-only
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editableByMain}
+                    onChange={(e) => setEditableByMain(e.target.checked)}
+                  />
+                  Editable by main agent
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={editableByMemory}
+                    onChange={(e) => setEditableByMemory(e.target.checked)}
+                  />
+                  Editable by memory agent
                 </label>
               </div>
-
-              {/* Action buttons */}
-              <div className="journal-editor-footer">
-                {editorMode === 'create' && (
-                  <>
-                    <button onClick={handleCancelEdit} className="btn-secondary">
-                      Cancel
-                    </button>
-                    <button onClick={handleCreate} className="btn-primary">
-                      Create Block
-                    </button>
-                  </>
-                )}
-                {editorMode === 'edit' && (
-                  <>
-                    <button onClick={handleCancelEdit} className="btn-secondary">
-                      Cancel
-                    </button>
-                    <button onClick={handleUpdate} className="btn-primary">
-                      Update memory
-                    </button>
-                  </>
-                )}
-              </div>
             </div>
-          </>
-        )}
+          </div>
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="button-secondary">
+              Cancel
+            </button>
+            <button type="submit" className="button-primary">
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Block Edit Modal
+interface BlockEditModalProps {
+  block: JournalBlock;
+  onClose: () => void;
+  onSave: (value: string) => void;
+}
+
+function BlockEditModal({ block, onClose, onSave }: BlockEditModalProps) {
+  const [value, setValue] = useState(block.value);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(value);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <form onSubmit={handleSubmit}>
+          <div className="modal-header">
+            <h2>Edit: {block.label}</h2>
+            <button type="button" onClick={onClose} className="modal-close">
+              ×
+            </button>
+          </div>
+          <div className="modal-body">
+            <div className="form-group">
+              <label>Content</label>
+              <textarea
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                rows={12}
+                required
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="button-secondary">
+              Cancel
+            </button>
+            <button type="submit" className="button-primary">
+              Save
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

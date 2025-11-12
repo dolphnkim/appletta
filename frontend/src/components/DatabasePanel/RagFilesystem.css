@@ -64,11 +64,11 @@
 }
 
 .rag-content {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .folder-list-section,

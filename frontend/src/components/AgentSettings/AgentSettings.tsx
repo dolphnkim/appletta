@@ -120,7 +120,8 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
           label="Adapter"
           value={agent.adapter_path || ''}
           onSelect={handleAdapterPathUpdate}
-          helpText="choose adapter from filepath"
+          helpText="choose adapter folder"
+          selectFolders={true}
         />
 
         <SystemInstructionsField
