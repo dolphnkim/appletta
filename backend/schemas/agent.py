@@ -10,7 +10,7 @@ from uuid import UUID
 
  
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
  
 
@@ -46,6 +46,8 @@ class EmbeddingConfig(BaseModel):
 
     """Embedding model configuration"""
 
+    model_config = ConfigDict(protected_namespaces=())
+
     model_path: str = Field(..., description="Path to embedding model directory")
 
     dimensions: int = Field(default=2000, gt=0)
@@ -61,6 +63,8 @@ class EmbeddingConfig(BaseModel):
 class AgentCreate(BaseModel):
 
     """Schema for creating a new agent"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     name: str = Field(..., min_length=1, max_length=255)
 
@@ -90,6 +94,8 @@ class AgentUpdate(BaseModel):
 
     """Schema for updating an agent (all fields optional)"""
 
+    model_config = ConfigDict(protected_namespaces=())
+
     name: Optional[str] = Field(None, min_length=1, max_length=255)
 
     description: Optional[str] = None
@@ -115,6 +121,8 @@ class AgentUpdate(BaseModel):
 class AgentResponse(BaseModel):
 
     """Schema for agent API responses"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     id: UUID
 
@@ -163,6 +171,8 @@ class AgentListResponse(BaseModel):
 class AgentFileData(BaseModel):
 
     """Schema for .af file import/export"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     name: str
 
