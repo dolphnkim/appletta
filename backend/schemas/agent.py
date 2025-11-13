@@ -72,13 +72,15 @@ class AgentCreate(BaseModel):
 
     agent_type: Literal["main", "memory", "tool", "reflection", "other"] = Field(default="main")
 
+    is_template: bool = Field(default=False, description="Whether this agent is a template")
+
     model_path: str = Field(..., description="Path to local MLX model directory")
 
     adapter_path: Optional[str] = Field(None, description="Path to LoRA adapter directory")
 
     system_instructions: str = Field(..., min_length=1)
 
- 
+
 
     llm_config: LLMConfig = Field(default_factory=LLMConfig)
 
@@ -104,13 +106,15 @@ class AgentUpdate(BaseModel):
 
     agent_type: Optional[Literal["main", "memory", "tool", "reflection", "other"]] = None
 
+    is_template: Optional[bool] = None
+
     model_path: Optional[str] = None
 
     adapter_path: Optional[str] = None
 
     system_instructions: Optional[str] = Field(None, min_length=1)
 
- 
+
 
     llm_config: Optional[LLMConfig] = None
 
@@ -135,6 +139,8 @@ class AgentResponse(BaseModel):
     description: Optional[str]
 
     agent_type: str
+
+    is_template: bool
 
     model_path: str
 

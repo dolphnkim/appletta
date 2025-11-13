@@ -23,6 +23,7 @@ export interface Agent {
   name: string;
   description?: string;
   agent_type: AgentType;
+  is_template: boolean;
   model_path: string;
   adapter_path?: string;
   system_instructions: string;
@@ -36,6 +37,7 @@ export interface AgentCreate {
   name: string;
   description?: string;
   agent_type?: AgentType;
+  is_template?: boolean;
   model_path: string;
   adapter_path?: string;
   system_instructions: string;
@@ -47,6 +49,7 @@ export interface AgentUpdate {
   name?: string;
   description?: string;
   agent_type?: AgentType;
+  is_template?: boolean;
   model_path?: string;
   adapter_path?: string;
   system_instructions?: string;

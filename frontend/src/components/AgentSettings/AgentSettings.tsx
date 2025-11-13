@@ -27,29 +27,69 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
     return <div className="agent-settings error">{error || 'Agent not found'}</div>;
   }
 
+  // Helper function to handle template save-as logic
+  const handleTemplateUpdate = async (updates: any) => {
+    if (!agent.is_template) {
+      // Regular agent: just update
+      return await updateAgent(updates);
+    }
+
+    // Template agent: create new agent (save-as)
+    try {
+      // Determine the name for the new agent
+      let newName = 'New Agent (copy)';
+      if (updates.name && updates.name !== agent.name) {
+        newName = updates.name;
+      }
+
+      // Create new agent with all current settings + updates
+      const newAgent = await agentAPI.create({
+        name: newName,
+        description: updates.description ?? agent.description ?? '',
+        agent_type: updates.agent_type ?? agent.agent_type,
+        is_template: false, // New agent is not a template
+        model_path: updates.model_path ?? agent.model_path,
+        adapter_path: updates.adapter_path ?? agent.adapter_path,
+        system_instructions: updates.system_instructions ?? agent.system_instructions,
+        llm_config: updates.llm_config ? { ...agent.llm_config, ...updates.llm_config } : agent.llm_config,
+        embedding_config: updates.embedding_config ? { ...agent.embedding_config, ...updates.embedding_config } : agent.embedding_config,
+      });
+
+      // Navigate to the new agent
+      if (newAgent && onClone) {
+        onClone(newAgent.id);
+      }
+
+      return newAgent;
+    } catch (err) {
+      console.error('Failed to save template as new agent:', err);
+      throw err;
+    }
+  };
+
   const handleNameUpdate = async (name: string) => {
-    await updateAgent({ name });
+    await handleTemplateUpdate({ name });
   };
 
   const handleDescriptionUpdate = async (description: string) => {
-    await updateAgent({ description });
+    await handleTemplateUpdate({ description });
   };
 
   const handleModelPathUpdate = async (model_path: string) => {
-    await updateAgent({ model_path });
+    await handleTemplateUpdate({ model_path });
   };
 
   const handleAdapterPathUpdate = async (adapter_path: string) => {
-    await updateAgent({ adapter_path: adapter_path || undefined });
+    await handleTemplateUpdate({ adapter_path: adapter_path || undefined });
   };
 
   const handleSystemInstructionsUpdate = async (system_instructions: string) => {
-    await updateAgent({ system_instructions });
+    await handleTemplateUpdate({ system_instructions });
     setShowSystemInstructionsModal(false);
   };
 
   const handleLLMConfigUpdate = async (updates: Partial<typeof agent.llm_config>) => {
-    await updateAgent({
+    await handleTemplateUpdate({
       llm_config: {
         ...agent.llm_config,
         ...updates,
@@ -58,7 +98,7 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
   };
 
   const handleEmbeddingConfigUpdate = async (updates: Partial<typeof agent.embedding_config>) => {
-    await updateAgent({
+    await handleTemplateUpdate({
       embedding_config: {
         ...agent.embedding_config,
         ...updates,
@@ -74,6 +114,11 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
   };
 
   const handleDelete = async () => {
+    if (agent.is_template) {
+      alert('Cannot delete the template agent. This agent serves as the starting point for new agents.');
+      return;
+    }
+
     if (confirm(`Are you sure you want to delete "${agent.name}"?`)) {
       await deleteAgent();
       if (onDelete) {
@@ -83,28 +128,20 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
   };
 
   const handleCreateAgent = async () => {
-    if (!agent) return;
-
     try {
-      // Create a new agent using the current agent as a template
-      const newAgent = await agentAPI.create({
-        name: 'New Agent',
-        description: '',
-        agent_type: 'main',
-        model_path: agent.model_path,
-        adapter_path: agent.adapter_path,
-        system_instructions: '',
-        llm_config: agent.llm_config,
-        embedding_config: agent.embedding_config,
-      });
+      // Find the template agent
+      const agents = await agentAPI.list();
+      const templateAgent = agents.find(a => a.is_template);
 
-      // Navigate to the new agent (reuse onClone callback)
-      if (newAgent && onClone) {
-        onClone(newAgent.id);
+      if (templateAgent && onClone) {
+        // Navigate to the template agent
+        onClone(templateAgent.id);
+      } else {
+        alert('New Agent template not found. Please ensure the template exists.');
       }
     } catch (err) {
-      console.error('Failed to create agent:', err);
-      alert(`Failed to create agent: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      console.error('Failed to navigate to template:', err);
+      alert(`Failed to navigate to template: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 

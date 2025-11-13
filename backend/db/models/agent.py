@@ -73,6 +73,8 @@ class Agent(Base):
 
     agent_type = Column(String(50), nullable=False, default="main")
 
+    is_template = Column(Boolean, default=False, nullable=False)  # Template agents are pristine and saved-as
+
  
 
     # Model Configuration - Filepaths to local MLX models
@@ -166,6 +168,8 @@ class Agent(Base):
             "description": self.description,
 
             "agent_type": self.agent_type if self.agent_type else "main",
+
+            "is_template": self.is_template,
 
             "model_path": self.model_path,
 
