@@ -836,6 +836,11 @@ async def _chat_stream_internal(
     # Get or start MLX server
     import logging
     logger = logging.getLogger(__name__)
+
+    # DEBUG: Log what we're actually sending as system instructions
+    logger.info(f"[DEBUG] System content being sent (first 500 chars): {system_content[:500]}")
+    logger.info(f"[DEBUG] Agent system_instructions: {agent.system_instructions[:200] if agent.system_instructions else 'None'}")
+
     mlx_manager = get_mlx_manager()
     mlx_process = mlx_manager.get_agent_server(agent.id)
 
