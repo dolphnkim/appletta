@@ -245,7 +245,19 @@ class MLXManager:
 
             "--port", str(port),
 
+            "--trust-remote-code",
+
         ]
+
+
+
+        # Add chat template if it exists in model directory
+
+        chat_template_path = model_path / "chat_template.jinja"
+
+        if chat_template_path.exists():
+
+            cmd.extend(["--chat-template", str(chat_template_path)])
 
  
 
