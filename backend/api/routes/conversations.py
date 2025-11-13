@@ -865,7 +865,6 @@ async def _chat_stream_internal(
                         "tools": enabled_tools,
                         "temperature": agent.temperature,
                         "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
-                        "seed": agent.seed if agent.seed is not None else None,
                         "stream": True,
                     }
                 ) as response:
