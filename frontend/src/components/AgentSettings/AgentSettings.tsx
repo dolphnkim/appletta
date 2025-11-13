@@ -5,6 +5,7 @@ import AgentHeader from './AgentHeader';
 import EditableField from './EditableField';
 import SystemInstructionsModal from './SystemInstructionsModal';
 import AgentManagement from './AgentManagement';
+import AgentAttachments from './AgentAttachments';
 import LLMConfig from './LLMConfig';
 import EmbeddingConfig from './EmbeddingConfig';
 import './AgentSettings.css';
@@ -74,6 +75,10 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
 
   const handleDescriptionUpdate = async (description: string) => {
     await handleTemplateUpdate({ description });
+  };
+
+  const handleAgentTypeUpdate = async (agent_type: string) => {
+    await handleTemplateUpdate({ agent_type });
   };
 
   const handleModelPathUpdate = async (model_path: string) => {
@@ -177,11 +182,38 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
           helpText="A brief description of this agent's purpose"
         />
 
+        <div className="settings-field">
+          <label className="settings-label">
+            Agent Type
+            <span className="help-text">The role this agent plays in the system</span>
+          </label>
+          <select
+            className="settings-select"
+            value={agent.agent_type}
+            onChange={(e) => handleAgentTypeUpdate(e.target.value)}
+          >
+            <option value="main">Main</option>
+            <option value="memory">Memory</option>
+            <option value="tool">Tool</option>
+            <option value="reflection">Reflection</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
         <AgentManagement
           agentId={agentId}
           onCreateAgent={handleCreateAgent}
           onManageAgents={handleManageAgents}
         />
+
+        <div className="settings-section">
+          <div className="settings-section-title">Attached Agents</div>
+          <AgentAttachments
+            agentId={agentId}
+            onCreateAgent={handleCreateAgent}
+            onManageAgents={handleManageAgents}
+          />
+        </div>
 
         <LLMConfig
           config={agent.llm_config}

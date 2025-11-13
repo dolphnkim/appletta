@@ -273,9 +273,9 @@ class MLXManager:
 
 
 
-        if agent.seed is not None:
-
-            cmd.extend(["--seed", str(agent.seed)])
+        # Seed is not supported by mlx_lm.server
+        # if agent.seed is not None:
+        #     cmd.extend(["--seed", str(agent.seed)])
 
 
 
