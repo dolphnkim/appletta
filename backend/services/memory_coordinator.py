@@ -42,7 +42,7 @@ async def coordinate_memories(
             return ("", {})
 
         # Simple fallback formatting
-        narrative = "Some memories are surfacing:\n\n"
+        narrative = "I remember when:\n\n"
         for memory in top_memories:
             narrative += f"- {memory.content[:200]}...\n"
         return (narrative, {})
