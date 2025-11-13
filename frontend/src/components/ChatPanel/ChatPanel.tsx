@@ -217,6 +217,15 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     // Could show a toast notification here
   };
 
+  const stopStreaming = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setStreaming(false);
+    setStreamingContent('');
+  };
+
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -372,11 +381,12 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
             disabled={streaming}
           />
           <button
-            type="submit"
+            type={streaming ? "button" : "submit"}
             className="send-button"
-            disabled={!inputValue.trim() || streaming}
+            onClick={streaming ? stopStreaming : undefined}
+            disabled={!streaming && !inputValue.trim()}
           >
-            {streaming ? '⟳' : '↑'}
+            {streaming ? '⏹' : '↑'}
           </button>
         </form>
         <div className="input-hint">Press Enter to send, Shift+Enter for new line</div>
