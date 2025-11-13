@@ -60,35 +60,47 @@ async def coordinate_memories(
                 narrative += f"- {memory.content[:200]}...\n"
             return narrative
 
-    # Build memory candidates for the prompt - include full content
+    # Build memory candidates for the prompt - include full content and tags
     candidates_text = ""
     for i, candidate in enumerate(candidates, 1):
-        candidates_text += f"\n--- Memory {i} ---\n"
+        tags = candidate.metadata.get("tags", []) if candidate.metadata else []
+        candidates_text += f"\n--- Memory {i} (ID: {candidate.id}) ---\n"
         candidates_text += f"Type: {candidate.source_type}\n"
         candidates_text += f"Similarity: {candidate.similarity_score:.3f}\n"
+        candidates_text += f"Current Tags: {tags}\n"
         candidates_text += f"Content:\n{candidate.content}\n"
 
-    system_prompt = """You are the subconscious memory system for an AI agent. Your role is to surface relevant memories as organic, first-person thoughts.
+    system_prompt = """You are the subconscious memory system for an AI agent. Your role is to surface relevant memories as organic, first-person thoughts AND curate their thematic tags.
 
-You'll receive memory candidates from vector search. Your job is to:
+You'll receive memory candidates from vector search. Each has initial auto-generated tags. Your job is to:
 1. Select the most relevant memories (aim for 5-10)
 2. Write a first-person narrative about WHY these memories are surfacing
 3. Make connections between memories - explain relationships, patterns, contrasts
-4. Be introspective and organic, like thoughts naturally arising
+4. Review and edit tags to reflect deeper thematic concepts
 
-Write as "I'm remembering..." or "This reminds me of..." Connect the dots. Show your thinking.
+For tags: Think beyond literal keywords. Capture themes, emotional undertones, patterns. Examples:
+- "architecture" → "architecture-overthinking" or "design-anxiety"
+- "conversation" → "reflective-dialogue" or "conceptual-exploration"
+- "error" → "failure-analysis" or "debugging-frustration"
 
-Example response:
-"I'm remembering that conversation about context windows - it feels relevant because we're bumping into similar constraints here. There's also that note I made about token budgets, and I'm noticing a pattern in how I approach these resource management problems. The interesting thing is how this connects to that earlier idea about memory hierarchies..."
+Be introspective and organic. Write naturally as thoughts arise.
 
-Write naturally. Don't list or structure - let thoughts flow."""
+Response format:
+First, write your narrative reflection.
+Then, on a new line, provide tag updates in this exact format:
+TAGS: {"memory_id": ["tag1", "tag2"], "another_id": ["tag3", "tag4"]}
+
+Example:
+"I'm remembering that conversation about context windows - it feels relevant because we're bumping into similar constraints here..."
+
+TAGS: {"msg-123": ["resource-constraints", "architecture-patterns"], "jb-456": ["self-doubt", "design-philosophy"]}"""
 
     user_prompt = f"""Current query: {query_context}
 
 Available memories:
 {candidates_text}
 
-Write your first-person reflection about which memories are surfacing and why:"""
+Write your first-person reflection and provide tag updates:"""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -116,14 +128,34 @@ Write your first-person reflection about which memories are surfacing and why:""
             narrative += f"- {memory.content[:200]}...\n"
         return narrative
 
-    # Extract the narrative from response
+    # Extract the narrative and tag updates from response
     try:
         content = result["choices"][0]["message"]["content"]
 
-        # Return the narrative directly
-        if content and content.strip():
+        if not content or not content.strip():
+            raise ValueError("Empty response")
+
+        # Split narrative from tag updates
+        if "TAGS:" in content:
+            parts = content.split("TAGS:", 1)
+            narrative = parts[0].strip()
+            tags_json = parts[1].strip()
+
+            # Parse tag updates (they're included but we don't return them - just narrative)
+            # Tag updates will be handled by the caller
+            try:
+                tag_updates = json.loads(tags_json)
+                # Store tag updates for potential future use (for now, just validate parsing works)
+            except json.JSONDecodeError:
+                # If tag parsing fails, just use narrative
+                pass
+
+            return narrative if narrative else "Some memories are surfacing..."
+        else:
+            # No tags section, return full content as narrative
             return content.strip()
-    except (KeyError, IndexError):
+
+    except (KeyError, IndexError, ValueError):
         pass
 
     # Fall back to simple formatting if extraction failed

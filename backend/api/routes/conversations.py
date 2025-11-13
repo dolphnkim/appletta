@@ -26,6 +26,7 @@ from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journ
 from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
+from backend.services.keyword_extraction import extract_keywords
 from backend.services.token_counter import count_tokens, count_messages_tokens, count_message_tokens
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
@@ -478,15 +479,19 @@ async def chat(
         raise HTTPException(404, "Agent not found for this conversation")
 
     # Save user message and embed it
+    # Extract initial thematic tags
+    initial_tags = extract_keywords(request.message, max_keywords=5)
+
     user_message = Message(
         conversation_id=conversation_id,
         role="user",
-        content=request.message
+        content=request.message,
+        metadata_={"tags": initial_tags} if initial_tags else None
     )
 
-    # Generate embedding for user message
+    # Generate embedding with tags
     embedding_service = get_embedding_service()
-    user_embedding = embedding_service.embed_text(request.message)
+    user_embedding = embedding_service.embed_with_tags(request.message, initial_tags)
     user_message.embedding = user_embedding
 
     db.add(user_message)
@@ -650,6 +655,9 @@ async def chat(
         final_response = "I apologize, but I encountered an issue completing the request."
 
     # Save assistant message and embed it
+    # Extract initial thematic tags for assistant message
+    assistant_tags = extract_keywords(final_response, max_keywords=5)
+
     assistant_message = Message(
         conversation_id=conversation_id,
         role="assistant",
@@ -658,12 +666,13 @@ async def chat(
             "model": agent.model_path,
             "usage": result.get("usage", {}),
             "tool_calls_count": iteration - 1,
-            "surfaced_memories_count": len(surfaced_memories)
+            "surfaced_memories_count": 0,  # Will be updated after memory coordination
+            "tags": assistant_tags
         }
     )
 
-    # Generate embedding for assistant message
-    assistant_embedding = embedding_service.embed_text(final_response)
+    # Generate embedding with tags for assistant message
+    assistant_embedding = embedding_service.embed_with_tags(final_response, assistant_tags)
     assistant_message.embedding = assistant_embedding
 
     db.add(assistant_message)
@@ -694,15 +703,19 @@ async def _chat_stream_internal(
         raise HTTPException(404, "Agent not found for this conversation")
 
     # Save user message and embed it
+    # Extract initial thematic tags
+    initial_tags = extract_keywords(message, max_keywords=5)
+
     user_message = Message(
         conversation_id=conversation_id,
         role="user",
-        content=message
+        content=message,
+        metadata_={"tags": initial_tags} if initial_tags else None
     )
 
-    # Generate embedding for user message
+    # Generate embedding with tags
     embedding_service = get_embedding_service()
-    user_embedding = embedding_service.embed_text(message)
+    user_embedding = embedding_service.embed_with_tags(message, initial_tags)
     user_message.embedding = user_embedding
 
     db.add(user_message)
@@ -845,6 +858,9 @@ async def _chat_stream_internal(
                                 continue
 
             # Save complete assistant message to database
+            # Extract initial thematic tags for assistant message
+            assistant_tags = extract_keywords(full_response, max_keywords=5)
+
             assistant_message = Message(
                 conversation_id=conversation_id,
                 role="assistant",
@@ -852,13 +868,14 @@ async def _chat_stream_internal(
                 metadata_={
                     "model": agent.model_path,
                     "tool_calls_count": tool_calls_count,
-                    "surfaced_memories_count": len(surfaced_memories),
-                    "streamed": True
+                    "surfaced_memories_count": 0,  # Will be updated by memory coordination
+                    "streamed": True,
+                    "tags": assistant_tags
                 }
             )
 
-            # Generate embedding for assistant message
-            assistant_embedding = embedding_service.embed_text(full_response)
+            # Generate embedding with tags for assistant message
+            assistant_embedding = embedding_service.embed_with_tags(full_response, assistant_tags)
             assistant_message.embedding = assistant_embedding
 
             db.add(assistant_message)

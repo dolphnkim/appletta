@@ -38,6 +38,27 @@ class EmbeddingService:
         embedding = self.model.encode(text, convert_to_numpy=True)
         return embedding.tolist()
 
+    def embed_with_tags(self, text: str, tags: List[str]) -> List[float]:
+        """Generate embedding for text with thematic tags appended
+
+        Tags enhance the semantic embedding with conceptual/thematic metadata.
+
+        Args:
+            text: Input text to embed
+            tags: List of thematic tags/concepts
+
+        Returns:
+            List of floats representing the embedding vector
+        """
+        if tags and len(tags) > 0:
+            # Append tags to content for embedding
+            tags_str = ", ".join(tags)
+            augmented_text = f"{text}\n[THEMES: {tags_str}]"
+            return self.embed_text(augmented_text)
+        else:
+            # No tags, just embed the text
+            return self.embed_text(text)
+
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts
 
