@@ -4,11 +4,11 @@
 
 from datetime import datetime
 
-from typing import Optional
+from typing import Optional, Literal
 
 from uuid import UUID
 
- 
+
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -70,6 +70,8 @@ class AgentCreate(BaseModel):
 
     description: Optional[str] = None
 
+    agent_type: Literal["main", "memory", "tool", "reflection", "other"] = Field(default="main")
+
     model_path: str = Field(..., description="Path to local MLX model directory")
 
     adapter_path: Optional[str] = Field(None, description="Path to LoRA adapter directory")
@@ -100,6 +102,8 @@ class AgentUpdate(BaseModel):
 
     description: Optional[str] = None
 
+    agent_type: Optional[Literal["main", "memory", "tool", "reflection", "other"]] = None
+
     model_path: Optional[str] = None
 
     adapter_path: Optional[str] = None
@@ -129,6 +133,8 @@ class AgentResponse(BaseModel):
     name: str
 
     description: Optional[str]
+
+    agent_type: str
 
     model_path: str
 
@@ -171,6 +177,8 @@ class AgentFileData(BaseModel):
     name: str
 
     description: Optional[str]
+
+    agent_type: Literal["main", "memory", "tool", "reflection", "other"] = Field(default="main")
 
     model_path: str
 

@@ -73,8 +73,9 @@ export default function LLMConfig({
             label="Model"
             value={modelPath}
             onSelect={onModelPathUpdate}
-            helpText="choose model from filepath"
+            helpText="choose MLX model folder from filepath"
             required
+            selectFolders={true}
           />
 
           {/* Adapter Path */}

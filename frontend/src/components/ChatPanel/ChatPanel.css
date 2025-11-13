@@ -49,6 +49,12 @@
   border-color: #007aff;
 }
 
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .new-chat-button {
   background: #007aff;
   color: white;

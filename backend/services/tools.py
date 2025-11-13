@@ -7,9 +7,11 @@ The LLM can create, read, update, and delete journal blocks to maintain its memo
 from typing import Dict, List, Any, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from backend.db.models.journal_block import JournalBlock
 from backend.services.embedding_service import get_embedding_service
+from backend.services.memory_service import search_memories as search_memories_service, fetch_full_memories
 
 
 # ============================================================================
@@ -108,6 +110,58 @@ JOURNAL_BLOCK_TOOLS = [
                 "required": ["block_id"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_memories",
+            "description": "Search across all memories (journal blocks, uploaded files, and past conversations) using semantic similarity. Use this when you want to actively find relevant information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query (what you're looking for)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default: 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_memories",
+            "description": "Fetch full content of specific memories by their IDs. Use this to get complete details about memories you've identified.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "memory_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of memory IDs to fetch"
+                    }
+                },
+                "required": ["memory_ids"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_rag_files",
+            "description": "List all uploaded files/documents that are attached to your context. Use this to see what reference materials are available.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
     }
 ]
 
@@ -158,6 +212,20 @@ def execute_tool(
 
     elif tool_name == "delete_journal_block":
         return delete_journal_block(arguments["block_id"], db)
+
+    elif tool_name == "search_memories":
+        return search_memories(
+            agent_id,
+            arguments["query"],
+            arguments.get("limit", 5),
+            db
+        )
+
+    elif tool_name == "fetch_memories":
+        return fetch_memories(arguments["memory_ids"], db)
+
+    elif tool_name == "list_rag_files":
+        return list_rag_files(agent_id, db)
 
     else:
         return {"error": f"Unknown tool: {tool_name}"}
@@ -321,3 +389,113 @@ def delete_journal_block(block_id: str, db: Session) -> Dict[str, Any]:
         }
     except ValueError:
         return {"error": f"Invalid block ID: {block_id}"}
+
+
+# ============================================================================
+# Memory Search Tool Functions
+# ============================================================================
+
+def search_memories(
+    agent_id: UUID,
+    query: str,
+    limit: int,
+    db: Session
+) -> Dict[str, Any]:
+    """Search across all memories using semantic similarity"""
+    try:
+        # Use the memory service to search
+        candidates = search_memories_service(query, agent_id, db, limit=limit)
+
+        return {
+            "memories": [
+                {
+                    "id": candidate.id,
+                    "source_type": candidate.source_type,
+                    "content": candidate.content,
+                    "similarity_score": candidate.similarity_score,
+                    "metadata": candidate.metadata
+                }
+                for candidate in candidates
+            ],
+            "count": len(candidates)
+        }
+    except Exception as e:
+        return {"error": f"Memory search failed: {str(e)}"}
+
+
+def fetch_memories(memory_ids: List[str], db: Session) -> Dict[str, Any]:
+    """Fetch full content of specific memories by ID"""
+    try:
+        memories = fetch_full_memories(memory_ids, db)
+        return {
+            "memories": memories,
+            "count": len(memories)
+        }
+    except Exception as e:
+        return {"error": f"Failed to fetch memories: {str(e)}"}
+
+
+def list_rag_files(agent_id: UUID, db: Session) -> Dict[str, Any]:
+    """List all RAG files/folders attached to this agent"""
+    try:
+        query = text("""
+            SELECT
+                folder.id as folder_id,
+                folder.name as folder_name,
+                COUNT(DISTINCT file.id) as file_count,
+                COUNT(DISTINCT chunk.id) as chunk_count
+            FROM rag_folders folder
+            LEFT JOIN rag_files file ON file.folder_id = folder.id
+            LEFT JOIN rag_chunks chunk ON chunk.file_id = file.id
+            WHERE folder.agent_id = :agent_id
+            GROUP BY folder.id, folder.name
+            ORDER BY folder.name
+        """)
+
+        results = db.execute(query, {"agent_id": str(agent_id)}).fetchall()
+
+        folders = [
+            {
+                "folder_id": str(row.folder_id),
+                "folder_name": row.folder_name,
+                "file_count": row.file_count or 0,
+                "chunk_count": row.chunk_count or 0
+            }
+            for row in results
+        ]
+
+        # Also get individual files
+        files_query = text("""
+            SELECT
+                file.id,
+                file.filename,
+                file.folder_id,
+                COUNT(chunk.id) as chunk_count
+            FROM rag_files file
+            JOIN rag_folders folder ON file.folder_id = folder.id
+            LEFT JOIN rag_chunks chunk ON chunk.file_id = file.id
+            WHERE folder.agent_id = :agent_id
+            GROUP BY file.id, file.filename, file.folder_id
+            ORDER BY file.filename
+        """)
+
+        file_results = db.execute(files_query, {"agent_id": str(agent_id)}).fetchall()
+
+        files = [
+            {
+                "file_id": str(row.id),
+                "filename": row.filename,
+                "folder_id": str(row.folder_id),
+                "chunk_count": row.chunk_count or 0
+            }
+            for row in file_results
+        ]
+
+        return {
+            "folders": folders,
+            "files": files,
+            "total_folders": len(folders),
+            "total_files": len(files)
+        }
+    except Exception as e:
+        return {"error": f"Failed to list RAG files: {str(e)}"}

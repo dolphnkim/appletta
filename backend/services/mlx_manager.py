@@ -93,17 +93,19 @@ class MLXServerProcess:
 
     def get_logs(self, lines: int = 50) -> str:
 
-        """Get recent log output from the process
+        """Get recent log output from the process"""
 
- 
+        log_file = Path("logs") / f"mlx_server_{self.agent_id}.log"
 
-        TODO: Implement proper log capture to file
+        if log_file.exists():
 
-        """
+            with open(log_file, 'r') as f:
 
-        # TODO: Read from log file instead
+                all_lines = f.readlines()
 
-        return "TODO: Implement log capture"
+                return ''.join(all_lines[-lines:])
+
+        return "No log file found"
 
  
 
@@ -293,15 +295,17 @@ class MLXManager:
 
  
 
-        # TODO: Set up proper logging
+        # Set up proper logging
 
-        # log_file = Path(f"logs/mlx_server_{agent_id}.log")
+        log_dir = Path("logs")
 
-        # log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(exist_ok=True)
 
-        # log_handle = open(log_file, 'w')
+        log_file = log_dir / f"mlx_server_{agent_id}.log"
 
- 
+        log_handle = open(log_file, 'w')
+
+
 
         # Start process
 
@@ -311,13 +315,9 @@ class MLXManager:
 
                 cmd,
 
-                stdout=subprocess.PIPE,  # TODO: Redirect to log file
+                stdout=log_handle,
 
-                stderr=subprocess.PIPE,  # TODO: Redirect to log file
-
-                # stdout=log_handle,
-
-                # stderr=subprocess.STDOUT,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout
 
             )
 
@@ -335,7 +335,13 @@ class MLXManager:
 
             # Process already exited, something went wrong
 
-            stdout, stderr = process.communicate()
+            log_handle.close()
+
+            # Read log file for error details
+
+            with open(log_file, 'r') as f:
+
+                log_output = f.read()
 
             raise RuntimeError(
 
@@ -343,7 +349,7 @@ class MLXManager:
 
                 f"Exit code: {process.returncode}\n"
 
-                f"Error: {stderr.decode()}"
+                f"Log output:\n{log_output}"
 
             )
 

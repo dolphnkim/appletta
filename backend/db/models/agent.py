@@ -21,9 +21,11 @@ from datetime import datetime
 
 from uuid import UUID, uuid4
 
- 
+import enum
 
-from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime
+
+
+from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime, Enum
 
 from sqlalchemy.dialects.postgresql import UUID as pgUUID
 
@@ -35,15 +37,31 @@ from backend.db.base import Base
 
 
 
+class AgentType(str, enum.Enum):
+
+    """Agent type categories"""
+
+    MAIN = "main"
+
+    MEMORY = "memory"
+
+    TOOL = "tool"
+
+    REFLECTION = "reflection"
+
+    OTHER = "other"
+
+
+
 class Agent(Base):
 
     """Agent configuration and settings"""
 
- 
+
 
     __tablename__ = "agents"
 
- 
+
 
     # Identity
 
@@ -52,6 +70,8 @@ class Agent(Base):
     name = Column(String(255), nullable=False, index=True)
 
     description = Column(Text, nullable=True)
+
+    agent_type = Column(String(50), nullable=False, default="main")
 
  
 
@@ -145,6 +165,8 @@ class Agent(Base):
 
             "description": self.description,
 
+            "agent_type": self.agent_type if self.agent_type else "main",
+
             "model_path": self.model_path,
 
             "adapter_path": self.adapter_path,
@@ -203,6 +225,8 @@ class Agent(Base):
 
                 "description": self.description,
 
+                "agent_type": self.agent_type if self.agent_type else "main",
+
                 "model_path": self.model_path,
 
                 "adapter_path": self.adapter_path,
@@ -257,17 +281,25 @@ class Agent(Base):
 
         embedding_config = agent_dict.get("embedding_config", {})
 
- 
+
 
         # TODO: Add validation that paths exist before creating agent
 
- 
+
+
+        # Get agent_type as string
+
+        agent_type = agent_dict.get("agent_type", "main")
+
+
 
         return cls(
 
             name=agent_dict.get("name"),
 
             description=agent_dict.get("description"),
+
+            agent_type=agent_type,
 
             model_path=agent_dict.get("model_path"),
 

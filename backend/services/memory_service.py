@@ -76,11 +76,11 @@ def search_memories(
             id,
             'journal_block' as source_type,
             value as content,
-            1 - (embedding <=> :embedding::vector) as similarity
+            1 - (embedding <=> CAST(:embedding AS vector)) as similarity
         FROM journal_blocks
         WHERE agent_id = :agent_id
         AND embedding IS NOT NULL
-        ORDER BY embedding <=> :embedding::vector
+        ORDER BY embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
     """)
 
@@ -108,13 +108,13 @@ def search_memories(
             c.id,
             'rag_chunk' as source_type,
             c.content,
-            1 - (c.embedding <=> :embedding::vector) as similarity
+            1 - (c.embedding <=> CAST(:embedding AS vector)) as similarity
         FROM rag_chunks c
         JOIN rag_files f ON c.file_id = f.id
         JOIN rag_folders folder ON f.folder_id = folder.id
         WHERE folder.agent_id = :agent_id
         AND c.embedding IS NOT NULL
-        ORDER BY c.embedding <=> :embedding::vector
+        ORDER BY c.embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
     """)
 
@@ -142,12 +142,12 @@ def search_memories(
             m.id,
             'message' as source_type,
             m.content,
-            1 - (m.embedding <=> :embedding::vector) as similarity
+            1 - (m.embedding <=> CAST(:embedding AS vector)) as similarity
         FROM messages m
         JOIN conversations conv ON m.conversation_id = conv.id
         WHERE conv.agent_id = :agent_id
         AND m.embedding IS NOT NULL
-        ORDER BY m.embedding <=> :embedding::vector
+        ORDER BY m.embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
     """)
 

@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 
-from backend.db.models.agent import Agent
+from backend.db.models.agent import Agent, AgentType
 
 from backend.schemas.agent import (
 
@@ -45,6 +45,10 @@ from backend.schemas.agent import (
     AgentFile,
 
 )
+
+from backend.services.token_counter import count_tokens
+
+from backend.services.tools import JOURNAL_BLOCK_TOOLS
 
  
 
@@ -95,6 +99,8 @@ async def create_agent(
         name=agent_data.name,
 
         description=agent_data.description,
+
+        agent_type=agent_data.agent_type,
 
         model_path=agent_data.model_path,
 
@@ -220,6 +226,10 @@ async def update_agent(
 
 
 
+    # agent_type is already a string, no conversion needed
+
+
+
     # Flatten nested configs if provided
 
     if "llm_config" in update_data:
@@ -302,9 +312,125 @@ async def delete_agent(
 
     return {"message": f"Agent {agent_id} deleted successfully"}
 
- 
 
- 
+
+
+
+# ============================================================================
+
+# Context Window
+
+# ============================================================================
+
+
+
+@router.get("/{agent_id}/context-window")
+
+async def get_agent_context_window(
+
+    agent_id: UUID,
+
+    db: Session = Depends(get_db)
+
+):
+
+    """Get baseline context window for an agent (without conversation)
+
+
+
+    Shows token usage for:
+
+    - System instructions
+
+    - Tool descriptions
+
+    - Total tokens and percentage of max context
+
+    """
+
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+
+    if not agent:
+
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+
+
+    # Count system instructions tokens
+
+    system_instructions_tokens = count_tokens(agent.system_instructions or "")
+
+
+
+    # Count tool descriptions tokens
+
+    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+
+    tools_tokens = count_tokens(tools_json)
+
+
+
+    total_tokens = system_instructions_tokens + tools_tokens
+
+    max_tokens = agent.max_context_tokens
+
+    percentage_used = (total_tokens / max_tokens * 100) if max_tokens > 0 else 0
+
+
+
+    return {
+
+        "sections": [
+
+            {
+
+                "name": "System Instructions",
+
+                "tokens": system_instructions_tokens,
+
+                "percentage": (system_instructions_tokens / max_tokens * 100) if max_tokens > 0 else 0,
+
+                "content": agent.system_instructions[:500] if agent.system_instructions else ""
+
+            },
+
+            {
+
+                "name": "Tools descriptions",
+
+                "tokens": tools_tokens,
+
+                "percentage": (tools_tokens / max_tokens * 100) if max_tokens > 0 else 0,
+
+                "content": tools_json[:500]
+
+            },
+
+            {
+
+                "name": "Available for messages",
+
+                "tokens": max_tokens - total_tokens,
+
+                "percentage": ((max_tokens - total_tokens) / max_tokens * 100) if max_tokens > 0 else 0,
+
+                "content": None
+
+            }
+
+        ],
+
+        "total_tokens": total_tokens,
+
+        "max_context_tokens": max_tokens,
+
+        "percentage_used": percentage_used
+
+    }
+
+
+
+
 
 # ============================================================================
 

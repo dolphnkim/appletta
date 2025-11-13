@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { conversationAPI } from '../../api/conversationAPI';
+import ContextWindowModal from './ContextWindowModal';
+import ContextWindowIndicator from './ContextWindowIndicator';
 import type { Agent } from '../../types/agent';
 import type { Conversation, Message } from '../../types/conversation';
 import './ChatPanel.css';
@@ -21,6 +23,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [error, setError] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [showContextWindow, setShowContextWindow] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -220,18 +223,25 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
         <div className="chat-header-title">
           {currentConversation ? currentConversation.title : 'Chat'}
         </div>
-        <select
-          className="agent-selector"
-          value={agentId}
-          onChange={(e) => onAgentChange(e.target.value)}
-          title="Select agent"
-        >
-          {agents.map(agent => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
+        <div className="chat-header-actions">
+          <ContextWindowIndicator
+            agentId={agentId}
+            conversationId={conversationId}
+            onClick={() => setShowContextWindow(true)}
+          />
+          <select
+            className="agent-selector"
+            value={agentId}
+            onChange={(e) => onAgentChange(e.target.value)}
+            title="Select agent"
+          >
+            {agents.map(agent => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {error && (
@@ -364,6 +374,15 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
         </form>
         <div className="input-hint">Press Enter to send, Shift+Enter for new line</div>
       </div>
+
+      {/* Context Window Modal */}
+      {showContextWindow && (
+        <ContextWindowModal
+          agentId={agentId}
+          conversationId={conversationId}
+          onClose={() => setShowContextWindow(false)}
+        />
+      )}
     </div>
   );
 }

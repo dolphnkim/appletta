@@ -77,8 +77,12 @@ export const agentAPI = {
 
 export const filesAPI = {
   // Browse filesystem
-  browse: (path?: string): Promise<FileBrowserResponse> =>
-    fetchAPI(`/files/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  browse: (path?: string, showHidden = true): Promise<FileBrowserResponse> => {
+    const params = new URLSearchParams();
+    if (path) params.set('path', path);
+    params.set('show_hidden', String(showHidden));
+    return fetchAPI(`/files/browse?${params.toString()}`);
+  },
 
   // Validate model path
   validate: (path: string): Promise<{ valid: boolean; message?: string }> =>

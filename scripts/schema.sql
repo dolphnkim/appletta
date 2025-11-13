@@ -11,10 +11,16 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;
 -- AGENTS
 -- ============================================================================
 
+-- Agent type enum
+CREATE TYPE agent_type AS ENUM ('main', 'memory', 'tool', 'reflection', 'other');
+
 CREATE TABLE agents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
+
+    -- Agent type: determines how this agent is used
+    agent_type agent_type DEFAULT 'main',
 
     -- Model paths
     model_path VARCHAR(1024) NOT NULL,

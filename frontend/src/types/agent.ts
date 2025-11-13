@@ -1,5 +1,7 @@
 // Agent types matching backend schema
 
+export type AgentType = 'main' | 'memory' | 'tool' | 'reflection' | 'other';
+
 export interface LLMConfig {
   reasoning_enabled: boolean;
   temperature: number;
@@ -20,6 +22,7 @@ export interface Agent {
   id: string;
   name: string;
   description?: string;
+  agent_type: AgentType;
   model_path: string;
   adapter_path?: string;
   system_instructions: string;
@@ -32,6 +35,7 @@ export interface Agent {
 export interface AgentCreate {
   name: string;
   description?: string;
+  agent_type?: AgentType;
   model_path: string;
   adapter_path?: string;
   system_instructions: string;
@@ -42,6 +46,7 @@ export interface AgentCreate {
 export interface AgentUpdate {
   name?: string;
   description?: string;
+  agent_type?: AgentType;
   model_path?: string;
   adapter_path?: string;
   system_instructions?: string;
@@ -54,6 +59,7 @@ export interface AgentFile {
   agent: {
     name: string;
     description: string;
+    agent_type?: AgentType;
     model_path: string;
     adapter_path?: string;
     system_instructions: string;

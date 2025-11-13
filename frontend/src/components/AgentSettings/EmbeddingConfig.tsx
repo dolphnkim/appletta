@@ -44,8 +44,9 @@ export default function EmbeddingConfig({ config, onUpdate }: EmbeddingConfigPro
             label="Embedding model"
             value={config.model_path}
             onSelect={(path) => onUpdate({ model_path: path })}
-            helpText="choose model from filepath"
+            helpText="choose model folder from filepath (e.g., HuggingFace model directory)"
             required
+            selectFolders={true}
           />
 
           {/* Embedding Dimensions */}
