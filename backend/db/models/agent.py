@@ -27,7 +27,7 @@ import enum
 
 from sqlalchemy import Boolean, Column, Float, Integer, String, Text, DateTime, Enum
 
-from sqlalchemy.dialects.postgresql import UUID as pgUUID
+from sqlalchemy.dialects.postgresql import UUID as pgUUID, JSONB
 
 from sqlalchemy.orm import relationship
 
@@ -75,7 +75,9 @@ class Agent(Base):
 
     is_template = Column(Boolean, default=False, nullable=False)  # Template agents are pristine and saved-as
 
- 
+    enabled_tools = Column(JSONB, nullable=True)  # List of tool names enabled for this agent
+
+
 
     # Model Configuration - Filepaths to local MLX models
 
@@ -171,6 +173,8 @@ class Agent(Base):
 
             "is_template": self.is_template,
 
+            "enabled_tools": self.enabled_tools if self.enabled_tools else [],
+
             "model_path": self.model_path,
 
             "adapter_path": self.adapter_path,
@@ -230,6 +234,8 @@ class Agent(Base):
                 "description": self.description,
 
                 "agent_type": self.agent_type if self.agent_type else "main",
+
+                "enabled_tools": self.enabled_tools if self.enabled_tools else [],
 
                 "model_path": self.model_path,
 
@@ -304,6 +310,8 @@ class Agent(Base):
             description=agent_dict.get("description"),
 
             agent_type=agent_type,
+
+            enabled_tools=agent_dict.get("enabled_tools"),
 
             model_path=agent_dict.get("model_path"),
 

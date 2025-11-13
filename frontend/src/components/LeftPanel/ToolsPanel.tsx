@@ -1,69 +1,50 @@
 import { useState, useEffect } from 'react';
 import './ToolsPanel.css';
+import { agentAPI } from '../../api/agentAPI';
+import type { Tool } from '../../types/agent';
 
 interface ToolsPanelProps {
   agentId: string;
+  enabledTools: string[];
+  onToolsChange: (enabledTools: string[]) => void;
 }
 
-interface Tool {
-  name: string;
-  description: string;
-  parameters: any;
-  enabled: boolean;
-}
-
-export default function ToolsPanel({ agentId }: ToolsPanelProps) {
-  const [tools, setTools] = useState<Tool[]>([]);
+export default function ToolsPanel({ agentId, enabledTools, onToolsChange }: ToolsPanelProps) {
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // For now, show the built-in journal block tools
-    // In the future, this would fetch from an API
-    setTools([
-      {
-        name: 'create_journal_block',
-        description: 'Create a new journal block to store thoughts, insights, or important information',
-        parameters: {
-          label: 'string',
-          value: 'string',
-          description: 'string (optional)',
-        },
-        enabled: true,
-      },
-      {
-        name: 'read_journal_block',
-        description: 'Read the full content of a journal block by its ID',
-        parameters: {
-          block_id: 'string',
-        },
-        enabled: true,
-      },
-      {
-        name: 'update_journal_block',
-        description: 'Update the value of an existing journal block',
-        parameters: {
-          block_id: 'string',
-          value: 'string',
-        },
-        enabled: true,
-      },
-      {
-        name: 'delete_journal_block',
-        description: 'Delete a journal block permanently',
-        parameters: {
-          block_id: 'string',
-        },
-        enabled: true,
-      },
-      {
-        name: 'list_journal_blocks',
-        description: 'Get a list of all journal blocks with their metadata',
-        parameters: {},
-        enabled: true,
-      },
-    ]);
-    setLoading(false);
-  }, [agentId]);
+    const fetchTools = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await agentAPI.getAvailableTools();
+        setAvailableTools(response.tools);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load tools');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTools();
+  }, []);
+
+  const handleToggleTool = (toolName: string) => {
+    const isEnabled = enabledTools.includes(toolName);
+
+    let newEnabledTools: string[];
+    if (isEnabled) {
+      // Remove tool
+      newEnabledTools = enabledTools.filter(t => t !== toolName);
+    } else {
+      // Add tool
+      newEnabledTools = [...enabledTools, toolName];
+    }
+
+    onToolsChange(newEnabledTools);
+  };
 
   if (loading) {
     return (
@@ -73,43 +54,50 @@ export default function ToolsPanel({ agentId }: ToolsPanelProps) {
     );
   }
 
+  if (error) {
+    return (
+      <div className="tools-panel">
+        <div className="tools-error">Error: {error}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="tools-panel">
       <div className="tools-header">
         <h2 className="tools-title">Available Tools</h2>
         <p className="tools-description">
-          Tools that this agent can use to interact with its environment
+          Configure which tools this agent can use
         </p>
       </div>
 
       <div className="tools-list">
-        {tools.map((tool) => (
-          <div key={tool.name} className="tool-item">
-            <div className="tool-header">
-              <div className="tool-name">{tool.name}</div>
-              <div className={`tool-status ${tool.enabled ? 'enabled' : 'disabled'}`}>
-                {tool.enabled ? '✓' : '○'}
+        {availableTools.map((tool) => {
+          const isEnabled = enabledTools.includes(tool.name);
+
+          return (
+            <div key={tool.name} className="tool-item">
+              <div className="tool-header">
+                <div className="tool-name">{tool.name}</div>
+                <button
+                  className={`tool-toggle ${isEnabled ? 'enabled' : 'disabled'}`}
+                  onClick={() => handleToggleTool(tool.name)}
+                  title={isEnabled ? 'Disable tool' : 'Enable tool'}
+                >
+                  {isEnabled ? '✓' : '○'}
+                </button>
               </div>
+              <div className="tool-description">{tool.description}</div>
             </div>
-            <div className="tool-description">{tool.description}</div>
-            <div className="tool-parameters">
-              <div className="tool-parameters-label">Parameters:</div>
-              <div className="tool-parameters-list">
-                {Object.entries(tool.parameters).length === 0 ? (
-                  <div className="tool-parameter">None</div>
-                ) : (
-                  Object.entries(tool.parameters).map(([param, type]) => (
-                    <div key={param} className="tool-parameter">
-                      <span className="param-name">{param}</span>
-                      <span className="param-type">{type as string}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {enabledTools.length === 0 && (
+        <div className="tools-notice">
+          No tools enabled. Enable tools to allow this agent to interact with its environment.
+        </div>
+      )}
     </div>
   );
 }

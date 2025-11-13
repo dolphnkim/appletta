@@ -4,7 +4,7 @@
 
 from datetime import datetime
 
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 
 from uuid import UUID
 
@@ -74,6 +74,8 @@ class AgentCreate(BaseModel):
 
     is_template: bool = Field(default=False, description="Whether this agent is a template")
 
+    enabled_tools: Optional[List[str]] = Field(None, description="List of enabled tool names for this agent")
+
     model_path: str = Field(..., description="Path to local MLX model directory")
 
     adapter_path: Optional[str] = Field(None, description="Path to LoRA adapter directory")
@@ -108,6 +110,8 @@ class AgentUpdate(BaseModel):
 
     is_template: Optional[bool] = None
 
+    enabled_tools: Optional[List[str]] = None
+
     model_path: Optional[str] = None
 
     adapter_path: Optional[str] = None
@@ -141,6 +145,8 @@ class AgentResponse(BaseModel):
     agent_type: str
 
     is_template: bool
+
+    enabled_tools: List[str]
 
     model_path: str
 
@@ -185,6 +191,8 @@ class AgentFileData(BaseModel):
     description: Optional[str]
 
     agent_type: Literal["main", "memory", "tool", "reflection", "other"] = Field(default="main")
+
+    enabled_tools: Optional[List[str]] = None
 
     model_path: str
 

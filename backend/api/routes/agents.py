@@ -48,7 +48,7 @@ from backend.schemas.agent import (
 
 from backend.services.token_counter import count_tokens
 
-from backend.services.tools import JOURNAL_BLOCK_TOOLS
+from backend.services.tools import JOURNAL_BLOCK_TOOLS, get_enabled_tools, get_tools_description, ALL_TOOLS
 
  
 
@@ -364,7 +364,9 @@ async def get_agent_context_window(
 
     # Count tool descriptions tokens
 
-    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+    enabled_tools = get_enabled_tools(agent.enabled_tools)
+
+    tools_json = json.dumps(enabled_tools)
 
     tools_tokens = count_tokens(tools_json)
 
@@ -645,3 +647,51 @@ async def import_agent(
     return agent.to_dict()
 
  
+
+# ============================================================================
+# Tools Management
+# ============================================================================
+
+@router.get("/tools/available")
+async def get_available_tools():
+    """Get list of all available tools
+
+    Returns tool metadata for frontend display:
+    - name: Tool name
+    - description: Tool description
+    """
+    tools_list = []
+    for tool_name, tool_def in ALL_TOOLS.items():
+        tools_list.append({
+            "name": tool_name,
+            "description": tool_def["function"]["description"]
+        })
+
+    return {
+        "tools": tools_list,
+        "total": len(tools_list)
+    }
+
+
+@router.get("/{agent_id}/tools/description")
+async def get_agent_tools_description(
+    agent_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Get auto-generated tools description for agent
+
+    Returns a formatted description of the agent's enabled tools.
+    If no tools are enabled, returns description of all available tools.
+    """
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    description = get_tools_description(agent.enabled_tools)
+
+    return {
+        "agent_id": str(agent_id),
+        "enabled_tools": agent.enabled_tools if agent.enabled_tools else [],
+        "tools_description": description
+    }

@@ -24,6 +24,7 @@ export interface Agent {
   description?: string;
   agent_type: AgentType;
   is_template: boolean;
+  enabled_tools: string[];
   model_path: string;
   adapter_path?: string;
   system_instructions: string;
@@ -38,6 +39,7 @@ export interface AgentCreate {
   description?: string;
   agent_type?: AgentType;
   is_template?: boolean;
+  enabled_tools?: string[];
   model_path: string;
   adapter_path?: string;
   system_instructions: string;
@@ -50,6 +52,7 @@ export interface AgentUpdate {
   description?: string;
   agent_type?: AgentType;
   is_template?: boolean;
+  enabled_tools?: string[];
   model_path?: string;
   adapter_path?: string;
   system_instructions?: string;
@@ -83,4 +86,14 @@ export interface FileBrowserResponse {
   current_path: string;
   parent_path?: string;
   items: FileItem[];
+}
+
+export interface Tool {
+  name: string;
+  description: string;
+}
+
+export interface AvailableToolsResponse {
+  tools: Tool[];
+  total: number;
 }

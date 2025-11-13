@@ -33,6 +33,25 @@
   color: #888;
 }
 
+.tools-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #ef4444;
+}
+
+.tools-notice {
+  padding: 16px;
+  background-color: #252525;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #888;
+  text-align: center;
+  font-size: 13px;
+  margin-top: 16px;
+}
+
 .tools-list {
   display: flex;
   flex-direction: column;
@@ -65,25 +84,37 @@
   color: #7c3aed;
 }
 
-.tool-status {
-  width: 24px;
-  height: 24px;
+.tool-toggle {
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: bold;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.tool-status.enabled {
+.tool-toggle.enabled {
   background-color: #10b981;
   color: #fff;
 }
 
-.tool-status.disabled {
-  background-color: #6b7280;
-  color: #fff;
+.tool-toggle.enabled:hover {
+  background-color: #059669;
+}
+
+.tool-toggle.disabled {
+  background-color: #374151;
+  color: #9ca3af;
+}
+
+.tool-toggle.disabled:hover {
+  background-color: #4b5563;
+  color: #d1d5db;
 }
 
 .tool-description {

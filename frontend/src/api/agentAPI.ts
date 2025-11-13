@@ -1,4 +1,4 @@
-import type { Agent, AgentCreate, AgentUpdate, FileBrowserResponse } from '../types/agent';
+import type { Agent, AgentCreate, AgentUpdate, FileBrowserResponse, AvailableToolsResponse } from '../types/agent';
 
 const API_BASE = '/api/v1';
 
@@ -73,6 +73,14 @@ export const agentAPI = {
       body: formData,
     }).then(res => res.json());
   },
+
+  // Get all available tools
+  getAvailableTools: (): Promise<AvailableToolsResponse> =>
+    fetchAPI('/agents/tools/available'),
+
+  // Get tools description for an agent
+  getToolsDescription: (id: string): Promise<{ agent_id: string; enabled_tools: string[]; tools_description: string }> =>
+    fetchAPI(`/agents/${id}/tools/description`),
 };
 
 export const filesAPI = {
