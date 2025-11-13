@@ -23,7 +23,7 @@ from backend.schemas.conversation import (
 )
 from backend.services.mlx_manager import get_mlx_manager
 from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journal_blocks
-from backend.services.memory_service import search_memories, fetch_full_memories
+from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
 from backend.services.token_counter import count_tokens, count_messages_tokens, count_message_tokens
@@ -95,27 +95,21 @@ async def get_context_window(
             Agent.id == memory_attachment.attached_agent_id
         ).first()
 
-    selected_memory_ids = await coordinate_memories(
+    memory_narrative = await coordinate_memories(
         candidates=memory_candidates,
         query_context=last_user_message.content,
         memory_agent=memory_agent,
         target_count=7
     )
 
-    surfaced_memories = fetch_full_memories(selected_memory_ids, db)
-
     # Build system content sections
     system_instructions = agent.system_instructions or ""
     system_instructions_tokens = count_tokens(system_instructions)
 
-    # Build surfaced memories text
+    # Build surfaced memories text from narrative
     memories_text = ""
-    if surfaced_memories:
-        memories_text = "\n\n=== Surfaced Memories ===\n"
-        memories_text += "The following memories may be relevant to the current conversation:\n\n"
-        for memory in surfaced_memories:
-            memories_text += f"[{memory['source_type']}] {memory.get('title', 'Untitled')}\n"
-            memories_text += f"{memory['content']}\n\n"
+    if memory_narrative:
+        memories_text = f"\n\n=== Memories Surfacing ===\n{memory_narrative}\n\n"
 
     external_summary_tokens = count_tokens(memories_text)
 
@@ -521,16 +515,13 @@ async def chat(
             Agent.id == memory_attachment.attached_agent_id
         ).first()
 
-    # 3. Use memory coordinator to select which memories to surface
-    selected_memory_ids = await coordinate_memories(
+    # 3. Use memory coordinator to generate first-person narrative about surfaced memories
+    memory_narrative = await coordinate_memories(
         candidates=memory_candidates,
         query_context=request.message,
         memory_agent=memory_agent,  # Pass the attached memory agent (or None)
         target_count=7
     )
-
-    # 4. Fetch full content of selected memories
-    surfaced_memories = fetch_full_memories(selected_memory_ids, db)
 
     # Get conversation history
     history = db.query(Message).filter(
@@ -547,14 +538,9 @@ async def chat(
     # Build system message with journal blocks and memories
     system_content = agent.system_instructions or ""
 
-    # Add surfaced memories
-    if surfaced_memories:
-        memories_text = "\n\n=== Surfaced Memories ===\n"
-        memories_text += "The following memories may be relevant to the current conversation:\n\n"
-        for memory in surfaced_memories:
-            memories_text += f"[{memory['source_type']}] {memory.get('title', 'Untitled')}\n"
-            memories_text += f"{memory['content']}\n\n"
-        system_content += memories_text
+    # Add memory narrative
+    if memory_narrative:
+        system_content += f"\n\n=== Memories Surfacing ===\n{memory_narrative}\n\n"
 
     # Add journal blocks
     if blocks_list:
@@ -745,16 +731,13 @@ async def _chat_stream_internal(
             Agent.id == memory_attachment.attached_agent_id
         ).first()
 
-    # 3. Use memory coordinator to select which memories to surface
-    selected_memory_ids = await coordinate_memories(
+    # 3. Use memory coordinator to generate first-person narrative about surfaced memories
+    memory_narrative = await coordinate_memories(
         candidates=memory_candidates,
         query_context=message,
         memory_agent=memory_agent,
         target_count=7
     )
-
-    # 4. Fetch full content of selected memories
-    surfaced_memories = fetch_full_memories(selected_memory_ids, db)
 
     # Get conversation history
     history = db.query(Message).filter(
@@ -771,14 +754,9 @@ async def _chat_stream_internal(
     # Build system message with journal blocks and memories
     system_content = agent.system_instructions or ""
 
-    # Add surfaced memories
-    if surfaced_memories:
-        memories_text = "\n\n=== Surfaced Memories ===\n"
-        memories_text += "The following memories may be relevant to the current conversation:\n\n"
-        for memory in surfaced_memories:
-            memories_text += f"[{memory['source_type']}] {memory.get('title', 'Untitled')}\n"
-            memories_text += f"{memory['content']}\n\n"
-        system_content += memories_text
+    # Add memory narrative
+    if memory_narrative:
+        system_content += f"\n\n=== Memories Surfacing ===\n{memory_narrative}\n\n"
 
     # Add journal blocks
     if blocks_list:

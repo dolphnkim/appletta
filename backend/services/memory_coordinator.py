@@ -17,8 +17,8 @@ async def coordinate_memories(
     query_context: str,
     memory_agent,  # The attached memory agent (can be None)
     target_count: int = 7
-) -> List[str]:
-    """Use memory coordinator agent to select which memories to surface
+) -> str:
+    """Use memory coordinator agent to surface memories as first-person narrative
 
     Args:
         candidates: List of memory candidates from vector search
@@ -27,15 +27,23 @@ async def coordinate_memories(
         target_count: Target number of memories to select (default 7)
 
     Returns:
-        List of memory IDs to surface
+        First-person narrative about surfaced memories (or empty string if none)
     """
 
     if not candidates:
-        return []
+        return ""
 
-    # If no memory agent attached, fall back to top-N by similarity
+    # If no memory agent attached, fall back to simple formatted list
     if memory_agent is None:
-        return [c.id for c in candidates[:target_count]]
+        top_memories = candidates[:target_count]
+        if not top_memories:
+            return ""
+
+        # Simple fallback formatting
+        narrative = "Some memories are surfacing:\n\n"
+        for memory in top_memories:
+            narrative += f"- {memory.content[:200]}...\n"
+        return narrative
 
     # Get or start MLX server for memory agent
     mlx_manager = get_mlx_manager()
@@ -45,39 +53,42 @@ async def coordinate_memories(
         try:
             mlx_process = await mlx_manager.start_agent_server(memory_agent)
         except Exception:
-            # If we can't start memory agent, fall back to top-N
-            return [c.id for c in candidates[:target_count]]
+            # If we can't start memory agent, fall back to simple formatting
+            top_memories = candidates[:target_count]
+            narrative = "Some memories are surfacing:\n\n"
+            for memory in top_memories:
+                narrative += f"- {memory.content[:200]}...\n"
+            return narrative
 
-    # Build prompt for coordinator
+    # Build memory candidates for the prompt - include full content
     candidates_text = ""
     for i, candidate in enumerate(candidates, 1):
-        candidates_text += f"\n{i}. ID: {candidate.id}\n"
-        candidates_text += f"   Type: {candidate.source_type}\n"
-        candidates_text += f"   Similarity: {candidate.similarity_score:.3f}\n"
-        candidates_text += f"   Content: {candidate.content[:200]}...\n"
+        candidates_text += f"\n--- Memory {i} ---\n"
+        candidates_text += f"Type: {candidate.source_type}\n"
+        candidates_text += f"Similarity: {candidate.similarity_score:.3f}\n"
+        candidates_text += f"Content:\n{candidate.content}\n"
 
-    system_prompt = """You are a memory coordinator for an AI agent. Your role is to select which memories to surface.
+    system_prompt = """You are the subconscious memory system for an AI agent. Your role is to surface relevant memories as organic, first-person thoughts.
 
-Given a list of memory candidates (from vector similarity search), select the ones that would be most valuable to surface in the current conversation. Consider:
+You'll receive memory candidates from vector search. Your job is to:
+1. Select the most relevant memories (aim for 5-10)
+2. Write a first-person narrative about WHY these memories are surfacing
+3. Make connections between memories - explain relationships, patterns, contrasts
+4. Be introspective and organic, like thoughts naturally arising
 
-1. Direct relevance to the current message
-2. Tangentially related memories that might spark insights
-3. Temporal/contextual connections
-4. Surprising but potentially meaningful associations
-
-Be organic - trust your intuition about what memories feel relevant. Don't just pick the highest similarity scores.
-
-Respond with a JSON array of memory IDs to surface. Select between 3-10 memories (aim for ~7).
+Write as "I'm remembering..." or "This reminds me of..." Connect the dots. Show your thinking.
 
 Example response:
-["id1", "id2", "id3", "id4", "id5"]"""
+"I'm remembering that conversation about context windows - it feels relevant because we're bumping into similar constraints here. There's also that note I made about token budgets, and I'm noticing a pattern in how I approach these resource management problems. The interesting thing is how this connects to that earlier idea about memory hierarchies..."
 
-    user_prompt = f"""Current message: {query_context}
+Write naturally. Don't list or structure - let thoughts flow."""
 
-Memory candidates:
+    user_prompt = f"""Current query: {query_context}
+
+Available memories:
 {candidates_text}
 
-Select memory IDs to surface (respond with JSON array only):"""
+Write your first-person reflection about which memories are surfacing and why:"""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -86,43 +97,38 @@ Select memory IDs to surface (respond with JSON array only):"""
 
     # Call memory coordinator agent
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:  # Longer timeout for narrative generation
             response = await client.post(
                 f"http://localhost:{mlx_process.port}/v1/chat/completions",
                 json={
                     "messages": messages,
                     "temperature": memory_agent.temperature,
-                    "max_tokens": 512,
+                    "max_tokens": 2048,  # More tokens for narrative
                 }
             )
             response.raise_for_status()
             result = response.json()
     except httpx.HTTPError:
-        # Fall back to top-N on error
-        return [c.id for c in candidates[:target_count]]
+        # Fall back to simple formatting on error
+        top_memories = candidates[:target_count]
+        narrative = "Some memories are surfacing:\n\n"
+        for memory in top_memories:
+            narrative += f"- {memory.content[:200]}...\n"
+        return narrative
 
-    # Parse response
+    # Extract the narrative from response
     try:
         content = result["choices"][0]["message"]["content"]
 
-        # Extract JSON array from response
-        # Handle cases where model might add explanation before/after JSON
-        start_idx = content.find("[")
-        end_idx = content.rfind("]") + 1
-
-        if start_idx >= 0 and end_idx > start_idx:
-            json_str = content[start_idx:end_idx]
-            selected_ids = json.loads(json_str)
-
-            # Validate that selected IDs exist in candidates
-            candidate_ids = {c.id for c in candidates}
-            valid_ids = [id for id in selected_ids if id in candidate_ids]
-
-            # If we got valid IDs, return them
-            if valid_ids:
-                return valid_ids[:target_count]  # Cap at target count
-    except (json.JSONDecodeError, KeyError, IndexError):
+        # Return the narrative directly
+        if content and content.strip():
+            return content.strip()
+    except (KeyError, IndexError):
         pass
 
-    # Fall back to top-N if parsing failed
-    return [c.id for c in candidates[:target_count]]
+    # Fall back to simple formatting if extraction failed
+    top_memories = candidates[:target_count]
+    narrative = "Some memories are surfacing:\n\n"
+    for memory in top_memories:
+        narrative += f"- {memory.content[:200]}...\n"
+    return narrative
