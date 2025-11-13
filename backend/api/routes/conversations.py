@@ -862,9 +862,10 @@ async def _chat_stream_internal(
                     f"http://localhost:{mlx_process.port}/v1/chat/completions",
                     json={
                         "messages": messages,
-                        "tools": enabled_tools,
+                        "tools": enabled_tools if enabled_tools else [],
                         "temperature": agent.temperature,
-                        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
+                        "top_p": agent.top_p,
+                        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
                         "stream": True,
                     }
                 ) as response:
