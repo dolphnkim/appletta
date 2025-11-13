@@ -26,6 +26,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [showContextWindow, setShowContextWindow] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Load conversation when conversationId changes
   useEffect(() => {
@@ -108,6 +109,11 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
 
     // Use streaming if available
     await sendStreamingMessage(convId, messageContent);
+
+    // Keep focus on input after sending
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
   };
 
   const sendStreamingMessage = async (convId: string, content: string) => {
@@ -351,6 +357,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
       <div className="chat-input-container">
         <form onSubmit={sendMessage} className="chat-input-form">
           <textarea
+            ref={inputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => {

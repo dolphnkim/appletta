@@ -834,14 +834,20 @@ async def _chat_stream_internal(
     messages = [system_message] + messages_to_include
 
     # Get or start MLX server
+    import logging
+    logger = logging.getLogger(__name__)
     mlx_manager = get_mlx_manager()
     mlx_process = mlx_manager.get_agent_server(agent.id)
 
     if not mlx_process:
         try:
+            logger.info(f"Starting MLX server for agent {agent.id} ({agent.name})")
             mlx_process = await mlx_manager.start_agent_server(agent)
+            logger.info(f"MLX server started on port {mlx_process.port}")
         except Exception as e:
             raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
+    else:
+        logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
 
     # Streaming generator function
     async def generate_stream():
@@ -859,6 +865,7 @@ async def _chat_stream_internal(
                         "tools": enabled_tools,
                         "temperature": agent.temperature,
                         "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
+                        "seed": agent.seed if agent.seed is not None else None,
                         "stream": True,
                     }
                 ) as response:
@@ -916,6 +923,12 @@ async def _chat_stream_internal(
             yield f"data: {json.dumps({'type': 'done', 'message_id': str(assistant_message.id)})}\n\n"
 
         except Exception as e:
+            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            error_details = traceback.format_exc()
+            # Log the full error
+            logger.error(f"Stream error occurred:\n{error_details}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(
