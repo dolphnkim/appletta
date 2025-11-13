@@ -32,8 +32,8 @@ export default function ContextWindowIndicator({
 
     fetchData();
 
-    // Refresh every 2 seconds
-    const interval = setInterval(fetchData, 2000);
+    // Refresh every 10 seconds (was 2 seconds - too aggressive)
+    const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
   }, [agentId, conversationId]);
 
