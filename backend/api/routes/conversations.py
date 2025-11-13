@@ -27,6 +27,7 @@ from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
 from backend.services.keyword_extraction import extract_keywords
+from backend.services.tag_update_service import apply_tag_updates
 from backend.services.token_counter import count_tokens, count_messages_tokens, count_message_tokens
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
@@ -96,12 +97,16 @@ async def get_context_window(
             Agent.id == memory_attachment.attached_agent_id
         ).first()
 
-    memory_narrative = await coordinate_memories(
+    memory_narrative, tag_updates = await coordinate_memories(
         candidates=memory_candidates,
         query_context=last_user_message.content,
         memory_agent=memory_agent,
         target_count=7
     )
+
+    # Apply tag updates from memory agent
+    if tag_updates:
+        apply_tag_updates(tag_updates, db)
 
     # Build system content sections
     system_instructions = agent.system_instructions or ""
@@ -521,12 +526,16 @@ async def chat(
         ).first()
 
     # 3. Use memory coordinator to generate first-person narrative about surfaced memories
-    memory_narrative = await coordinate_memories(
+    memory_narrative, tag_updates = await coordinate_memories(
         candidates=memory_candidates,
         query_context=request.message,
         memory_agent=memory_agent,  # Pass the attached memory agent (or None)
         target_count=7
     )
+
+    # Apply tag updates from memory agent
+    if tag_updates:
+        apply_tag_updates(tag_updates, db)
 
     # Get conversation history
     history = db.query(Message).filter(
@@ -745,12 +754,16 @@ async def _chat_stream_internal(
         ).first()
 
     # 3. Use memory coordinator to generate first-person narrative about surfaced memories
-    memory_narrative = await coordinate_memories(
+    memory_narrative, tag_updates = await coordinate_memories(
         candidates=memory_candidates,
         query_context=message,
         memory_agent=memory_agent,
         target_count=7
     )
+
+    # Apply tag updates from memory agent
+    if tag_updates:
+        apply_tag_updates(tag_updates, db)
 
     # Get conversation history
     history = db.query(Message).filter(

@@ -6,7 +6,7 @@ from vector search and decides which memories to surface organically.
 
 import httpx
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 
 from backend.services.mlx_manager import get_mlx_manager
 from backend.services.memory_service import MemoryCandidate
@@ -17,7 +17,7 @@ async def coordinate_memories(
     query_context: str,
     memory_agent,  # The attached memory agent (can be None)
     target_count: int = 7
-) -> str:
+) -> Tuple[str, Dict[str, List[str]]]:
     """Use memory coordinator agent to surface memories as first-person narrative
 
     Args:
@@ -27,23 +27,25 @@ async def coordinate_memories(
         target_count: Target number of memories to select (default 7)
 
     Returns:
-        First-person narrative about surfaced memories (or empty string if none)
+        Tuple of (narrative string, tag_updates dict)
+        - narrative: First-person narrative about surfaced memories
+        - tag_updates: Dict mapping memory IDs to updated tag lists
     """
 
     if not candidates:
-        return ""
+        return ("", {})
 
     # If no memory agent attached, fall back to simple formatted list
     if memory_agent is None:
         top_memories = candidates[:target_count]
         if not top_memories:
-            return ""
+            return ("", {})
 
         # Simple fallback formatting
         narrative = "Some memories are surfacing:\n\n"
         for memory in top_memories:
             narrative += f"- {memory.content[:200]}...\n"
-        return narrative
+        return (narrative, {})
 
     # Get or start MLX server for memory agent
     mlx_manager = get_mlx_manager()
@@ -58,7 +60,7 @@ async def coordinate_memories(
             narrative = "Some memories are surfacing:\n\n"
             for memory in top_memories:
                 narrative += f"- {memory.content[:200]}...\n"
-            return narrative
+            return (narrative, {})
 
     # Build memory candidates for the prompt - include full content and tags
     candidates_text = ""
@@ -126,7 +128,7 @@ Write your first-person reflection and provide tag updates:"""
         narrative = "Some memories are surfacing:\n\n"
         for memory in top_memories:
             narrative += f"- {memory.content[:200]}...\n"
-        return narrative
+        return (narrative, {})
 
     # Extract the narrative and tag updates from response
     try:
@@ -141,19 +143,19 @@ Write your first-person reflection and provide tag updates:"""
             narrative = parts[0].strip()
             tags_json = parts[1].strip()
 
-            # Parse tag updates (they're included but we don't return them - just narrative)
-            # Tag updates will be handled by the caller
+            # Parse tag updates
+            tag_updates = {}
             try:
                 tag_updates = json.loads(tags_json)
-                # Store tag updates for potential future use (for now, just validate parsing works)
             except json.JSONDecodeError:
-                # If tag parsing fails, just use narrative
+                # If tag parsing fails, continue with empty tag updates
                 pass
 
-            return narrative if narrative else "Some memories are surfacing..."
+            narrative_text = narrative if narrative else "Some memories are surfacing..."
+            return (narrative_text, tag_updates)
         else:
-            # No tags section, return full content as narrative
-            return content.strip()
+            # No tags section, return full content as narrative with no tag updates
+            return (content.strip(), {})
 
     except (KeyError, IndexError, ValueError):
         pass
@@ -163,4 +165,4 @@ Write your first-person reflection and provide tag updates:"""
     narrative = "Some memories are surfacing:\n\n"
     for memory in top_memories:
         narrative += f"- {memory.content[:200]}...\n"
-    return narrative
+    return (narrative, {})
