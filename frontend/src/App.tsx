@@ -35,7 +35,11 @@ function App() {
 
   const handleClone = (newAgentId: string) => {
     console.log('Agent cloned:', newAgentId);
-    // Navigate to new agent or update state
+    // Switch to the new agent
+    setAgentId(newAgentId);
+    setCurrentConversationId(undefined); // Clear conversation when switching agents
+    // Refresh agents list to include the new agent
+    fetchAgents();
   };
 
   const handleConversationSelect = (conversationId: string) => {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAgent } from '../../hooks/useAgent';
+import { agentAPI } from '../../api/agentAPI';
 import AgentHeader from './AgentHeader';
 import EditableField from './EditableField';
 import SystemInstructionsModal from './SystemInstructionsModal';
@@ -81,9 +82,30 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
     }
   };
 
-  const handleCreateAgent = () => {
-    alert('Create agent functionality coming soon!');
-    // TODO: Implement create agent modal
+  const handleCreateAgent = async () => {
+    if (!agent) return;
+
+    try {
+      // Create a new agent using the current agent as a template
+      const newAgent = await agentAPI.create({
+        name: 'New Agent',
+        description: '',
+        agent_type: 'main',
+        model_path: agent.model_path,
+        adapter_path: agent.adapter_path,
+        system_instructions: '',
+        llm_config: agent.llm_config,
+        embedding_config: agent.embedding_config,
+      });
+
+      // Navigate to the new agent (reuse onClone callback)
+      if (newAgent && onClone) {
+        onClone(newAgent.id);
+      }
+    } catch (err) {
+      console.error('Failed to create agent:', err);
+      alert(`Failed to create agent: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const handleManageAgents = () => {
