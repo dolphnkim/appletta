@@ -926,8 +926,8 @@ async def _chat_stream_internal(
             db.commit()
             db.refresh(assistant_message)
 
-            # Send final message with database ID
-            yield f"data: {json.dumps({'type': 'done', 'message_id': str(assistant_message.id)})}\n\n"
+            # Send final message with both user and assistant messages
+            yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
 
         except Exception as e:
             import traceback

@@ -3,7 +3,7 @@
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from backend.db.session import get_db
 from backend.db.models.agent_attachment import AgentAttachment
@@ -78,7 +78,9 @@ async def list_agent_attachments(
 ):
     """List all attachments for an agent"""
 
-    query = db.query(AgentAttachment).filter(
+    query = db.query(AgentAttachment).options(
+        joinedload(AgentAttachment.attached_agent)
+    ).filter(
         AgentAttachment.agent_id == UUID(agent_id)
     )
 
@@ -103,7 +105,9 @@ async def get_agent_attachment(
 ):
     """Get a specific agent attachment"""
 
-    attachment = db.query(AgentAttachment).filter(
+    attachment = db.query(AgentAttachment).options(
+        joinedload(AgentAttachment.attached_agent)
+    ).filter(
         AgentAttachment.id == attachment_id
     ).first()
 
@@ -121,7 +125,9 @@ async def update_agent_attachment(
 ):
     """Update an agent attachment"""
 
-    attachment = db.query(AgentAttachment).filter(
+    attachment = db.query(AgentAttachment).options(
+        joinedload(AgentAttachment.attached_agent)
+    ).filter(
         AgentAttachment.id == attachment_id
     ).first()
 
