@@ -926,6 +926,9 @@ async def _chat_stream_internal(
             import traceback
             import logging
             logger = logging.getLogger(__name__)
+            logger.error(f"Stream error for agent {agent.name} on port {mlx_process.port}")
+            logger.error(f"MLX server process running: {mlx_process.is_running()}")
+            logger.error(f"Full error: {traceback.format_exc()}")
             error_details = traceback.format_exc()
             # Log the full error
             logger.error(f"Stream error occurred:\n{error_details}")

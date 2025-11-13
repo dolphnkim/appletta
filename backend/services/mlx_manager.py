@@ -11,6 +11,8 @@ import subprocess
 
 import signal
 
+import httpx
+
 from typing import Dict, Optional
 
 from uuid import UUID
@@ -327,17 +329,83 @@ class MLXManager:
 
  
 
-        # Wait a moment and check if process started successfully
+        # Wait for server to be ready (not just started, but accepting connections)
 
-        await asyncio.sleep(2)
+        max_wait_time = 60  # seconds
 
-        if not process.poll() is None:
+        check_interval = 2  # seconds
 
-            # Process already exited, something went wrong
+        elapsed = 0
+
+        server_ready = False
+
+
+
+        print(f"[MLX Manager] Waiting for MLX server on port {port} to be ready...")
+
+
+
+        while elapsed < max_wait_time:
+
+            # Check if process crashed
+
+            if process.poll() is not None:
+
+                log_handle.close()
+
+                with open(log_file, 'r') as f:
+
+                    log_output = f.read()
+
+                raise RuntimeError(
+
+                    f"MLX server failed to start.\n"
+
+                    f"Exit code: {process.returncode}\n"
+
+                    f"Command: {' '.join(cmd)}\n"
+
+                    f"Log output:\n{log_output}"
+
+                )
+
+
+
+            # Check if server is responding (try v1/models endpoint which mlx_lm.server has)
+
+            try:
+
+                async with httpx.AsyncClient(timeout=2.0) as client:
+
+                    response = await client.get(f"http://localhost:{port}/v1/models")
+
+                    if response.status_code in [200, 404]:  # Even 404 means server is up
+
+                        server_ready = True
+
+                        print(f"[MLX Manager] MLX server ready on port {port}")
+
+                        break
+
+            except (httpx.ConnectError, httpx.TimeoutException):
+
+                # Server not ready yet, keep waiting
+
+                pass
+
+
+
+            await asyncio.sleep(check_interval)
+
+            elapsed += check_interval
+
+
+
+        if not server_ready:
+
+            process.terminate()
 
             log_handle.close()
-
-            # Read log file for error details
 
             with open(log_file, 'r') as f:
 
@@ -345,11 +413,13 @@ class MLXManager:
 
             raise RuntimeError(
 
-                f"MLX server failed to start. "
+                f"MLX server started but not responding after {max_wait_time}s.\n"
 
-                f"Exit code: {process.returncode}\n"
+                f"Port: {port}\n"
 
-                f"Log output:\n{log_output}"
+                f"Command: {' '.join(cmd)}\n"
+
+                f"Last 500 chars of log:\n{log_output[-500:]}"
 
             )
 
