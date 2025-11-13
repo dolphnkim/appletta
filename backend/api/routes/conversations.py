@@ -22,7 +22,7 @@ from backend.schemas.conversation import (
     ChatResponse,
 )
 from backend.services.mlx_manager import get_mlx_manager
-from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journal_blocks, get_enabled_tools
+from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journal_blocks, get_enabled_tools, get_tools_description
 from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
@@ -563,6 +563,13 @@ async def chat(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
+    # Add tools description
+    tools_description = get_tools_description(agent.enabled_tools)
+    if tools_description != "No tools enabled":
+        system_content += f"\n\n=== Available Tools ===\n{tools_description}"
+    else:
+        system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
+
     # === CONTEXT WINDOW MANAGEMENT ===
     # Calculate token budget for STICKY vs SHIFTING sections
 
@@ -791,6 +798,13 @@ async def _chat_stream_internal(
         system_content += f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
+
+    # Add tools description
+    tools_description = get_tools_description(agent.enabled_tools)
+    if tools_description != "No tools enabled":
+        system_content += f"\n\n=== Available Tools ===\n{tools_description}"
+    else:
+        system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
     # === CONTEXT WINDOW MANAGEMENT ===
     system_message = {"role": "system", "content": system_content}
