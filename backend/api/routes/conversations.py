@@ -631,7 +631,8 @@ async def chat(
                         "messages": messages,
                         "tools": enabled_tools,
                         "temperature": agent.temperature,
-                        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
+                        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                        "seed": 42,  # For reproducibility and vibes
                     }
                 )
                 response.raise_for_status()
@@ -871,6 +872,7 @@ async def _chat_stream_internal(
                         "temperature": agent.temperature,
                         "top_p": agent.top_p,
                         "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                        "seed": 42,  # For reproducibility and vibes
                         "stream": True,
                     }
                 ) as response:
