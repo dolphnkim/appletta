@@ -267,6 +267,8 @@ class MLXManager:
 
             cmd.extend(["--adapter-path", str(adapter_path)])
 
+            print(f"[MLX Manager] Using adapter: {adapter_path}")
+
  
 
         # Add LLM config parameters
@@ -318,6 +320,14 @@ class MLXManager:
         log_file = log_dir / f"mlx_server_{agent_id}.log"
 
         log_handle = open(log_file, 'w')
+
+
+
+        # Log the full command for debugging
+
+        print(f"[MLX Manager] Starting MLX server with command:")
+
+        print(f"  {' '.join(cmd)}")
 
 
 
