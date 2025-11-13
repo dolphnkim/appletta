@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import AgentSettings from '../AgentSettings/AgentSettings';
 import ConversationsList from './ConversationsList';
 import ToolsPanel from './ToolsPanel';
 import './LeftPanel.css';
+import { agentAPI } from '../../api/agentAPI';
+import type { Agent } from '../../types/agent';
 
 interface LeftPanelProps {
   agentId: string;
@@ -24,6 +26,29 @@ export default function LeftPanel({
   onClone,
 }: LeftPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('conversations');
+  const [agent, setAgent] = useState<Agent | null>(null);
+
+  useEffect(() => {
+    const fetchAgent = async () => {
+      try {
+        const fetchedAgent = await agentAPI.get(agentId);
+        setAgent(fetchedAgent);
+      } catch (err) {
+        console.error('Failed to fetch agent:', err);
+      }
+    };
+
+    fetchAgent();
+  }, [agentId]);
+
+  const handleToolsChange = async (enabledTools: string[]) => {
+    try {
+      const updatedAgent = await agentAPI.update(agentId, { enabled_tools: enabledTools });
+      setAgent(updatedAgent);
+    } catch (err) {
+      console.error('Failed to update tools:', err);
+    }
+  };
 
   return (
     <div className="left-panel">
@@ -62,7 +87,13 @@ export default function LeftPanel({
         {activeTab === 'settings' && (
           <AgentSettings agentId={agentId} onDelete={onDelete} onClone={onClone} />
         )}
-        {activeTab === 'tools' && <ToolsPanel agentId={agentId} />}
+        {activeTab === 'tools' && agent && (
+          <ToolsPanel
+            agentId={agentId}
+            enabledTools={agent.enabled_tools || []}
+            onToolsChange={handleToolsChange}
+          />
+        )}
       </div>
     </div>
   );

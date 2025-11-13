@@ -48,6 +48,7 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
         description: updates.description ?? agent.description ?? '',
         agent_type: updates.agent_type ?? agent.agent_type,
         is_template: false, // New agent is not a template
+        enabled_tools: updates.enabled_tools ?? agent.enabled_tools ?? [],
         model_path: updates.model_path ?? agent.model_path,
         adapter_path: updates.adapter_path ?? agent.adapter_path,
         system_instructions: updates.system_instructions ?? agent.system_instructions,

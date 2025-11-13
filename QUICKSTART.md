@@ -7,13 +7,20 @@
 - PostgreSQL with pgvector extension
 - MLX (for running local LLMs on Mac)
 
-## Backend Setup
+## Setup
 
-### 1. Install Python Dependencies
+### 1. Install Dependencies
 
 ```bash
-cd backend
+# Python virtual environment
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+
+# Node dependencies
+cd frontend
+npm install
+cd ..
 ```
 
 ### 2. Set Up PostgreSQL Database
@@ -34,37 +41,31 @@ export DATABASE_URL="postgresql://your_user@localhost/appletta"
 
 Default: `postgresql://$USER@localhost/appletta`
 
-### 4. Run Backend Server
+## Running Appletta
 
+### Option 1: Separate Terminals (Recommended)
+
+**Terminal 1 - Backend:**
 ```bash
-# From project root
-python -m backend.main
-
-# Or from backend directory
-cd backend
-python main.py
+./start_backend.sh
 ```
 
-Backend will run on: **http://localhost:8000**
-- API docs: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
-
-## Frontend Setup
-
-### 1. Install Node Dependencies
-
+**Terminal 2 - Frontend:**
 ```bash
-cd frontend
-npm install
+./start_frontend.sh
 ```
 
-### 2. Run Frontend Dev Server
+### Option 2: Combined Terminal (tmux)
 
 ```bash
-npm run dev
+./start.sh  # Uses tmux to run both servers
 ```
 
-Frontend will run on: **http://localhost:5173**
+### Accessing the App
+
+- Frontend: **http://localhost:5173**
+- Backend: **http://localhost:8000**
+- API Docs: **http://localhost:8000/docs**
 
 ## Using Appletta
 
@@ -72,7 +73,20 @@ Frontend will run on: **http://localhost:5173**
 
 Open your browser to http://localhost:5173
 
-### 2. The Interface
+### 2. ⚠️ IMPORTANT: Configure Your Agent First
+
+**The default agent has placeholder paths and won't work until configured!**
+
+1. Go to **Left Panel** → **Agent Settings**
+2. Update these paths to point to real models on your system:
+   - **Model Path**: Path to your MLX model (e.g., `~/models/Qwen2.5-7B-Instruct-mlx`)
+   - **Embedding Model Path**: Path to embedding model (e.g., `~/models/gte-base`)
+3. Go to **Left Panel** → **Tools Tab**
+4. Enable the tools you want this agent to use (at minimum: `list_journal_blocks`, `read_journal_block`, `create_journal_block`)
+
+**Without valid model paths, the LLM will never connect!**
+
+### 3. The Interface
 
 **Left Panel:**
 - **Conversations Tab**: List and manage chat conversations

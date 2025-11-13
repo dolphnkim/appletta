@@ -22,7 +22,7 @@ from backend.schemas.conversation import (
     ChatResponse,
 )
 from backend.services.mlx_manager import get_mlx_manager
-from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journal_blocks
+from backend.services.tools import JOURNAL_BLOCK_TOOLS, execute_tool, list_journal_blocks, get_enabled_tools, get_tools_description
 from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
@@ -136,7 +136,8 @@ async def get_context_window(
     system_instructions_with_blocks_tokens = count_tokens(system_instructions + blocks_text)
 
     # Tools tokens
-    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+    enabled_tools = get_enabled_tools(agent.enabled_tools)
+    tools_json = json.dumps(enabled_tools)
     tools_tokens = count_tokens(tools_json)
 
     # Messages tokens
@@ -562,6 +563,13 @@ async def chat(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
+    # Add tools description
+    tools_description = get_tools_description(agent.enabled_tools)
+    if tools_description != "No tools enabled":
+        system_content += f"\n\n=== Available Tools ===\n{tools_description}"
+    else:
+        system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
+
     # === CONTEXT WINDOW MANAGEMENT ===
     # Calculate token budget for STICKY vs SHIFTING sections
 
@@ -570,7 +578,8 @@ async def chat(
     sticky_tokens = count_message_tokens(system_message)
 
     # Count tool definitions tokens (approximate)
-    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+    enabled_tools = get_enabled_tools(agent.enabled_tools)
+    tools_json = json.dumps(enabled_tools)
     sticky_tokens += count_tokens(tools_json)
 
     # Calculate remaining budget for messages (SHIFTING section)
@@ -620,7 +629,7 @@ async def chat(
                     f"http://localhost:{mlx_process.port}/v1/chat/completions",
                     json={
                         "messages": messages,
-                        "tools": JOURNAL_BLOCK_TOOLS,
+                        "tools": enabled_tools,
                         "temperature": agent.temperature,
                         "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
                     }
@@ -790,10 +799,18 @@ async def _chat_stream_internal(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
+    # Add tools description
+    tools_description = get_tools_description(agent.enabled_tools)
+    if tools_description != "No tools enabled":
+        system_content += f"\n\n=== Available Tools ===\n{tools_description}"
+    else:
+        system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
+
     # === CONTEXT WINDOW MANAGEMENT ===
     system_message = {"role": "system", "content": system_content}
     sticky_tokens = count_message_tokens(system_message)
-    tools_json = json.dumps(JOURNAL_BLOCK_TOOLS)
+    enabled_tools = get_enabled_tools(agent.enabled_tools)
+    tools_json = json.dumps(enabled_tools)
     sticky_tokens += count_tokens(tools_json)
 
     max_context = agent.max_context_tokens
@@ -839,7 +856,7 @@ async def _chat_stream_internal(
                     f"http://localhost:{mlx_process.port}/v1/chat/completions",
                     json={
                         "messages": messages,
-                        "tools": JOURNAL_BLOCK_TOOLS,
+                        "tools": enabled_tools,
                         "temperature": agent.temperature,
                         "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else None,
                         "stream": True,

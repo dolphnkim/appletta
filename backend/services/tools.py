@@ -18,6 +18,9 @@ from backend.services.memory_service import search_memories as search_memories_s
 # Tool Definitions (OpenAI Function Calling Format)
 # ============================================================================
 
+# Map of all available tools by name
+ALL_TOOLS = {}  # Will be populated below
+
 JOURNAL_BLOCK_TOOLS = [
     {
         "type": "function",
@@ -164,6 +167,61 @@ JOURNAL_BLOCK_TOOLS = [
         }
     }
 ]
+
+# Populate ALL_TOOLS map for easy lookup
+for tool in JOURNAL_BLOCK_TOOLS:
+    tool_name = tool["function"]["name"]
+    ALL_TOOLS[tool_name] = tool
+
+
+# ============================================================================
+# Tool Filtering
+# ============================================================================
+
+def get_enabled_tools(enabled_tool_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Get list of tools filtered by enabled tool names
+
+    Args:
+        enabled_tool_names: List of tool names to enable. If None or empty, returns all tools.
+
+    Returns:
+        List of tool definitions in OpenAI function calling format
+    """
+    if not enabled_tool_names:
+        # No filter - return all tools
+        return JOURNAL_BLOCK_TOOLS
+
+    # Filter tools by name
+    filtered_tools = []
+    for tool_name in enabled_tool_names:
+        if tool_name in ALL_TOOLS:
+            filtered_tools.append(ALL_TOOLS[tool_name])
+
+    return filtered_tools
+
+
+def get_tools_description(enabled_tool_names: Optional[List[str]] = None) -> str:
+    """Generate a human-readable description of enabled tools
+
+    Args:
+        enabled_tool_names: List of enabled tool names. If None/empty, describes all tools.
+
+    Returns:
+        Formatted string describing the tools
+    """
+    tools = get_enabled_tools(enabled_tool_names)
+
+    if not tools:
+        return "No tools enabled"
+
+    descriptions = []
+    for tool in tools:
+        tool_func = tool["function"]
+        name = tool_func["name"]
+        desc = tool_func["description"]
+        descriptions.append(f"• {name}: {desc}")
+
+    return "\n".join(descriptions)
 
 
 # ============================================================================
