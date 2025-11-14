@@ -333,6 +333,11 @@ class MLXManager:
 
         try:
 
+            # Set environment to avoid tokenizers fork warning
+            import os
+            env = os.environ.copy()
+            env['TOKENIZERS_PARALLELISM'] = 'false'
+
             process = subprocess.Popen(
 
                 cmd,
@@ -340,6 +345,8 @@ class MLXManager:
                 stdout=log_handle,
 
                 stderr=subprocess.STDOUT,  # Merge stderr into stdout
+
+                env=env,
 
             )
 
