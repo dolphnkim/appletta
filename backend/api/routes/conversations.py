@@ -129,20 +129,8 @@ async def get_context_window(
     external_summary_text = "\n".join(external_summary_parts) if external_summary_parts else "No external resources"
     external_summary_tokens = count_tokens(external_summary_text)
 
-    # Build journal blocks text for system instructions
-    blocks_list = "\n".join([
-        f"- {block['label']} (ID: {block['id']})"
-        for block in journal_blocks_list
-    ])
-
-    blocks_text = ""
-    if blocks_list:
-        blocks_text = f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
-    else:
-        blocks_text = "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
-
-    # System instructions includes blocks text
-    system_instructions_with_blocks_tokens = count_tokens(system_instructions + blocks_text)
+    # System instructions tokens (journal blocks are now in External Summary, not here)
+    system_instructions_tokens = count_tokens(system_instructions)
 
     # Tools tokens
     enabled_tools = get_enabled_tools(agent.enabled_tools)
@@ -161,15 +149,15 @@ async def get_context_window(
     messages_tokens = count_messages_tokens(messages_for_count)
 
     # Calculate totals and percentages
-    total_tokens = system_instructions_with_blocks_tokens + tools_tokens + external_summary_tokens + messages_tokens
+    total_tokens = system_instructions_tokens + tools_tokens + external_summary_tokens + messages_tokens
     max_context = agent.max_context_tokens
 
     sections = [
         {
             "name": "System Instructions",
-            "tokens": system_instructions_with_blocks_tokens,
-            "percentage": round((system_instructions_with_blocks_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": system_instructions + blocks_text
+            "tokens": system_instructions_tokens,
+            "percentage": round((system_instructions_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": system_instructions
         },
         {
             "name": "Tools descriptions",
