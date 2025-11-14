@@ -30,6 +30,9 @@ class JournalBlock(Base):
     editable_by_main_agent = Column(Boolean, default=True)  # Main LLM can edit
     editable_by_memory_agent = Column(Boolean, default=False)  # Memory coordinator can edit
 
+    # Context control
+    always_in_context = Column(Boolean, default=False)  # If true, always included in system prompt
+
     # Embedding for semantic search
     embedding = Column(Vector(768))
 
@@ -74,6 +77,7 @@ class JournalBlock(Base):
             "read_only": self.read_only,
             "editable_by_main_agent": self.editable_by_main_agent,
             "editable_by_memory_agent": self.editable_by_memory_agent,
+            "always_in_context": self.always_in_context,
             "metadata": self.metadata_,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

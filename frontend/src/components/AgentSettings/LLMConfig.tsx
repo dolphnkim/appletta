@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { LLMConfig as LLMConfigType } from '../../types/agent';
 import FilePicker from './FilePicker';
-import SystemInstructionsField from './SystemInstructionsField';
+import ProjectInstructionsField from './ProjectInstructionsField';
 import './LLMConfig.css';
 
 interface LLMConfigProps {
@@ -9,10 +9,10 @@ interface LLMConfigProps {
   onUpdate: (updates: Partial<LLMConfigType>) => void;
   modelPath: string;
   adapterPath: string;
-  systemInstructions: string;
+  projectInstructions: string;
   onModelPathUpdate: (path: string) => void;
   onAdapterPathUpdate: (path: string) => void;
-  onSystemInstructionsClick: () => void;
+  onProjectInstructionsClick: () => void;
 }
 
 export default function LLMConfig({
@@ -20,10 +20,10 @@ export default function LLMConfig({
   onUpdate,
   modelPath,
   adapterPath,
-  systemInstructions,
+  projectInstructions,
   onModelPathUpdate,
   onAdapterPathUpdate,
-  onSystemInstructionsClick
+  onProjectInstructionsClick
 }: LLMConfigProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -91,10 +91,10 @@ export default function LLMConfig({
             selectFolders={true}
           />
 
-          {/* System Instructions */}
-          <SystemInstructionsField
-            value={systemInstructions}
-            onClick={onSystemInstructionsClick}
+          {/* Project Instructions */}
+          <ProjectInstructionsField
+            value={projectInstructions}
+            onClick={onProjectInstructionsClick}
           />
 
           {/* Reasoning Toggle */}

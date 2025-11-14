@@ -109,6 +109,22 @@ Write your first-person reflection and provide tag updates:"""
         {"role": "user", "content": user_prompt}
     ]
 
+    # VERBOSE: Show exactly what we're sending to the memory agent
+    print(f"\n{'='*80}")
+    print(f"💭 MEMORY AGENT LLM CALL - Agent: {memory_agent.name}")
+    print(f"{'='*80}")
+    print(f"\n📤 REQUEST TO MEMORY LLM:")
+    print(f"Port: {mlx_process.port}")
+    print(f"Temperature: {memory_agent.temperature}")
+    print(f"Max Tokens: 2048")
+    print(f"Candidates: {len(candidates)} memories")
+    print(f"\n📨 SYSTEM PROMPT:")
+    print(f"  {system_prompt[:300]}...")
+    print(f"\n📨 USER PROMPT (Query + Candidates):")
+    print(f"  Query: {query_context[:200]}")
+    print(f"  Showing {len(candidates)} memory candidates to agent")
+    print(f"{'='*80}\n")
+
     # Call memory coordinator agent
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:  # Longer timeout for narrative generation
@@ -122,7 +138,15 @@ Write your first-person reflection and provide tag updates:"""
             )
             response.raise_for_status()
             result = response.json()
-    except httpx.HTTPError:
+
+        # VERBOSE: Show exactly what the memory agent responded with
+        print(f"\n📥 RESPONSE FROM MEMORY LLM:")
+        content = result["choices"][0]["message"]["content"]
+        print(f"Full Response:\n{content}")
+        print(f"{'='*80}\n")
+
+    except httpx.HTTPError as e:
+        print(f"\n❌ MEMORY AGENT ERROR: {str(e)}\n")
         # Fall back to simple formatting on error
         top_memories = candidates[:target_count]
         narrative = "Some memories are surfacing:\n\n"

@@ -27,7 +27,7 @@ export interface Agent {
   enabled_tools: string[];
   model_path: string;
   adapter_path?: string;
-  system_instructions: string;
+  project_instructions: string;
   llm_config: LLMConfig;
   embedding_config: EmbeddingConfig;
   created_at: string;
@@ -42,7 +42,7 @@ export interface AgentCreate {
   enabled_tools?: string[];
   model_path: string;
   adapter_path?: string;
-  system_instructions: string;
+  project_instructions: string;
   llm_config: LLMConfig;
   embedding_config: EmbeddingConfig;
 }
@@ -55,7 +55,7 @@ export interface AgentUpdate {
   enabled_tools?: string[];
   model_path?: string;
   adapter_path?: string;
-  system_instructions?: string;
+  project_instructions?: string;
   llm_config?: Partial<LLMConfig>;
   embedding_config?: Partial<EmbeddingConfig>;
 }
@@ -68,7 +68,7 @@ export interface AgentFile {
     agent_type?: AgentType;
     model_path: string;
     adapter_path?: string;
-    system_instructions: string;
+    project_instructions: string;
     llm_config: LLMConfig;
     embedding_config: EmbeddingConfig;
   };

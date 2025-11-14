@@ -7,7 +7,7 @@ Stores all configuration for an agent instance, including:
 
 - Model/adapter/embedding paths
 
-- System instructions
+- Project instructions
 
 - LLM generation parameters
 
@@ -85,11 +85,11 @@ class Agent(Base):
 
     adapter_path = Column(String(1024), nullable=True)  # Optional LoRA adapter
 
- 
 
-    # System Instructions - The agent's personality/role/rules
 
-    system_instructions = Column(Text, nullable=False)
+    # Project Instructions - The agent's personality/role/rules
+
+    project_instructions = Column(Text, nullable=False)
 
  
 
@@ -179,7 +179,7 @@ class Agent(Base):
 
             "adapter_path": self.adapter_path,
 
-            "system_instructions": self.system_instructions,
+            "project_instructions": self.project_instructions,
 
             "llm_config": {
 
@@ -241,7 +241,7 @@ class Agent(Base):
 
                 "adapter_path": self.adapter_path,
 
-                "system_instructions": self.system_instructions,
+                "project_instructions": self.project_instructions,
 
                 "llm_config": {
 
@@ -317,7 +317,7 @@ class Agent(Base):
 
             adapter_path=agent_dict.get("adapter_path"),
 
-            system_instructions=agent_dict.get("system_instructions"),
+            project_instructions=agent_dict.get("project_instructions"),
 
             reasoning_enabled=llm_config.get("reasoning_enabled", False),
 

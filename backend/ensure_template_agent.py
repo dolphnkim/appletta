@@ -23,8 +23,8 @@ def ensure_template_agent():
 
         if template:
             # Update template if it has empty system instructions
-            if not template.system_instructions or len(template.system_instructions.strip()) == 0:
-                template.system_instructions = "You are...."
+            if not template.project_instructions or len(template.project_instructions.strip()) == 0:
+                template.project_instructions = "You are...."
                 db.commit()
                 print("✅ Updated New Agent template with default system instructions")
             else:
@@ -57,7 +57,7 @@ def ensure_template_agent():
             is_template=True,
             model_path=sample_agent.model_path,
             adapter_path=sample_agent.adapter_path,
-            system_instructions="You are...",
+            project_instructions="You are...",
             reasoning_enabled=sample_agent.reasoning_enabled,
             temperature=sample_agent.temperature,
             top_p=sample_agent.top_p,
