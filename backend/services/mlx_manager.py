@@ -251,11 +251,12 @@ class MLXManager:
 
 
 
-        # Use custom chat template for proper tool calling and thinking support
-        # Custom template removes Qwen3 defaults and provides clear <tool_call> format
-        chat_template_path = Path(__file__).parent.parent.parent / "mlx-lm_reference" / "chat_template.jinja"
-        if chat_template_path.exists():
-            cmd.extend(["--chat-template", str(chat_template_path)])
+        # Chat template disabled - causing model to output template content instead of using it
+        # MLX seems to be including the template in messages rather than applying it
+        # Relying on tool format examples in system prompt instead
+        # chat_template_path = Path(__file__).parent.parent.parent / "mlx-lm_reference" / "chat_template.jinja"
+        # if chat_template_path.exists():
+        #     cmd.extend(["--chat-template", str(chat_template_path)])
 
 
 
