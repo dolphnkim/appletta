@@ -39,8 +39,16 @@ def apply_tag_updates(
             if memory_id.startswith("sys-"):
                 continue
 
+            # Validate that memory_id is a valid UUID format before attempting to parse
+            # The memory agent sometimes hallucinates non-UUID strings as memory IDs
+            try:
+                uuid_obj = UUID(memory_id)
+            except (ValueError, AttributeError):
+                # Not a valid UUID, skip it
+                continue
+
             # Try to find the memory in messages table first
-            message = db.query(Message).filter(Message.id == UUID(memory_id)).first()
+            message = db.query(Message).filter(Message.id == uuid_obj).first()
 
             if message:
                 # Update tags in metadata
@@ -55,7 +63,7 @@ def apply_tag_updates(
                 continue
 
             # Try journal blocks
-            journal_block = db.query(JournalBlock).filter(JournalBlock.id == UUID(memory_id)).first()
+            journal_block = db.query(JournalBlock).filter(JournalBlock.id == uuid_obj).first()
 
             if journal_block:
                 # Update tags in metadata
@@ -70,7 +78,7 @@ def apply_tag_updates(
                 continue
 
             # Try RAG chunks
-            rag_chunk = db.query(RagChunk).filter(RagChunk.id == UUID(memory_id)).first()
+            rag_chunk = db.query(RagChunk).filter(RagChunk.id == uuid_obj).first()
 
             if rag_chunk:
                 # Update tags in metadata
