@@ -669,18 +669,10 @@ async def chat(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
-    # Add tools description with few-shot example
+    # Add tools description
     tools_description = get_tools_description(agent.enabled_tools)
     if tools_description != "No tools enabled":
         system_content += f"\n\n=== Available Tools ===\n{tools_description}"
-
-        # Add few-shot example to remind model of tool calling format
-        system_content += "\n\nTool calling example:"
-        system_content += "\nUser: Create a journal block about our conversation"
-        system_content += "\nAssistant: I'll create a journal block for you."
-        system_content += "\n<tool_call>"
-        system_content += '\n{"name": "create_journal_block", "arguments": {"label": "Conversation Notes", "value": "Discussed tool calling and memory systems"}}'
-        system_content += "\n</tool_call>"
     else:
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
@@ -944,18 +936,10 @@ async def _chat_stream_internal(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
-    # Add tools description with few-shot example
+    # Add tools description
     tools_description = get_tools_description(agent.enabled_tools)
     if tools_description != "No tools enabled":
         system_content += f"\n\n=== Available Tools ===\n{tools_description}"
-
-        # Add few-shot example to remind model of tool calling format
-        system_content += "\n\nTool calling example:"
-        system_content += "\nUser: Create a journal block about our conversation"
-        system_content += "\nAssistant: I'll create a journal block for you."
-        system_content += "\n<tool_call>"
-        system_content += '\n{"name": "create_journal_block", "arguments": {"label": "Conversation Notes", "value": "Discussed tool calling and memory systems"}}'
-        system_content += "\n</tool_call>"
     else:
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
