@@ -49,6 +49,34 @@
   border-color: #007aff;
 }
 
+.user-name-button {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.user-name-button:hover {
+  border-color: #555;
+  background: #2d2d2d;
+}
+
+.user-name-input {
+  background: #2a2a2a;
+  border: 1px solid #007aff;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 6px 12px;
+  outline: none;
+  min-width: 120px;
+}
+
 .chat-header-actions {
   display: flex;
   align-items: center;
