@@ -838,9 +838,13 @@ async def _chat_stream_internal(
     import logging
     logger = logging.getLogger(__name__)
 
-    # DEBUG: Log what we're actually sending as system instructions
-    logger.info(f"[DEBUG] System content being sent (first 500 chars): {system_content[:500]}")
-    logger.info(f"[DEBUG] Agent system_instructions: {agent.system_instructions[:200] if agent.system_instructions else 'None'}")
+    # DEBUG: Print what we're actually sending as system instructions
+    print(f"\n{'='*60}")
+    print(f"[DEBUG] System content being sent (first 500 chars):")
+    print(system_content[:500])
+    print(f"\n[DEBUG] Agent system_instructions from database:")
+    print(agent.system_instructions[:200] if agent.system_instructions else 'None')
+    print(f"{'='*60}\n")
 
     mlx_manager = get_mlx_manager()
     mlx_process = mlx_manager.get_agent_server(agent.id)
