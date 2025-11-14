@@ -346,6 +346,23 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
               </div>
             ))}
 
+            {/* Typing indicator - show while waiting for first chunk */}
+            {streaming && !streamingContent && (
+              <div className="message message-assistant typing">
+                <div className="message-header">
+                  <span className="message-role">🤖 Assistant</span>
+                  <span className="message-time">Thinking...</span>
+                </div>
+                <div className="message-content">
+                  <div className="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Streaming message */}
             {streaming && streamingContent && (
               <div className="message message-assistant streaming">
