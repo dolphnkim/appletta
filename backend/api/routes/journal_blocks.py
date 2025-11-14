@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/v1/journal-blocks", tags=["journal-blocks"])
 # Journal Block CRUD
 # ============================================================================
 
-@router.post("/", response_model=JournalBlockResponse)
+@router.post("", response_model=JournalBlockResponse)
 async def create_journal_block(
     data: JournalBlockCreate,
     db: Session = Depends(get_db)
@@ -70,7 +70,7 @@ async def create_journal_block(
     return block.to_dict()
 
 
-@router.get("/", response_model=List[JournalBlockResponse])
+@router.get("", response_model=List[JournalBlockResponse])
 async def list_journal_blocks(
     agent_id: str,
     db: Session = Depends(get_db)
