@@ -77,36 +77,23 @@ async def get_context_window(
             "percentage_used": 0
         }
 
-    # Perform memory retrieval (same as chat flow)
+    # For context window display, we estimate memory tokens without actually
+    # running the memory coordinator (which launches the slow 4B model).
+    # We'll search for candidates and estimate based on the top results.
     memory_candidates = search_memories(
         query_text=last_user_message.content,
         agent_id=agent.id,
         db=db,
-        limit=50
+        limit=7  # Just top 7 for estimation
     )
 
-    memory_agent = None
-    memory_attachment = db.query(AgentAttachment).filter(
-        AgentAttachment.agent_id == agent.id,
-        AgentAttachment.attachment_type == "memory",
-        AgentAttachment.enabled == True
-    ).order_by(AgentAttachment.priority.desc()).first()
-
-    if memory_attachment:
-        memory_agent = db.query(Agent).filter(
-            Agent.id == memory_attachment.attached_agent_id
-        ).first()
-
-    memory_narrative, tag_updates = await coordinate_memories(
-        candidates=memory_candidates,
-        query_context=last_user_message.content,
-        memory_agent=memory_agent,
-        target_count=7
-    )
-
-    # Apply tag updates from memory agent
-    if tag_updates:
-        apply_tag_updates(tag_updates, db)
+    # Estimate memory narrative length (approximate format)
+    memory_narrative = ""
+    if memory_candidates:
+        # Simulate the narrative format without actually running the 4B model
+        memory_narrative = "I'm remembering:\n\n"
+        for candidate in memory_candidates[:7]:
+            memory_narrative += f"- {candidate.content[:150]}...\n"
 
     # Build system content sections
     system_instructions = agent.system_instructions or ""
