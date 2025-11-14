@@ -1,9 +1,9 @@
-.system-instructions-field {
+.project-instructions-field {
   display: flex;
   flex-direction: column;
 }
 
-.system-instructions-preview {
+.project-instructions-preview {
   width: 100%;
   background: #2a2a2a;
   border: 1px solid #444;
@@ -17,7 +17,7 @@
   gap: 8px;
 }
 
-.system-instructions-preview:hover {
+.project-instructions-preview:hover {
   border-color: #555;
   background: #2d2d2d;
 }
