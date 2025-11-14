@@ -12,6 +12,14 @@ Uses thenlper/gte-base (768 dimensions)
 import numpy as np
 from typing import List, Optional
 from sentence_transformers import SentenceTransformer
+import multiprocessing
+
+# Prevent semaphore leak warnings on macOS
+if __name__ != '__main__':
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass  # Already set
 
 
 class EmbeddingService:
