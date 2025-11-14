@@ -80,7 +80,7 @@ class AgentCreate(BaseModel):
 
     adapter_path: Optional[str] = Field(None, description="Path to LoRA adapter directory")
 
-    system_instructions: str = Field(..., min_length=1)
+    project_instructions: str = Field(..., min_length=1)
 
 
 
@@ -116,7 +116,7 @@ class AgentUpdate(BaseModel):
 
     adapter_path: Optional[str] = None
 
-    system_instructions: Optional[str] = Field(None, min_length=1)
+    project_instructions: Optional[str] = Field(None, min_length=1)
 
 
 
@@ -152,7 +152,7 @@ class AgentResponse(BaseModel):
 
     adapter_path: Optional[str]
 
-    system_instructions: str
+    project_instructions: str
 
     llm_config: LLMConfig
 
@@ -198,15 +198,15 @@ class AgentFileData(BaseModel):
 
     adapter_path: Optional[str]
 
-    system_instructions: str
+    project_instructions: str
 
     llm_config: LLMConfig
 
     embedding_config: EmbeddingConfig
 
- 
 
- 
+
+
 
 class AgentFile(BaseModel):
 

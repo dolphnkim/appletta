@@ -12,6 +12,7 @@ from backend.db.session import get_db
 from backend.db.models.conversation import Conversation, Message
 from backend.db.models.agent import Agent
 from backend.db.models.agent_attachment import AgentAttachment
+from backend.db.models.journal_block import JournalBlock
 from backend.schemas.conversation import (
     ConversationCreate,
     ConversationUpdate,
@@ -96,8 +97,8 @@ async def get_context_window(
             memory_narrative += f"- {candidate.content[:150]}...\n"
 
     # Build system content sections
-    system_instructions = agent.system_instructions or ""
-    system_instructions_tokens = count_tokens(system_instructions)
+    project_instructions = agent.project_instructions or ""
+    project_instructions_tokens = count_tokens(project_instructions)
 
     # Build external summary (RAG files, journal blocks, datetime)
     from datetime import datetime
@@ -130,7 +131,7 @@ async def get_context_window(
     external_summary_tokens = count_tokens(external_summary_text)
 
     # System instructions tokens (journal blocks are now in External Summary, not here)
-    system_instructions_tokens = count_tokens(system_instructions)
+    project_instructions_tokens = count_tokens(project_instructions)
 
     # Tools tokens and description
     enabled_tools = get_enabled_tools(agent.enabled_tools)
@@ -150,15 +151,15 @@ async def get_context_window(
     messages_tokens = count_messages_tokens(messages_for_count)
 
     # Calculate totals and percentages
-    total_tokens = system_instructions_tokens + tools_tokens + external_summary_tokens + messages_tokens
+    total_tokens = project_instructions_tokens + tools_tokens + external_summary_tokens + messages_tokens
     max_context = agent.max_context_tokens
 
     sections = [
         {
-            "name": "System Instructions",
-            "tokens": system_instructions_tokens,
-            "percentage": round((system_instructions_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": system_instructions
+            "name": "Project Instructions",
+            "tokens": project_instructions_tokens,
+            "percentage": round((project_instructions_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": project_instructions
         },
         {
             "name": "Tools description",
@@ -565,7 +566,7 @@ async def chat(
     # === PRE-CALCULATE CONTEXT WINDOW ===
     # Calculate which messages will be in context BEFORE searching memories
 
-    preliminary_system_content = agent.system_instructions or ""
+    preliminary_system_content = agent.project_instructions or ""
     from backend.services.token_counter import count_message_tokens, count_tokens
     preliminary_system_message = {"role": "system", "content": preliminary_system_content}
     sticky_tokens = count_message_tokens(preliminary_system_message)
@@ -630,9 +631,21 @@ async def chat(
         apply_tag_updates(tag_updates, db)
 
     # Build system message with memories
-    # Note: Journal blocks are NOT included in system prompt - they live in the database
-    # and are retrieved via vector search (memory_service) when relevant
-    system_content = agent.system_instructions or ""
+    # Note: Journal blocks are NOT included in system prompt by default - they live in the database
+    # and are retrieved via vector search (memory_service) when relevant.
+    # EXCEPT: blocks marked with always_in_context=True are pinned to system content
+    system_content = agent.project_instructions or ""
+
+    # Add pinned journal blocks (always_in_context=True)
+    pinned_blocks = db.query(JournalBlock).filter(
+        JournalBlock.agent_id == agent.id,
+        JournalBlock.always_in_context == True
+    ).order_by(JournalBlock.updated_at.desc()).all()
+
+    if pinned_blocks:
+        system_content += "\n\n=== Pinned Information ==="
+        for block in pinned_blocks:
+            system_content += f"\n\n[{block.label}]\n{block.value}"
 
     # Add memory narrative as plain context (no <think> tags to avoid prompting base model)
     # The adapter personality should handle this naturally without format prompting
@@ -816,7 +829,7 @@ async def _chat_stream_internal(
     # to avoid surfacing redundant information
 
     # Build preliminary system content for token counting
-    preliminary_system_content = agent.system_instructions or ""
+    preliminary_system_content = agent.project_instructions or ""
 
     # Estimate tokens for system (we'll rebuild this properly later)
     from backend.services.token_counter import count_message_tokens, count_tokens
@@ -891,9 +904,21 @@ async def _chat_stream_internal(
                 apply_tag_updates(tag_updates, db)
 
     # Build system message with memories
-    # Note: Journal blocks are NOT included in system prompt - they live in the database
-    # and are retrieved via vector search (memory_service) when relevant
-    system_content = agent.system_instructions or ""
+    # Note: Journal blocks are NOT included in system prompt by default - they live in the database
+    # and are retrieved via vector search (memory_service) when relevant.
+    # EXCEPT: blocks marked with always_in_context=True are pinned to system content
+    system_content = agent.project_instructions or ""
+
+    # Add pinned journal blocks (always_in_context=True)
+    pinned_blocks = db.query(JournalBlock).filter(
+        JournalBlock.agent_id == agent.id,
+        JournalBlock.always_in_context == True
+    ).order_by(JournalBlock.updated_at.desc()).all()
+
+    if pinned_blocks:
+        system_content += "\n\n=== Pinned Information ==="
+        for block in pinned_blocks:
+            system_content += f"\n\n[{block.label}]\n{block.value}"
 
     # Add memory narrative as plain context (no <think> tags to avoid prompting base model)
     # The adapter personality should handle this naturally without format prompting
@@ -939,8 +964,8 @@ async def _chat_stream_internal(
     print(f"\n{'='*60}")
     print(f"[DEBUG] System content being sent (first 500 chars):")
     print(system_content[:500])
-    print(f"\n[DEBUG] Agent system_instructions from database:")
-    print(agent.system_instructions[:200] if agent.system_instructions else 'None')
+    print(f"\n[DEBUG] Agent project_instructions from database:")
+    print(agent.project_instructions[:200] if agent.project_instructions else 'None')
     print(f"{'='*60}\n")
 
     mlx_manager = get_mlx_manager()

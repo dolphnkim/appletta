@@ -106,7 +106,7 @@ async def create_agent(
 
         adapter_path=agent_data.adapter_path,
 
-        system_instructions=agent_data.system_instructions,
+        project_instructions=agent_data.project_instructions,
 
         reasoning_enabled=agent_data.llm_config.reasoning_enabled,
 
@@ -340,7 +340,7 @@ async def get_agent_context_window(
 
     Shows token usage for:
 
-    - System instructions
+    - Project instructions
 
     - Tool descriptions
 
@@ -358,7 +358,7 @@ async def get_agent_context_window(
 
     # Count system instructions tokens
 
-    system_instructions_tokens = count_tokens(agent.system_instructions or "")
+    project_instructions_tokens = count_tokens(agent.project_instructions or "")
 
 
 
@@ -406,7 +406,7 @@ async def get_agent_context_window(
 
 
 
-    total_tokens = system_instructions_tokens + tools_tokens + external_summary_tokens
+    total_tokens = project_instructions_tokens + tools_tokens + external_summary_tokens
 
     max_tokens = agent.max_context_tokens
 
@@ -420,13 +420,13 @@ async def get_agent_context_window(
 
             {
 
-                "name": "System Instructions",
+                "name": "Project Instructions",
 
-                "tokens": system_instructions_tokens,
+                "tokens": project_instructions_tokens,
 
-                "percentage": (system_instructions_tokens / max_tokens * 100) if max_tokens > 0 else 0,
+                "percentage": (project_instructions_tokens / max_tokens * 100) if max_tokens > 0 else 0,
 
-                "content": agent.system_instructions[:500] if agent.system_instructions else ""
+                "content": agent.project_instructions[:500] if agent.project_instructions else ""
 
             },
 
@@ -506,7 +506,7 @@ async def clone_agent(
 
     - Same model/adapter/embedding paths
 
-    - Same system instructions
+    - Same project instructions
 
     - Same LLM config
 
@@ -534,7 +534,7 @@ async def clone_agent(
 
         adapter_path=original.adapter_path,
 
-        system_instructions=original.system_instructions,
+        project_instructions=original.project_instructions,
 
         reasoning_enabled=original.reasoning_enabled,
 

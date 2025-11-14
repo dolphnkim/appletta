@@ -3,7 +3,7 @@ import { useAgent } from '../../hooks/useAgent';
 import { agentAPI } from '../../api/agentAPI';
 import AgentHeader from './AgentHeader';
 import EditableField from './EditableField';
-import SystemInstructionsModal from './SystemInstructionsModal';
+import ProjectInstructionsModal from './ProjectInstructionsModal';
 import AgentManagement from './AgentManagement';
 import AgentAttachments from './AgentAttachments';
 import LLMConfig from './LLMConfig';
@@ -18,7 +18,7 @@ interface AgentSettingsProps {
 
 export default function AgentSettings({ agentId, onDelete, onClone }: AgentSettingsProps) {
   const { agent, loading, error, updateAgent, cloneAgent, deleteAgent, exportAgent } = useAgent(agentId);
-  const [showSystemInstructionsModal, setShowSystemInstructionsModal] = useState(false);
+  const [showProjectInstructionsModal, setShowProjectInstructionsModal] = useState(false);
 
   if (loading) {
     return <div className="agent-settings loading">Loading agent...</div>;
@@ -52,7 +52,7 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
         enabled_tools: updates.enabled_tools ?? agent.enabled_tools ?? [],
         model_path: updates.model_path ?? agent.model_path,
         adapter_path: 'adapter_path' in updates ? updates.adapter_path : agent.adapter_path,
-        system_instructions: updates.system_instructions ?? agent.system_instructions,
+        project_instructions: updates.project_instructions ?? agent.project_instructions,
         llm_config: updates.llm_config ? { ...agent.llm_config, ...updates.llm_config } : agent.llm_config,
         embedding_config: updates.embedding_config ? { ...agent.embedding_config, ...updates.embedding_config } : agent.embedding_config,
       });
@@ -90,9 +90,9 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
     await handleTemplateUpdate({ adapter_path: adapter_path || null });
   };
 
-  const handleSystemInstructionsUpdate = async (system_instructions: string) => {
-    await handleTemplateUpdate({ system_instructions });
-    setShowSystemInstructionsModal(false);
+  const handleProjectInstructionsUpdate = async (project_instructions: string) => {
+    await handleTemplateUpdate({ project_instructions });
+    setShowProjectInstructionsModal(false);
   };
 
   const handleLLMConfigUpdate = async (updates: Partial<typeof agent.llm_config>) => {
@@ -221,10 +221,10 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
           onUpdate={handleLLMConfigUpdate}
           modelPath={agent.model_path}
           adapterPath={agent.adapter_path || ''}
-          systemInstructions={agent.system_instructions}
+          projectInstructions={agent.project_instructions}
           onModelPathUpdate={handleModelPathUpdate}
           onAdapterPathUpdate={handleAdapterPathUpdate}
-          onSystemInstructionsClick={() => setShowSystemInstructionsModal(true)}
+          onProjectInstructionsClick={() => setShowProjectInstructionsModal(true)}
         />
 
         <EmbeddingConfig
@@ -233,11 +233,11 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
         />
       </div>
 
-      {showSystemInstructionsModal && (
-        <SystemInstructionsModal
-          value={agent.system_instructions}
-          onSave={handleSystemInstructionsUpdate}
-          onClose={() => setShowSystemInstructionsModal(false)}
+      {showProjectInstructionsModal && (
+        <ProjectInstructionsModal
+          value={agent.project_instructions}
+          onSave={handleProjectInstructionsUpdate}
+          onClose={() => setShowProjectInstructionsModal(false)}
         />
       )}
     </div>
