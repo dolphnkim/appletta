@@ -214,45 +214,14 @@ def get_tools_description(enabled_tool_names: Optional[List[str]] = None) -> str
     if not tools:
         return "No tools enabled"
 
-    descriptions = []
-    descriptions.append("You have access to the following tools. To use a tool, respond with a tool call in this exact format:\n")
-    descriptions.append('<tool_call>')
-    descriptions.append('{"name": "tool_name", "arguments": {"param": "value"}}')
-    descriptions.append('</tool_call>\n')
-    descriptions.append("Available tools:")
+    # Compact format to save tokens - just list tools with brief descriptions
+    descriptions = ["Call tools using: <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call>"]
 
     for tool in tools:
         tool_func = tool["function"]
         name = tool_func["name"]
         desc = tool_func["description"]
-        params = tool_func.get("parameters", {}).get("properties", {})
-        required = tool_func.get("parameters", {}).get("required", [])
-
-        # Build parameter description
-        param_desc = []
-        for param_name, param_info in params.items():
-            param_type = param_info.get("type", "string")
-            param_desc_text = param_info.get("description", "")
-            req_marker = " (required)" if param_name in required else " (optional)"
-            param_desc.append(f"    - {param_name} ({param_type}){req_marker}: {param_desc_text}")
-
-        descriptions.append(f"\n• {name}")
-        descriptions.append(f"  Description: {desc}")
-        if param_desc:
-            descriptions.append("  Parameters:")
-            descriptions.extend(param_desc)
-
-        # Add usage example for common tools
-        if name == "create_journal_block":
-            descriptions.append("  Example:")
-            descriptions.append('  <tool_call>')
-            descriptions.append('  {"name": "create_journal_block", "arguments": {"label": "User Info", "value": "User prefers dark mode"}}')
-            descriptions.append('  </tool_call>')
-        elif name == "list_journal_blocks":
-            descriptions.append("  Example:")
-            descriptions.append('  <tool_call>')
-            descriptions.append('  {"name": "list_journal_blocks", "arguments": {}}')
-            descriptions.append('  </tool_call>')
+        descriptions.append(f"• {name}: {desc}")
 
     return "\n".join(descriptions)
 

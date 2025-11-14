@@ -409,11 +409,33 @@ async def regenerate_from_message(
     if not from_message:
         raise HTTPException(404, f"Message {message_id} not found in this conversation")
 
-    # Must be a user message to regenerate from
-    if from_message.role != "user":
-        raise HTTPException(400, "Can only regenerate from user messages")
+    # If regenerating from assistant message, find the user message before it
+    if from_message.role == "assistant":
+        # Find the most recent user message before this assistant message
+        user_message = db.query(Message).filter(
+            Message.conversation_id == conversation_id,
+            Message.role == "user",
+            Message.created_at < from_message.created_at
+        ).order_by(Message.created_at.desc()).first()
 
-    # Delete all messages after this one
+        if not user_message:
+            raise HTTPException(400, "No user message found before this assistant message")
+
+        # Delete this assistant message and all after it
+        db.query(Message).filter(
+            Message.conversation_id == conversation_id,
+            Message.created_at >= from_message.created_at
+        ).delete()
+        db.commit()
+
+        return {
+            "status": "ready_to_regenerate",
+            "message": "Assistant message deleted. Call /chat endpoint to regenerate.",
+            "user_message_id": str(user_message.id),
+            "user_message_content": user_message.content
+        }
+
+    # If from user message, delete all messages after it
     db.query(Message).filter(
         Message.conversation_id == conversation_id,
         Message.created_at > from_message.created_at
