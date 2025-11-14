@@ -112,15 +112,26 @@ export default function FilePicker({
       {helpText && <div className="field-help-text">{helpText}</div>}
 
       <div className="file-picker-dropdown" ref={dropdownRef}>
-        <button
-          className="file-picker-button"
-          onClick={handleOpen}
-        >
-          {value || (selectFolders ? 'Choose folder...' : 'Choose file...')}
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z" />
-          </svg>
-        </button>
+        <div className="file-picker-button-group">
+          <button
+            className="file-picker-button"
+            onClick={handleOpen}
+          >
+            {value || (selectFolders ? 'Choose folder...' : 'Choose file...')}
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z" />
+            </svg>
+          </button>
+          {!required && value && (
+            <button
+              className="file-picker-clear-button"
+              onClick={() => onSelect('')}
+              title="Clear selection"
+            >
+              ×
+            </button>
+          )}
+        </div>
 
         {isOpen && (
           <div className="file-picker-menu">
