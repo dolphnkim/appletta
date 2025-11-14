@@ -504,13 +504,51 @@ async def chat(
     db.commit()
     db.refresh(user_message)
 
+    # Get conversation history first (needed for context calculation)
+    history = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
+
+    # === PRE-CALCULATE CONTEXT WINDOW ===
+    # Calculate which messages will be in context BEFORE searching memories
+
+    preliminary_system_content = agent.system_instructions or ""
+    from backend.services.token_counter import count_message_tokens, count_tokens
+    preliminary_system_message = {"role": "system", "content": preliminary_system_content}
+    sticky_tokens = count_message_tokens(preliminary_system_message)
+
+    enabled_tools = get_enabled_tools(agent.enabled_tools)
+    tools_json = json.dumps(enabled_tools)
+    sticky_tokens += count_tokens(tools_json)
+    sticky_tokens += 1000  # Buffer for memories and journal blocks
+
+    max_context = agent.max_context_tokens
+    remaining_budget = max_context - sticky_tokens
+
+    # Calculate which messages will fit in context
+    messages_in_context = []
+    context_message_ids = []
+    current_tokens = 0
+
+    for msg in reversed(history):
+        msg_dict = {"role": msg.role, "content": msg.content}
+        msg_tokens = count_message_tokens(msg_dict)
+
+        if current_tokens + msg_tokens <= remaining_budget:
+            messages_in_context.insert(0, msg)
+            context_message_ids.append(str(msg.id))
+            current_tokens += msg_tokens
+        else:
+            break
+
     # === MEMORY RETRIEVAL ===
-    # 1. Search for memory candidates across all sources
+    # 1. Search for memory candidates, EXCLUDING messages in active context window
     memory_candidates = search_memories(
         query_text=request.message,
         agent_id=agent.id,
         db=db,
-        limit=50
+        limit=50,
+        exclude_message_ids=context_message_ids
     )
 
     # 2. Load memory agent from attachments
@@ -537,11 +575,6 @@ async def chat(
     # Apply tag updates from memory agent
     if tag_updates:
         apply_tag_updates(tag_updates, db)
-
-    # Get conversation history
-    history = db.query(Message).filter(
-        Message.conversation_id == conversation_id
-    ).order_by(Message.created_at.asc()).all()
 
     # Get journal blocks for system prompt
     journal_blocks_info = list_journal_blocks(agent.id, db)
@@ -570,39 +603,9 @@ async def chat(
     else:
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
-    # === CONTEXT WINDOW MANAGEMENT ===
-    # Calculate token budget for STICKY vs SHIFTING sections
-
-    # Count STICKY section tokens (system message + tools)
+    # Build final messages array using the pre-calculated messages_in_context
     system_message = {"role": "system", "content": system_content}
-    sticky_tokens = count_message_tokens(system_message)
-
-    # Count tool definitions tokens (approximate)
-    enabled_tools = get_enabled_tools(agent.enabled_tools)
-    tools_json = json.dumps(enabled_tools)
-    sticky_tokens += count_tokens(tools_json)
-
-    # Calculate remaining budget for messages (SHIFTING section)
-    max_context = agent.max_context_tokens
-    remaining_budget = max_context - sticky_tokens
-
-    # Trim history to fit remaining budget
-    # Start from newest messages and work backwards
-    messages_to_include = []
-    current_tokens = 0
-
-    for msg in reversed(history):
-        msg_dict = {"role": msg.role, "content": msg.content}
-        msg_tokens = count_message_tokens(msg_dict)
-
-        if current_tokens + msg_tokens <= remaining_budget:
-            messages_to_include.insert(0, msg_dict)  # Insert at beginning to maintain order
-            current_tokens += msg_tokens
-        else:
-            # Budget exceeded, stop adding messages
-            break
-
-    # Build final messages array with system first, then trimmed history
+    messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
     messages = [system_message] + messages_to_include
 
     # Get or start MLX server
@@ -741,13 +744,58 @@ async def _chat_stream_internal(
     db.commit()
     db.refresh(user_message)
 
+    # Get conversation history first (needed for context calculation)
+    history = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
+
+    # === PRE-CALCULATE CONTEXT WINDOW ===
+    # We need to know which messages will be in context BEFORE searching memories
+    # to avoid surfacing redundant information
+
+    # Build preliminary system content for token counting
+    preliminary_system_content = agent.system_instructions or ""
+
+    # Estimate tokens for system (we'll rebuild this properly later)
+    from backend.services.token_counter import count_message_tokens, count_tokens
+    preliminary_system_message = {"role": "system", "content": preliminary_system_content}
+    sticky_tokens = count_message_tokens(preliminary_system_message)
+
+    # Add estimated tokens for tools
+    enabled_tools = get_enabled_tools(agent.enabled_tools)
+    tools_json = json.dumps(enabled_tools)
+    sticky_tokens += count_tokens(tools_json)
+
+    # Add buffer for memories and journal blocks (estimate ~1000 tokens)
+    sticky_tokens += 1000
+
+    max_context = agent.max_context_tokens
+    remaining_budget = max_context - sticky_tokens
+
+    # Calculate which messages will fit in context
+    messages_in_context = []
+    context_message_ids = []
+    current_tokens = 0
+
+    for msg in reversed(history):
+        msg_dict = {"role": msg.role, "content": msg.content}
+        msg_tokens = count_message_tokens(msg_dict)
+
+        if current_tokens + msg_tokens <= remaining_budget:
+            messages_in_context.insert(0, msg)
+            context_message_ids.append(str(msg.id))
+            current_tokens += msg_tokens
+        else:
+            break
+
     # === MEMORY RETRIEVAL ===
-    # 1. Search for memory candidates across all sources
+    # 1. Search for memory candidates, EXCLUDING messages in active context window
     memory_candidates = search_memories(
         query_text=message,
         agent_id=agent.id,
         db=db,
-        limit=50
+        limit=50,
+        exclude_message_ids=context_message_ids
     )
 
     # 2. Load memory agent from attachments
@@ -774,11 +822,6 @@ async def _chat_stream_internal(
     # Apply tag updates from memory agent
     if tag_updates:
         apply_tag_updates(tag_updates, db)
-
-    # Get conversation history
-    history = db.query(Message).filter(
-        Message.conversation_id == conversation_id
-    ).order_by(Message.created_at.asc()).all()
 
     # Get journal blocks for system prompt
     journal_blocks_info = list_journal_blocks(agent.id, db)
@@ -807,31 +850,9 @@ async def _chat_stream_internal(
     else:
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
-    # === CONTEXT WINDOW MANAGEMENT ===
+    # Build final messages array using the pre-calculated messages_in_context
     system_message = {"role": "system", "content": system_content}
-    sticky_tokens = count_message_tokens(system_message)
-    enabled_tools = get_enabled_tools(agent.enabled_tools)
-    tools_json = json.dumps(enabled_tools)
-    sticky_tokens += count_tokens(tools_json)
-
-    max_context = agent.max_context_tokens
-    remaining_budget = max_context - sticky_tokens
-
-    # Trim history to fit remaining budget
-    messages_to_include = []
-    current_tokens = 0
-
-    for msg in reversed(history):
-        msg_dict = {"role": msg.role, "content": msg.content}
-        msg_tokens = count_message_tokens(msg_dict)
-
-        if current_tokens + msg_tokens <= remaining_budget:
-            messages_to_include.insert(0, msg_dict)
-            current_tokens += msg_tokens
-        else:
-            break
-
-    # Build final messages array
+    messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
     messages = [system_message] + messages_to_include
 
     # Get or start MLX server

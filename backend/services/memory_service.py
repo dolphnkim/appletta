@@ -47,7 +47,8 @@ def search_memories(
     query_text: str,
     agent_id: UUID,
     db: Session,
-    limit: int = 50
+    limit: int = 50,
+    exclude_message_ids: List[str] = None
 ) -> List[MemoryCandidate]:
     """Search for relevant memories across all sources
 
@@ -56,6 +57,7 @@ def search_memories(
         agent_id: ID of the agent
         db: Database session
         limit: Maximum number of candidates to return
+        exclude_message_ids: Optional list of message IDs to exclude (e.g., messages in active context)
 
     Returns:
         List of memory candidates sorted by similarity
@@ -137,7 +139,13 @@ def search_memories(
         ))
 
     # Search conversation messages (needs join to conversations)
-    message_query = text("""
+    # Exclude messages in active context window to avoid redundancy
+    exclude_clause = ""
+    if exclude_message_ids:
+        exclude_ids_str = "','".join(exclude_message_ids)
+        exclude_clause = f"AND m.id NOT IN ('{exclude_ids_str}')"
+
+    message_query = text(f"""
         SELECT
             m.id,
             'message' as source_type,
@@ -147,6 +155,7 @@ def search_memories(
         JOIN conversations conv ON m.conversation_id = conv.id
         WHERE conv.agent_id = :agent_id
         AND m.embedding IS NOT NULL
+        {exclude_clause}
         ORDER BY m.embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
     """)
