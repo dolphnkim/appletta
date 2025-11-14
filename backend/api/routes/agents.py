@@ -375,7 +375,7 @@ async def get_agent_context_window(
     # Build external summary (RAG files, journal blocks, datetime)
     from datetime import datetime
     from backend.db.models.rag import RagFolder, RagFile
-    from backend.services.journal_blocks import list_journal_blocks
+    from backend.services.tools import list_journal_blocks
 
     external_summary_parts = []
 
