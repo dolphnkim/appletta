@@ -227,6 +227,10 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+.action-button.delete-button:hover:not(:disabled) {
+  background: rgba(244, 135, 113, 0.2);
+}
+
 .action-button:disabled {
   opacity: 0.3;
   cursor: not-allowed;
