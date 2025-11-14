@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { conversationAPI } from '../../api/conversationAPI';
 import ContextWindowModal from './ContextWindowModal';
 import ContextWindowIndicator from './ContextWindowIndicator';
@@ -21,6 +21,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [streaming, setStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [memoryNarrative, setMemoryNarrative] = useState<string>('');
+  const [savedMemoryNarratives, setSavedMemoryNarratives] = useState<Array<{id: string, content: string, collapsed: boolean}>>([]);
   const [error, setError] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -150,6 +151,14 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
       } else if (data.type === 'content') {
         setStreamingContent((prev) => prev + data.content);
       } else if (data.type === 'done') {
+        // Save memory narrative if we have one
+        if (memoryNarrative) {
+          setSavedMemoryNarratives((prev) => [
+            ...prev,
+            { id: data.assistant_message.id, content: memoryNarrative, collapsed: false }
+          ]);
+        }
+
         // Stream complete - replace temp messages with real ones
         setMessages((prev) => {
           const withoutTemp = prev.filter((m) => m.id !== 'temp-user');
@@ -260,6 +269,14 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     setIsEditingUserName(false);
   };
 
+  const toggleMemoryNarrativeCollapse = (id: string) => {
+    setSavedMemoryNarratives((prev) =>
+      prev.map((narrative) =>
+        narrative.id === id ? { ...narrative, collapsed: !narrative.collapsed } : narrative
+      )
+    );
+  };
+
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -336,33 +353,34 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
         ) : (
           <div className="messages-list">
             {messages.map((message) => (
-              <div key={message.id} className={`message message-${message.role}`}>
-                {editingMessageId === message.id ? (
-                  <div className="message-edit-form">
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      className="message-edit-textarea"
-                      rows={4}
-                    />
-                    <div className="message-edit-actions">
-                      <button onClick={() => handleSaveEdit(message.id)} className="btn-save">
-                        Save
-                      </button>
-                      <button onClick={handleCancelEdit} className="btn-cancel">
-                        Cancel
-                      </button>
+              <React.Fragment key={message.id}>
+                <div className={`message message-${message.role}`}>
+                  {editingMessageId === message.id ? (
+                    <div className="message-edit-form">
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="message-edit-textarea"
+                        rows={4}
+                      />
+                      <div className="message-edit-actions">
+                        <button onClick={() => handleSaveEdit(message.id)} className="btn-save">
+                          Save
+                        </button>
+                        <button onClick={handleCancelEdit} className="btn-cancel">
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="message-header">
-                      <span className="message-role">
-                        {message.role === 'user' ? `👤 ${userName}` : `🤖 ${agentName}`}
-                      </span>
-                      <span className="message-time">{formatTime(message.created_at)}</span>
-                    </div>
-                    <div className="message-content">{message.content}</div>
+                  ) : (
+                    <>
+                      <div className="message-header">
+                        <span className="message-role">
+                          {message.role === 'user' ? `👤 ${userName}` : `🤖 ${agentName}`}
+                        </span>
+                        <span className="message-time">{formatTime(message.created_at)}</span>
+                      </div>
+                      <div className="message-content">{message.content}</div>
                     <div className="message-actions">
                       {message.role === 'user' && (
                         <button
@@ -408,6 +426,29 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
                   </>
                 )}
               </div>
+
+              {/* Show saved memory narrative for this assistant message */}
+              {message.role === 'assistant' && savedMemoryNarratives.find((n) => n.id === message.id) && (
+                <div className="message message-memory">
+                  {(() => {
+                    const narrative = savedMemoryNarratives.find((n) => n.id === message.id)!;
+                    return (
+                      <>
+                        <div className="message-header" onClick={() => toggleMemoryNarrativeCollapse(narrative.id)} style={{ cursor: 'pointer' }}>
+                          <span className="message-role">
+                            💭 Memory Agent {narrative.collapsed ? '▶' : '▼'}
+                          </span>
+                          <span className="message-time">Surfaced memories</span>
+                        </div>
+                        {!narrative.collapsed && (
+                          <div className="message-content memory-narrative">{narrative.content}</div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </React.Fragment>
             ))}
 
             {/* Memory narrative - show what the memory agent said */}
