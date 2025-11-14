@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import './SystemInstructionsModal.css';
+import './ProjectInstructionsModal.css';
 
-interface SystemInstructionsModalProps {
+interface ProjectInstructionsModalProps {
   value: string;
   onSave: (value: string) => void;
   onClose: () => void;
 }
 
-export default function SystemInstructionsModal({
+export default function ProjectInstructionsModal({
   value,
   onSave,
   onClose,
-}: SystemInstructionsModalProps) {
+}: ProjectInstructionsModalProps) {
   const [editedValue, setEditedValue] = useState(value);
 
   useEffect(() => {
