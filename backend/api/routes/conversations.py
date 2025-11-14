@@ -132,10 +132,11 @@ async def get_context_window(
     # System instructions tokens (journal blocks are now in External Summary, not here)
     system_instructions_tokens = count_tokens(system_instructions)
 
-    # Tools tokens
+    # Tools tokens and description
     enabled_tools = get_enabled_tools(agent.enabled_tools)
     tools_json = json.dumps(enabled_tools)
     tools_tokens = count_tokens(tools_json)
+    tools_description = get_tools_description(agent.enabled_tools)  # Human-readable for display
 
     # Messages tokens
     history = db.query(Message).filter(
@@ -160,10 +161,10 @@ async def get_context_window(
             "content": system_instructions
         },
         {
-            "name": "Tools descriptions",
+            "name": "Tools description",
             "tokens": tools_tokens,
             "percentage": round((tools_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": tools_json
+            "content": tools_description
         },
         {
             "name": "External summary",
@@ -668,10 +669,18 @@ async def chat(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
-    # Add tools description
+    # Add tools description with few-shot example
     tools_description = get_tools_description(agent.enabled_tools)
     if tools_description != "No tools enabled":
         system_content += f"\n\n=== Available Tools ===\n{tools_description}"
+
+        # Add few-shot example to remind model of tool calling format
+        system_content += "\n\nTool calling example:"
+        system_content += "\nUser: Create a journal block about our conversation"
+        system_content += "\nAssistant: I'll create a journal block for you."
+        system_content += "\n<tool_call>"
+        system_content += '\n{"name": "create_journal_block", "arguments": {"label": "Conversation Notes", "value": "Discussed tool calling and memory systems"}}'
+        system_content += "\n</tool_call>"
     else:
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
@@ -935,10 +944,18 @@ async def _chat_stream_internal(
     else:
         system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
-    # Add tools description
+    # Add tools description with few-shot example
     tools_description = get_tools_description(agent.enabled_tools)
     if tools_description != "No tools enabled":
         system_content += f"\n\n=== Available Tools ===\n{tools_description}"
+
+        # Add few-shot example to remind model of tool calling format
+        system_content += "\n\nTool calling example:"
+        system_content += "\nUser: Create a journal block about our conversation"
+        system_content += "\nAssistant: I'll create a journal block for you."
+        system_content += "\n<tool_call>"
+        system_content += '\n{"name": "create_journal_block", "arguments": {"label": "Conversation Notes", "value": "Discussed tool calling and memory systems"}}'
+        system_content += "\n</tool_call>"
     else:
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
