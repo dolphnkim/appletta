@@ -583,8 +583,8 @@ async def chat(
     # Build system message with journal blocks and memories
     system_content = agent.system_instructions or ""
 
-    # Add memory narrative as thoughts (wrapped in <think> tags)
-    # This lets the model process memories as background context
+    # Add memory narrative as plain context (no <think> tags to avoid prompting base model)
+    # The adapter personality should handle this naturally without format prompting
     if memory_narrative:
         # Sanitize the narrative - remove existing <think> tags, broken markdown, weird links
         import re
@@ -605,7 +605,7 @@ async def chat(
 
         # Only add if there's actual content after sanitizing
         if sanitized:
-            system_content += f"\n\n=== Memories Surfacing ===\n<think>\n{sanitized}\n</think>\n"
+            system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
 
     # Add journal blocks
     if blocks_list:
@@ -850,8 +850,8 @@ async def _chat_stream_internal(
     # Build system message with journal blocks and memories
     system_content = agent.system_instructions or ""
 
-    # Add memory narrative as thoughts (wrapped in <think> tags)
-    # This lets the model process memories as background context
+    # Add memory narrative as plain context (no <think> tags to avoid prompting base model)
+    # The adapter personality should handle this naturally without format prompting
     if memory_narrative:
         # Sanitize the narrative - remove existing <think> tags, broken markdown, weird links
         import re
@@ -872,7 +872,7 @@ async def _chat_stream_internal(
 
         # Only add if there's actual content after sanitizing
         if sanitized:
-            system_content += f"\n\n=== Memories Surfacing ===\n<think>\n{sanitized}\n</think>\n"
+            system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
 
     # Add journal blocks
     if blocks_list:
