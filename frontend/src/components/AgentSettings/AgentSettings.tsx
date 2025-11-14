@@ -51,7 +51,7 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
         is_template: false, // New agent is not a template
         enabled_tools: updates.enabled_tools ?? agent.enabled_tools ?? [],
         model_path: updates.model_path ?? agent.model_path,
-        adapter_path: updates.adapter_path ?? agent.adapter_path,
+        adapter_path: 'adapter_path' in updates ? updates.adapter_path : agent.adapter_path,
         system_instructions: updates.system_instructions ?? agent.system_instructions,
         llm_config: updates.llm_config ? { ...agent.llm_config, ...updates.llm_config } : agent.llm_config,
         embedding_config: updates.embedding_config ? { ...agent.embedding_config, ...updates.embedding_config } : agent.embedding_config,
@@ -86,7 +86,8 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
   };
 
   const handleAdapterPathUpdate = async (adapter_path: string) => {
-    await handleTemplateUpdate({ adapter_path: adapter_path || undefined });
+    // Send null to explicitly clear, undefined to not update, or the path value
+    await handleTemplateUpdate({ adapter_path: adapter_path || null });
   };
 
   const handleSystemInstructionsUpdate = async (system_instructions: string) => {
