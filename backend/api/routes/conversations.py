@@ -99,18 +99,40 @@ async def get_context_window(
     system_instructions = agent.system_instructions or ""
     system_instructions_tokens = count_tokens(system_instructions)
 
-    # Build surfaced memories text from narrative
-    memories_text = ""
-    if memory_narrative:
-        memories_text = f"\n\n=== Memories Surfacing ===\n{memory_narrative}\n\n"
+    # Build external summary (RAG files, journal blocks, datetime)
+    from datetime import datetime
+    external_summary_parts = []
 
-    external_summary_tokens = count_tokens(memories_text)
+    # Add current datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    external_summary_parts.append(f"Current time: {current_time}")
 
-    # Build journal blocks text
+    # Add RAG folders/files
+    from backend.db.models.rag import RagFolder, RagFile
+    rag_folders = db.query(RagFolder).filter(RagFolder.agent_id == agent.id).all()
+    if rag_folders:
+        external_summary_parts.append("\n=== RAG Folders/Files ===")
+        for folder in rag_folders:
+            external_summary_parts.append(f"Folder: {folder.name}")
+            rag_files = db.query(RagFile).filter(RagFile.folder_id == folder.id).all()
+            for file in rag_files:
+                external_summary_parts.append(f"  - {file.name}")
+
+    # Add journal blocks
     journal_blocks_info = list_journal_blocks(agent.id, db)
+    journal_blocks_list = journal_blocks_info.get("blocks", [])
+    if journal_blocks_list:
+        external_summary_parts.append("\n=== Journal Blocks ===")
+        for block in journal_blocks_list:
+            external_summary_parts.append(f"- {block['label']}")
+
+    external_summary_text = "\n".join(external_summary_parts) if external_summary_parts else "No external resources"
+    external_summary_tokens = count_tokens(external_summary_text)
+
+    # Build journal blocks text for system instructions
     blocks_list = "\n".join([
         f"- {block['label']} (ID: {block['id']})"
-        for block in journal_blocks_info.get("blocks", [])
+        for block in journal_blocks_list
     ])
 
     blocks_text = ""
@@ -159,7 +181,7 @@ async def get_context_window(
             "name": "External summary",
             "tokens": external_summary_tokens,
             "percentage": round((external_summary_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": memories_text
+            "content": external_summary_text
         },
         {
             "name": "Messages",
