@@ -372,7 +372,41 @@ async def get_agent_context_window(
 
 
 
-    total_tokens = system_instructions_tokens + tools_tokens
+    # Build external summary (RAG files, journal blocks, datetime)
+    from datetime import datetime
+    from backend.db.models.rag import RagFolder, RagFile
+    from backend.services.journal_blocks import list_journal_blocks
+
+    external_summary_parts = []
+
+    # Add current datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    external_summary_parts.append(f"Current time: {current_time}")
+
+    # Add RAG folders/files
+    rag_folders = db.query(RagFolder).filter(RagFolder.agent_id == agent.id).all()
+    if rag_folders:
+        external_summary_parts.append("\n=== RAG Folders/Files ===")
+        for folder in rag_folders:
+            external_summary_parts.append(f"Folder: {folder.name}")
+            rag_files = db.query(RagFile).filter(RagFile.folder_id == folder.id).all()
+            for file in rag_files:
+                external_summary_parts.append(f"  - {file.name}")
+
+    # Add journal blocks
+    journal_blocks_info = list_journal_blocks(agent.id, db)
+    journal_blocks_list = journal_blocks_info.get("blocks", [])
+    if journal_blocks_list:
+        external_summary_parts.append("\n=== Journal Blocks ===")
+        for block in journal_blocks_list:
+            external_summary_parts.append(f"- {block['label']}")
+
+    external_summary_text = "\n".join(external_summary_parts) if external_summary_parts else "No external resources"
+    external_summary_tokens = count_tokens(external_summary_text)
+
+
+
+    total_tokens = system_instructions_tokens + tools_tokens + external_summary_tokens
 
     max_tokens = agent.max_context_tokens
 
@@ -405,6 +439,18 @@ async def get_agent_context_window(
                 "percentage": (tools_tokens / max_tokens * 100) if max_tokens > 0 else 0,
 
                 "content": tools_json[:500]
+
+            },
+
+            {
+
+                "name": "External summary",
+
+                "tokens": external_summary_tokens,
+
+                "percentage": (external_summary_tokens / max_tokens * 100) if max_tokens > 0 else 0,
+
+                "content": external_summary_text
 
             },
 

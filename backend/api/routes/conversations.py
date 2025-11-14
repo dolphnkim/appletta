@@ -99,28 +99,38 @@ async def get_context_window(
     system_instructions = agent.system_instructions or ""
     system_instructions_tokens = count_tokens(system_instructions)
 
-    # Build surfaced memories text from narrative
-    memories_text = ""
-    if memory_narrative:
-        memories_text = f"\n\n=== Memories Surfacing ===\n{memory_narrative}\n\n"
+    # Build external summary (RAG files, journal blocks, datetime)
+    from datetime import datetime
+    external_summary_parts = []
 
-    external_summary_tokens = count_tokens(memories_text)
+    # Add current datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    external_summary_parts.append(f"Current time: {current_time}")
 
-    # Build journal blocks text
+    # Add RAG folders/files
+    from backend.db.models.rag import RagFolder, RagFile
+    rag_folders = db.query(RagFolder).filter(RagFolder.agent_id == agent.id).all()
+    if rag_folders:
+        external_summary_parts.append("\n=== RAG Folders/Files ===")
+        for folder in rag_folders:
+            external_summary_parts.append(f"Folder: {folder.name}")
+            rag_files = db.query(RagFile).filter(RagFile.folder_id == folder.id).all()
+            for file in rag_files:
+                external_summary_parts.append(f"  - {file.name}")
+
+    # Add journal blocks
     journal_blocks_info = list_journal_blocks(agent.id, db)
-    blocks_list = "\n".join([
-        f"- {block['label']} (ID: {block['id']})"
-        for block in journal_blocks_info.get("blocks", [])
-    ])
+    journal_blocks_list = journal_blocks_info.get("blocks", [])
+    if journal_blocks_list:
+        external_summary_parts.append("\n=== Journal Blocks ===")
+        for block in journal_blocks_list:
+            external_summary_parts.append(f"- {block['label']}")
 
-    blocks_text = ""
-    if blocks_list:
-        blocks_text = f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
-    else:
-        blocks_text = "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
+    external_summary_text = "\n".join(external_summary_parts) if external_summary_parts else "No external resources"
+    external_summary_tokens = count_tokens(external_summary_text)
 
-    # System instructions includes blocks text
-    system_instructions_with_blocks_tokens = count_tokens(system_instructions + blocks_text)
+    # System instructions tokens (journal blocks are now in External Summary, not here)
+    system_instructions_tokens = count_tokens(system_instructions)
 
     # Tools tokens
     enabled_tools = get_enabled_tools(agent.enabled_tools)
@@ -139,15 +149,15 @@ async def get_context_window(
     messages_tokens = count_messages_tokens(messages_for_count)
 
     # Calculate totals and percentages
-    total_tokens = system_instructions_with_blocks_tokens + tools_tokens + external_summary_tokens + messages_tokens
+    total_tokens = system_instructions_tokens + tools_tokens + external_summary_tokens + messages_tokens
     max_context = agent.max_context_tokens
 
     sections = [
         {
             "name": "System Instructions",
-            "tokens": system_instructions_with_blocks_tokens,
-            "percentage": round((system_instructions_with_blocks_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": system_instructions + blocks_text
+            "tokens": system_instructions_tokens,
+            "percentage": round((system_instructions_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": system_instructions
         },
         {
             "name": "Tools descriptions",
@@ -159,7 +169,7 @@ async def get_context_window(
             "name": "External summary",
             "tokens": external_summary_tokens,
             "percentage": round((external_summary_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": memories_text
+            "content": external_summary_text
         },
         {
             "name": "Messages",
