@@ -1,35 +1,44 @@
 .app {
   min-height: 100vh;
   background-color: #1e1e1e;
-  display: grid;
-  grid-template-columns: 1fr 2fr 1fr;
-  gap: 0;
+  display: flex;
   overflow: visible;
+  user-select: none; /* Prevent text selection while dragging */
+}
+
+.app-left-panel,
+.app-center-panel,
+.app-right-panel {
+  height: 100vh;
+  position: relative;
+  overflow: visible;
+  flex-shrink: 0;
 }
 
 .app-left-panel {
-  height: 100vh;
-  border-right: 1px solid #333;
-  position: relative;
   z-index: 10;
-  overflow: visible;
 }
 
 .app-center-panel {
-  height: 100vh;
-  border-right: 1px solid #333;
-  position: relative;
   z-index: 5;
-  overflow: visible;
 }
 
 .app-right-panel {
-  height: 100vh;
-  position: relative;
   z-index: 10;
-  overflow: visible;
 }
 
-.app-right-panel {
-  border-right: none;
+.app-resize-handle {
+  width: 4px;
+  background: #333;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.app-resize-handle:hover {
+  background: #007aff;
+}
+
+.app-resize-handle:active {
+  background: #0051d5;
 }
