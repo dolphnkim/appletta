@@ -16,6 +16,18 @@ function App() {
     return saved || undefined;
   });
 
+  // Column widths (in percentages)
+  const [leftWidth, setLeftWidth] = useState(() => {
+    const saved = localStorage.getItem('leftPanelWidth');
+    return saved ? parseInt(saved) : 20;
+  });
+  const [rightWidth, setRightWidth] = useState(() => {
+    const saved = localStorage.getItem('rightPanelWidth');
+    return saved ? parseInt(saved) : 25;
+  });
+  const [isDraggingLeft, setIsDraggingLeft] = useState(false);
+  const [isDraggingRight, setIsDraggingRight] = useState(false);
+
   // Persist agentId to localStorage
   useEffect(() => {
     if (agentId) {
@@ -31,6 +43,15 @@ function App() {
       localStorage.removeItem('currentConversationId');
     }
   }, [currentConversationId]);
+
+  // Persist panel widths to localStorage
+  useEffect(() => {
+    localStorage.setItem('leftPanelWidth', leftWidth.toString());
+  }, [leftWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('rightPanelWidth', rightWidth.toString());
+  }, [rightWidth]);
 
   // Fetch agents on mount
   useEffect(() => {
@@ -82,6 +103,45 @@ function App() {
     setCurrentConversationId(undefined); // Clear conversation when switching agents
   };
 
+  // Resizing handlers
+  const handleMouseMoveLeft = (e: MouseEvent) => {
+    if (!isDraggingLeft) return;
+    const newWidth = (e.clientX / window.innerWidth) * 100;
+    if (newWidth > 10 && newWidth < 40) {
+      setLeftWidth(newWidth);
+    }
+  };
+
+  const handleMouseMoveRight = (e: MouseEvent) => {
+    if (!isDraggingRight) return;
+    const newWidth = ((window.innerWidth - e.clientX) / window.innerWidth) * 100;
+    if (newWidth > 15 && newWidth < 45) {
+      setRightWidth(newWidth);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDraggingLeft(false);
+    setIsDraggingRight(false);
+  };
+
+  useEffect(() => {
+    if (isDraggingLeft || isDraggingRight) {
+      const handleMove = (e: MouseEvent) => {
+        if (isDraggingLeft) handleMouseMoveLeft(e);
+        if (isDraggingRight) handleMouseMoveRight(e);
+      };
+
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleMouseUp);
+
+      return () => {
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDraggingLeft, isDraggingRight, leftWidth, rightWidth]);
+
   if (!agentId) {
     return (
       <div className="app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
@@ -90,9 +150,11 @@ function App() {
     );
   }
 
+  const centerWidth = 100 - leftWidth - rightWidth;
+
   return (
     <div className="app">
-      <div className="app-left-panel">
+      <div className="app-left-panel" style={{ width: `${leftWidth}%` }}>
         <LeftPanel
           agentId={agentId}
           currentConversationId={currentConversationId}
@@ -102,7 +164,11 @@ function App() {
           onClone={handleClone}
         />
       </div>
-      <div className="app-center-panel">
+      <div
+        className="app-resize-handle"
+        onMouseDown={() => setIsDraggingLeft(true)}
+      />
+      <div className="app-center-panel" style={{ width: `${centerWidth}%` }}>
         <ChatPanel
           agentId={agentId}
           agents={agents}
@@ -111,7 +177,11 @@ function App() {
           onAgentChange={handleAgentChange}
         />
       </div>
-      <div className="app-right-panel">
+      <div
+        className="app-resize-handle"
+        onMouseDown={() => setIsDraggingRight(true)}
+      />
+      <div className="app-right-panel" style={{ width: `${rightWidth}%` }}>
         <DatabasePanel agentId={agentId} />
       </div>
     </div>
