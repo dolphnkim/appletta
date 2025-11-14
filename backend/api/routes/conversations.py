@@ -698,24 +698,58 @@ async def chat(
     iteration = 0
     final_response = None
 
+    print(f"\n{'='*80}")
+    print(f"🤖 MAIN AGENT LLM CALL - Agent: {agent.name}")
+    print(f"{'='*80}")
+
     while iteration < max_iterations:
         iteration += 1
+
+        # VERBOSE: Show exactly what we're sending to the LLM
+        request_payload = {
+            "messages": messages,
+            "tools": enabled_tools,
+            "temperature": agent.temperature,
+            "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+            "seed": 42,  # For reproducibility and vibes
+        }
+
+        print(f"\n📤 REQUEST TO MAIN LLM (Iteration {iteration}):")
+        print(f"Port: {mlx_process.port}")
+        print(f"Temperature: {agent.temperature}")
+        print(f"Max Tokens: {agent.max_output_tokens if agent.max_output_tokens_enabled else 4096}")
+        print(f"\n📨 MESSAGES ARRAY ({len(messages)} messages):")
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            print(f"\n  Message {i+1} [{role}]:")
+            print(f"  {content[:500]}{'...' if len(content) > 500 else ''}")
+        print(f"\n🔧 TOOLS: {len(enabled_tools)} tools enabled")
+        print(f"{'='*80}\n")
 
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                    json={
-                        "messages": messages,
-                        "tools": enabled_tools,
-                        "temperature": agent.temperature,
-                        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                        "seed": 42,  # For reproducibility and vibes
-                    }
+                    json=request_payload
                 )
                 response.raise_for_status()
                 result = response.json()
+
+            # VERBOSE: Show exactly what the LLM responded with
+            print(f"\n📥 RESPONSE FROM MAIN LLM (Iteration {iteration}):")
+            assistant_msg = result.get("choices", [{}])[0].get("message", {})
+            print(f"Role: {assistant_msg.get('role', 'unknown')}")
+            content = assistant_msg.get("content", "")
+            print(f"Content: {content[:500]}{'...' if len(content) > 500 else ''}")
+            if assistant_msg.get("tool_calls"):
+                print(f"Tool Calls: {len(assistant_msg['tool_calls'])} tool(s) called")
+                for tc in assistant_msg["tool_calls"]:
+                    print(f"  - {tc['function']['name']}: {tc['function']['arguments'][:200]}")
+            print(f"{'='*80}\n")
+
         except httpx.HTTPError as e:
+            print(f"\n❌ MLX SERVER ERROR: {str(e)}\n")
             raise HTTPException(500, f"MLX server request failed: {str(e)}")
 
         assistant_message_data = result["choices"][0]["message"]
@@ -960,14 +994,6 @@ async def _chat_stream_internal(
     import logging
     logger = logging.getLogger(__name__)
 
-    # DEBUG: Print what we're actually sending as system instructions
-    print(f"\n{'='*60}")
-    print(f"[DEBUG] System content being sent (first 500 chars):")
-    print(system_content[:500])
-    print(f"\n[DEBUG] Agent project_instructions from database:")
-    print(agent.project_instructions[:200] if agent.project_instructions else 'None')
-    print(f"{'='*60}\n")
-
     mlx_manager = get_mlx_manager()
     mlx_process = mlx_manager.get_agent_server(agent.id)
 
@@ -990,6 +1016,24 @@ async def _chat_stream_internal(
         # Send raw memory narrative first so user can see what the memory agent said
         if memory_narrative:
             yield f"data: {json.dumps({'type': 'memory_narrative', 'content': memory_narrative})}\n\n"
+
+        # VERBOSE: Show exactly what we're sending to the LLM
+        print(f"\n{'='*80}")
+        print(f"🤖 MAIN AGENT LLM CALL (STREAMING) - Agent: {agent.name}")
+        print(f"{'='*80}")
+        print(f"\n📤 REQUEST TO MAIN LLM:")
+        print(f"Port: {mlx_process.port}")
+        print(f"Temperature: {agent.temperature}")
+        print(f"Top P: {agent.top_p}")
+        print(f"Max Tokens: {agent.max_output_tokens if agent.max_output_tokens_enabled else 4096}")
+        print(f"\n📨 MESSAGES ARRAY ({len(messages)} messages):")
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            print(f"\n  Message {i+1} [{role}]:")
+            print(f"  {content[:500]}{'...' if len(content) > 500 else ''}")
+        print(f"\n🔧 TOOLS: {len(enabled_tools) if enabled_tools else 0} tools enabled")
+        print(f"{'='*80}\n")
 
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
@@ -1030,6 +1074,14 @@ async def _chat_stream_internal(
 
                             except json.JSONDecodeError:
                                 continue
+
+            # VERBOSE: Show the complete response
+            print(f"\n📥 COMPLETE RESPONSE FROM MAIN LLM (STREAMING):")
+            print(f"Full Response ({len(full_response)} chars):")
+            print(f"{full_response}")
+            if tool_calls_count > 0:
+                print(f"Tool Calls: {tool_calls_count} tool(s) called")
+            print(f"{'='*80}\n")
 
             # Save complete assistant message to database
             # Extract initial thematic tags for assistant message
