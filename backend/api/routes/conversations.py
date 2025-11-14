@@ -923,6 +923,10 @@ async def _chat_stream_internal(
         full_response = ""
         tool_calls_count = 0
 
+        # Send raw memory narrative first so user can see what the memory agent said
+        if memory_narrative:
+            yield f"data: {json.dumps({'type': 'memory_narrative', 'content': memory_narrative})}\n\n"
+
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(

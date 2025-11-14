@@ -159,6 +159,20 @@
   border: 1px solid #333;
 }
 
+.message-memory {
+  align-self: flex-start;
+  background: #2a1f3a;
+  border: 1px solid #5a4a7a;
+  max-width: 85%;
+}
+
+.memory-narrative {
+  font-size: 13px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.5;
+}
+
 .message-header {
   display: flex;
   justify-content: space-between;

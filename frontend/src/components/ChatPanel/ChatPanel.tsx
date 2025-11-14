@@ -20,6 +20,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [inputValue, setInputValue] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [memoryNarrative, setMemoryNarrative] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -119,6 +120,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const sendStreamingMessage = async (convId: string, content: string) => {
     setStreaming(true);
     setStreamingContent('');
+    setMemoryNarrative('');
 
     // Add user message immediately
     const tempUserMessage: Message = {
@@ -137,7 +139,9 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      if (data.type === 'content') {
+      if (data.type === 'memory_narrative') {
+        setMemoryNarrative(data.content);
+      } else if (data.type === 'content') {
         setStreamingContent((prev) => prev + data.content);
       } else if (data.type === 'done') {
         // Stream complete - replace temp messages with real ones
@@ -146,11 +150,13 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
           return [...withoutTemp, data.user_message, data.assistant_message];
         });
         setStreamingContent('');
+        setMemoryNarrative('');
         setStreaming(false);
         eventSource.close();
       } else if (data.type === 'error') {
         setError(data.error);
         setStreamingContent('');
+        setMemoryNarrative('');
         setStreaming(false);
         eventSource.close();
       }
@@ -159,6 +165,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     eventSource.onerror = () => {
       setError('Connection lost. Please try again.');
       setStreamingContent('');
+      setMemoryNarrative('');
       setStreaming(false);
       eventSource.close();
     };
@@ -346,8 +353,19 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
               </div>
             ))}
 
+            {/* Memory narrative - show what the memory agent said */}
+            {memoryNarrative && (
+              <div className="message message-memory">
+                <div className="message-header">
+                  <span className="message-role">💭 Memory Agent</span>
+                  <span className="message-time">Surfacing memories...</span>
+                </div>
+                <div className="message-content memory-narrative">{memoryNarrative}</div>
+              </div>
+            )}
+
             {/* Typing indicator - show while waiting for first chunk */}
-            {streaming && !streamingContent && (
+            {streaming && !streamingContent && !memoryNarrative && (
               <div className="message message-assistant typing">
                 <div className="message-header">
                   <span className="message-role">🤖 Assistant</span>
