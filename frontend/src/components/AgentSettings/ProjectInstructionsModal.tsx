@@ -58,7 +58,7 @@ export default function ProjectInstructionsModal({
         <div className="modal-content">
           <div className="character-count">{editedValue.length} characters</div>
           <textarea
-            className="system-instructions-textarea"
+            className="project-instructions-textarea"
             value={editedValue}
             onChange={(e) => setEditedValue(e.target.value)}
             onKeyDown={handleKeyDown}

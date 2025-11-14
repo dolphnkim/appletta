@@ -1,18 +1,18 @@
-import './SystemInstructionsField.css';
+import './ProjectInstructionsField.css';
 
-interface SystemInstructionsFieldProps {
+interface ProjectInstructionsFieldProps {
   value: string;
   onClick: () => void;
 }
 
-export default function SystemInstructionsField({ value, onClick }: SystemInstructionsFieldProps) {
+export default function ProjectInstructionsField({ value, onClick }: ProjectInstructionsFieldProps) {
   // Get first few lines as preview
   const lines = value.split('\n').slice(0, 3);
   const preview = lines.join('\n');
   const hasMore = value.split('\n').length > 3;
 
   return (
-    <div className="system-instructions-field">
+    <div className="project-instructions-field">
       <div className="field-label">
         Project instructions
         <span className="help-icon" title="Defines the agent's behavior and role in the project">
@@ -21,7 +21,7 @@ export default function SystemInstructionsField({ value, onClick }: SystemInstru
           </svg>
         </span>
       </div>
-      <button className="system-instructions-preview" onClick={onClick}>
+      <button className="project-instructions-preview" onClick={onClick}>
         <div className="preview-text">
           {preview}
           {hasMore && '...'}
