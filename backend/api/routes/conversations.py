@@ -629,14 +629,9 @@ async def chat(
     if tag_updates:
         apply_tag_updates(tag_updates, db)
 
-    # Get journal blocks for system prompt
-    journal_blocks_info = list_journal_blocks(agent.id, db)
-    blocks_list = "\n".join([
-        f"- {block['label']} (ID: {block['id']})"
-        for block in journal_blocks_info.get("blocks", [])
-    ])
-
-    # Build system message with journal blocks and memories
+    # Build system message with memories
+    # Note: Journal blocks are NOT included in system prompt - they live in the database
+    # and are retrieved via vector search (memory_service) when relevant
     system_content = agent.system_instructions or ""
 
     # Add memory narrative as plain context (no <think> tags to avoid prompting base model)
@@ -662,12 +657,6 @@ async def chat(
         # Only add if there's actual content after sanitizing
         if sanitized:
             system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
-
-    # Add journal blocks
-    if blocks_list:
-        system_content += f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
-    else:
-        system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
     # Add tools description
     tools_description = get_tools_description(agent.enabled_tools)
@@ -879,31 +868,31 @@ async def _chat_stream_internal(
         AgentAttachment.enabled == True
     ).order_by(AgentAttachment.priority.desc()).first()
 
+    # 3. Only use memory coordinator if there's an attached memory agent
+    memory_narrative = ""
+    tag_updates = {}
+
     if memory_attachment:
         memory_agent = db.query(Agent).filter(
             Agent.id == memory_attachment.attached_agent_id
         ).first()
 
-    # 3. Use memory coordinator to generate first-person narrative about surfaced memories
-    memory_narrative, tag_updates = await coordinate_memories(
-        candidates=memory_candidates,
-        query_context=message,
-        memory_agent=memory_agent,
-        target_count=7
-    )
+        if memory_agent:
+            # Use memory coordinator to generate first-person narrative
+            memory_narrative, tag_updates = await coordinate_memories(
+                candidates=memory_candidates,
+                query_context=message,
+                memory_agent=memory_agent,
+                target_count=7
+            )
 
-    # Apply tag updates from memory agent
-    if tag_updates:
-        apply_tag_updates(tag_updates, db)
+            # Apply tag updates from memory agent
+            if tag_updates:
+                apply_tag_updates(tag_updates, db)
 
-    # Get journal blocks for system prompt
-    journal_blocks_info = list_journal_blocks(agent.id, db)
-    blocks_list = "\n".join([
-        f"- {block['label']} (ID: {block['id']})"
-        for block in journal_blocks_info.get("blocks", [])
-    ])
-
-    # Build system message with journal blocks and memories
+    # Build system message with memories
+    # Note: Journal blocks are NOT included in system prompt - they live in the database
+    # and are retrieved via vector search (memory_service) when relevant
     system_content = agent.system_instructions or ""
 
     # Add memory narrative as plain context (no <think> tags to avoid prompting base model)
@@ -929,12 +918,6 @@ async def _chat_stream_internal(
         # Only add if there's actual content after sanitizing
         if sanitized:
             system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
-
-    # Add journal blocks
-    if blocks_list:
-        system_content += f"\n\nAvailable Journal Blocks:\n{blocks_list}\n\nYou can use tools to read, create, update, or delete journal blocks."
-    else:
-        system_content += "\n\nYou have no journal blocks yet. You can create blocks to organize your memory using the create_journal_block tool."
 
     # Add tools description
     tools_description = get_tools_description(agent.enabled_tools)
