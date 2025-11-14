@@ -25,9 +25,15 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [showContextWindow, setShowContextWindow] = useState(false);
+  const [userName, setUserName] = useState<string>(() => localStorage.getItem('userName') || 'You');
+  const [isEditingUserName, setIsEditingUserName] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Get current agent name
+  const currentAgent = agents.find(a => a.id === agentId);
+  const agentName = currentAgent?.name || 'Assistant';
 
   // Load conversation when conversationId changes
   useEffect(() => {
@@ -248,6 +254,12 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     setStreamingContent('');
   };
 
+  const handleUserNameChange = (newName: string) => {
+    setUserName(newName);
+    localStorage.setItem('userName', newName);
+    setIsEditingUserName(false);
+  };
+
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -261,6 +273,29 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
           {currentConversation ? currentConversation.title : 'Chat'}
         </div>
         <div className="chat-header-actions">
+          {isEditingUserName ? (
+            <input
+              type="text"
+              className="user-name-input"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              onBlur={() => handleUserNameChange(userName)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleUserNameChange(userName);
+                if (e.key === 'Escape') setIsEditingUserName(false);
+              }}
+              autoFocus
+              placeholder="Your name"
+            />
+          ) : (
+            <button
+              className="user-name-button"
+              onClick={() => setIsEditingUserName(true)}
+              title="Click to change your name"
+            >
+              👤 {userName}
+            </button>
+          )}
           <ContextWindowIndicator
             agentId={agentId}
             conversationId={conversationId}
@@ -323,7 +358,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
                   <>
                     <div className="message-header">
                       <span className="message-role">
-                        {message.role === 'user' ? '👤 You' : '🤖 Assistant'}
+                        {message.role === 'user' ? `👤 ${userName}` : `🤖 ${agentName}`}
                       </span>
                       <span className="message-time">{formatTime(message.created_at)}</span>
                     </div>
