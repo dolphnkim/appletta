@@ -22,7 +22,13 @@ def ensure_template_agent():
         ).first()
 
         if template:
-            print("✅ New Agent template already exists")
+            # Update template if it has empty system instructions
+            if not template.system_instructions or len(template.system_instructions.strip()) == 0:
+                template.system_instructions = "You are a helpful AI assistant."
+                db.commit()
+                print("✅ Updated New Agent template with default system instructions")
+            else:
+                print("✅ New Agent template already exists")
             return
 
         # Check if there's a non-template "New Agent"
@@ -51,7 +57,7 @@ def ensure_template_agent():
             is_template=True,
             model_path=sample_agent.model_path,
             adapter_path=sample_agent.adapter_path,
-            system_instructions="",
+            system_instructions="You are a helpful AI assistant.",
             reasoning_enabled=sample_agent.reasoning_enabled,
             temperature=sample_agent.temperature,
             top_p=sample_agent.top_p,
