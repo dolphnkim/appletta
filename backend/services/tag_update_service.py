@@ -35,6 +35,10 @@ def apply_tag_updates(
 
     for memory_id, new_tags in tag_updates.items():
         try:
+            # Skip system memories (they're synthetic and don't exist in database)
+            if memory_id.startswith("sys-"):
+                continue
+
             # Try to find the memory in messages table first
             message = db.query(Message).filter(Message.id == UUID(memory_id)).first()
 
