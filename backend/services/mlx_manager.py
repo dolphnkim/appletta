@@ -251,11 +251,12 @@ class MLXManager:
 
 
 
-        # Chat template disabled - was injecting default "You are Qwen3" prompts
-        # that override adapter personality and agent system instructions
-        # chat_template_path = model_path / "chat_template.jinja"
-        # if chat_template_path.exists():
-        #     cmd.extend(["--chat-template", str(chat_template_path)])
+        # Use custom chat template for proper tool calling and thinking support
+        # Custom template removes Qwen3 defaults and provides clear <tool_call> format
+        chat_template_path = Path(__file__).parent.parent.parent / "mlx-lm_reference" / "chat_template.jinja"
+        if chat_template_path.exists():
+            cmd.extend(["--chat-template", str(chat_template_path)])
+
 
 
 
