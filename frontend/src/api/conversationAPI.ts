@@ -69,6 +69,11 @@ export const conversationAPI = {
       method: 'POST',
     }),
 
+  deleteMessage: (conversationId: string, messageId: string): Promise<{ success: boolean; message: string }> =>
+    fetchAPI(`/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'DELETE',
+    }),
+
   forkConversation: (conversationId: string, messageId: string): Promise<Conversation> =>
     fetchAPI(`/conversations/${conversationId}/messages/${messageId}/fork`, {
       method: 'POST',

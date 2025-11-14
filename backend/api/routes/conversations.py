@@ -349,6 +349,39 @@ async def edit_message(
     return message.to_dict()
 
 
+@router.delete("/{conversation_id}/messages/{message_id}")
+async def delete_message(
+    conversation_id: UUID,
+    message_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Delete a message from the conversation
+
+    Removes the message from the database. This affects the conversation history
+    and memory search results.
+    """
+
+    # Verify conversation exists
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(404, f"Conversation {conversation_id} not found")
+
+    # Get message
+    message = db.query(Message).filter(
+        Message.id == message_id,
+        Message.conversation_id == conversation_id
+    ).first()
+
+    if not message:
+        raise HTTPException(404, f"Message {message_id} not found in this conversation")
+
+    # Delete message
+    db.delete(message)
+    db.commit()
+
+    return {"success": True, "message": "Message deleted"}
+
+
 @router.post("/{conversation_id}/messages/{message_id}/regenerate")
 async def regenerate_from_message(
     conversation_id: UUID,

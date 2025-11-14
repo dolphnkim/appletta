@@ -224,6 +224,21 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     // Could show a toast notification here
   };
 
+  const handleDelete = async (messageId: string) => {
+    if (!conversationId) return;
+
+    if (!confirm('Are you sure you want to delete this message?')) {
+      return;
+    }
+
+    try {
+      await conversationAPI.deleteMessage(conversationId, messageId);
+      await loadMessages(conversationId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete message');
+    }
+  };
+
   const stopStreaming = () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -346,6 +361,13 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
                         title="Fork conversation from here"
                       >
                         🔀
+                      </button>
+                      <button
+                        onClick={() => handleDelete(message.id)}
+                        className="action-button delete-button"
+                        title="Delete message"
+                      >
+                        🗑️
                       </button>
                     </div>
                   </>
