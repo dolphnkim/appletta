@@ -61,6 +61,14 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     };
   }, []);
 
+  // Auto-resize textarea based on content
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+    }
+  }, [inputValue]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -510,7 +518,6 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
             }}
             placeholder="Type a message..."
             className="chat-input"
-            rows={1}
             disabled={streaming}
           />
           <button
