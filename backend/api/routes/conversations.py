@@ -586,9 +586,29 @@ async def chat(
     # Build system message with journal blocks and memories
     system_content = agent.system_instructions or ""
 
-    # Add memory narrative
+    # Add memory narrative as thoughts (wrapped in <think> tags)
+    # This lets the model process memories as background context
     if memory_narrative:
-        system_content += f"\n\n=== Memories Surfacing ===\n{memory_narrative}\n\n"
+        # Sanitize the narrative - remove existing <think> tags, broken markdown, weird links
+        import re
+        sanitized = memory_narrative
+
+        # Remove existing <think></think> tags and their content
+        sanitized = re.sub(r'<think>.*?</think>', '', sanitized, flags=re.DOTALL)
+
+        # Remove markdown image syntax ![](...)
+        sanitized = re.sub(r'!\[.*?\]\(.*?\)', '', sanitized)
+
+        # Remove standalone URLs (http/https links)
+        sanitized = re.sub(r'https?://[^\s]+', '', sanitized)
+
+        # Clean up extra whitespace
+        sanitized = re.sub(r'\n\s*\n\s*\n+', '\n\n', sanitized)
+        sanitized = sanitized.strip()
+
+        # Only add if there's actual content after sanitizing
+        if sanitized:
+            system_content += f"\n\n=== Memories Surfacing ===\n<think>\n{sanitized}\n</think>\n"
 
     # Add journal blocks
     if blocks_list:
@@ -833,9 +853,29 @@ async def _chat_stream_internal(
     # Build system message with journal blocks and memories
     system_content = agent.system_instructions or ""
 
-    # Add memory narrative
+    # Add memory narrative as thoughts (wrapped in <think> tags)
+    # This lets the model process memories as background context
     if memory_narrative:
-        system_content += f"\n\n=== Memories Surfacing ===\n{memory_narrative}\n\n"
+        # Sanitize the narrative - remove existing <think> tags, broken markdown, weird links
+        import re
+        sanitized = memory_narrative
+
+        # Remove existing <think></think> tags and their content
+        sanitized = re.sub(r'<think>.*?</think>', '', sanitized, flags=re.DOTALL)
+
+        # Remove markdown image syntax ![](...)
+        sanitized = re.sub(r'!\[.*?\]\(.*?\)', '', sanitized)
+
+        # Remove standalone URLs (http/https links)
+        sanitized = re.sub(r'https?://[^\s]+', '', sanitized)
+
+        # Clean up extra whitespace
+        sanitized = re.sub(r'\n\s*\n\s*\n+', '\n\n', sanitized)
+        sanitized = sanitized.strip()
+
+        # Only add if there's actual content after sanitizing
+        if sanitized:
+            system_content += f"\n\n=== Memories Surfacing ===\n<think>\n{sanitized}\n</think>\n"
 
     # Add journal blocks
     if blocks_list:
