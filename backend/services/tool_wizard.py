@@ -30,17 +30,34 @@ class WizardState:
         self.tool = data.get("tool", None)  # Which tool are we using (create, edit, search)
         self.iteration = data.get("iteration", 0)  # How many times have we looped
         self.context = data.get("context", {})  # Tool-specific context
+        self.tool_use_log = data.get("tool_use_log", [])  # Log of what tools have been used
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "step": self.step,
             "tool": self.tool,
             "iteration": self.iteration,
-            "context": self.context
+            "context": self.context,
+            "tool_use_log": self.tool_use_log
         }
 
     def increment_iteration(self):
         self.iteration += 1
+
+    def log_tool_use(self, action: str):
+        """Log a tool action that was completed"""
+        self.tool_use_log.append(action)
+        print(f"   📝 LOGGED: {action}")
+
+    def get_tool_use_summary(self) -> str:
+        """Get a summary of tools used so far this turn"""
+        if not self.tool_use_log:
+            return ""
+        summary = "\n=== ACTIONS COMPLETED THIS TURN ===\n"
+        for i, action in enumerate(self.tool_use_log, 1):
+            summary += f"{i}. {action}\n"
+        summary += "===================================\n\n"
+        return summary
 
     def is_exhausted(self) -> bool:
         return self.iteration >= MAX_ITERATIONS
@@ -225,18 +242,21 @@ async def process_wizard_step(
 
             if "error" in rag_info:
                 result_msg = f"❌ TOOL FAILURE: {rag_info['error']}"
-                response = f"{result_msg}\n\n" + show_main_menu()
+                wizard_state.log_tool_use(f"FAILED to list RAG files")
+                response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
             elif rag_info.get("total_files", 0) == 0:
                 result_msg = "✅ TOOL SUCCESS: Listed RAG files - No uploaded files yet"
-                response = f"{result_msg}\n\n" + show_main_menu()
+                wizard_state.log_tool_use(f"Listed RAG files - No files uploaded")
+                response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
             else:
                 result_msg = f"✅ TOOL SUCCESS: Listed RAG files - Found {rag_info.get('total_files', 0)} files in {rag_info.get('total_folders', 0)} folders"
+                wizard_state.log_tool_use(f"Listed RAG files - Found {rag_info.get('total_files', 0)} files")
                 response = f"{result_msg}\n\nHere are your uploaded files:\n\n"
                 for folder in rag_info.get("folders", []):
                     response += f"📁 {folder['folder_name']} ({folder['file_count']} files)\n"
                 for file in rag_info.get("files", []):
                     response += f"  📄 {file['filename']}\n"
-                response += "\n" + show_main_menu()
+                response += f"\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
 
             wizard_state.reset_to_menu()
             wizard_state.increment_iteration()
@@ -284,10 +304,12 @@ async def process_wizard_step(
         # Add explicit success/failure message
         if "error" in new_block:
             result_msg = f"❌ TOOL FAILURE: {new_block['error']}"
+            wizard_state.log_tool_use(f"FAILED to create journal block '{wizard_state.context['label']}'")
         else:
             result_msg = f"✅ TOOL SUCCESS: Created journal block '{new_block['label']}' (ID: {new_block.get('id', 'unknown')})"
+            wizard_state.log_tool_use(f"Created journal block '{new_block['label']}'")
 
-        return (f"{result_msg}\n\n" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
                 wizard_state, True)
 
     # === EDIT JOURNAL BLOCK FLOW ===
@@ -368,10 +390,12 @@ Please respond with the number of your choice."""
         # Add explicit success/failure message
         if "error" in updated_block:
             result_msg = f"❌ TOOL FAILURE: {updated_block['error']}"
+            wizard_state.log_tool_use(f"FAILED to update journal block '{block['label']}'")
         else:
             result_msg = f"✅ TOOL SUCCESS: Updated journal block '{block['label']}' (search/replace)"
+            wizard_state.log_tool_use(f"Updated journal block '{block['label']}' (search/replace)")
 
-        return (f"{result_msg}\n\n" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
                 wizard_state, True)
 
     elif wizard_state.step == "edit_rewrite":
@@ -393,10 +417,12 @@ Please respond with the number of your choice."""
         # Add explicit success/failure message
         if "error" in updated_block:
             result_msg = f"❌ TOOL FAILURE: {updated_block['error']}"
+            wizard_state.log_tool_use(f"FAILED to rewrite journal block '{block['label']}'")
         else:
             result_msg = f"✅ TOOL SUCCESS: Rewrote journal block '{block['label']}'"
+            wizard_state.log_tool_use(f"Rewrote journal block '{block['label']}'")
 
-        return (f"{result_msg}\n\n" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
                 wizard_state, True)
 
     elif wizard_state.step == "edit_append":
@@ -419,10 +445,12 @@ Please respond with the number of your choice."""
         # Add explicit success/failure message
         if "error" in updated_block:
             result_msg = f"❌ TOOL FAILURE: {updated_block['error']}"
+            wizard_state.log_tool_use(f"FAILED to append to journal block '{block['label']}'")
         else:
             result_msg = f"✅ TOOL SUCCESS: Appended to journal block '{block['label']}'"
+            wizard_state.log_tool_use(f"Appended to journal block '{block['label']}'")
 
-        return (f"{result_msg}\n\n" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
                 wizard_state, True)
 
     # === READ JOURNAL BLOCK FLOW ===
@@ -443,10 +471,12 @@ Please respond with the number of your choice."""
 
         if "error" in full_block:
             result_msg = f"❌ TOOL FAILURE: {full_block['error']}"
-            response = f"{result_msg}\n\n" + show_main_menu()
+            wizard_state.log_tool_use(f"FAILED to read journal block")
+            response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
         else:
             result_msg = f"✅ TOOL SUCCESS: Read journal block '{full_block['label']}'"
-            response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n" + show_main_menu()
+            wizard_state.log_tool_use(f"Read journal block '{full_block['label']}'")
+            response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
@@ -470,12 +500,14 @@ Please respond with the number of your choice."""
 
         if "error" in result:
             result_msg = f"❌ TOOL FAILURE: {result['error']}"
+            wizard_state.log_tool_use(f"FAILED to delete journal block '{selected_block['label']}'")
         else:
             result_msg = f"✅ TOOL SUCCESS: Deleted journal block '{selected_block['label']}'"
+            wizard_state.log_tool_use(f"Deleted journal block '{selected_block['label']}'")
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
-        return (f"{result_msg}\n\n" + show_main_menu(), wizard_state, True)
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(), wizard_state, True)
 
     # === SEARCH MEMORIES FLOW ===
     elif wizard_state.step == "search_query":
@@ -492,13 +524,15 @@ Please respond with the number of your choice."""
 
         if not results:
             result_msg = f"✅ TOOL SUCCESS: Search completed for '{query}' - No memories found"
-            response = f"{result_msg}\n\n" + show_main_menu()
+            wizard_state.log_tool_use(f"Searched memories for '{query}' - No results")
+            response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
         else:
             result_msg = f"✅ TOOL SUCCESS: Search completed for '{query}' - Found {len(results)} memories"
+            wizard_state.log_tool_use(f"Searched memories for '{query}' - Found {len(results)} results")
             response = f"{result_msg}\n\nHere's what I found:\n\n"
             for i, result in enumerate(results, 1):
                 response += f"{i}. {result['content'][:200]}...\n\n"
-            response += show_main_menu()
+            response += f"{wizard_state.get_tool_use_summary()}" + show_main_menu()
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
