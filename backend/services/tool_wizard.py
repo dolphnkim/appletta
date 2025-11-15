@@ -13,7 +13,7 @@ Key features:
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
 from backend.db.models.journal_block import JournalBlock
-from backend.api.routes.journal_blocks import list_journal_blocks, create_journal_block, update_journal_block
+from backend.services.tools import list_journal_blocks, create_journal_block, update_journal_block
 from backend.services.memory_service import search_memories
 
 MAX_ITERATIONS = 5
@@ -156,7 +156,8 @@ async def process_wizard_step(
         elif choice == 3:
             # Edit existing journal block - list them first
             print(f"   ➡️  Starting edit journal block flow")
-            blocks_info = list_journal_blocks(agent_id, db)
+            from uuid import UUID as UUIDType
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
             blocks = blocks_info.get("blocks", [])
 
             if not blocks:
@@ -181,7 +182,8 @@ async def process_wizard_step(
         elif choice == 4:
             # Read a journal block - list them first
             print(f"   ➡️  Starting read journal block flow")
-            blocks_info = list_journal_blocks(agent_id, db)
+            from uuid import UUID as UUIDType
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
             blocks = blocks_info.get("blocks", [])
 
             if not blocks:
@@ -205,7 +207,8 @@ async def process_wizard_step(
         elif choice == 5:
             # Delete a journal block - list them first
             print(f"   ➡️  Starting delete journal block flow")
-            blocks_info = list_journal_blocks(agent_id, db)
+            from uuid import UUID as UUIDType
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
             blocks = blocks_info.get("blocks", [])
 
             if not blocks:
