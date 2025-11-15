@@ -110,12 +110,27 @@ async def process_wizard_step(
     if wizard_state.step == "main_menu":
         choice = parse_choice(user_message)
 
+        # Map choice to human-readable option
+        choice_map = {
+            1: "Chat normally (no tools)",
+            2: "Create new journal block",
+            3: "Edit existing journal block",
+            4: "Read a journal block",
+            5: "Delete a journal block",
+            6: "Search memories",
+            7: "List RAG files"
+        }
+        choice_name = choice_map.get(choice, f"INVALID ({choice})")
+        print(f"\n🎯 LLM CHOSE OPTION: {choice} - {choice_name}")
+
         if choice == 1:
             # Chat normally - exit wizard
+            print(f"   ➡️  Exiting wizard, will proceed to normal chat")
             return ("", WizardState(), False)
 
         elif choice == 2:
             # Create new journal block
+            print(f"   ➡️  Starting create journal block flow")
             wizard_state.tool = "create"
             wizard_state.step = "create_label"
             return ("Great! Let's create a new journal block.\n\nWhat should the label/title be?",
@@ -123,10 +138,12 @@ async def process_wizard_step(
 
         elif choice == 3:
             # Edit existing journal block - list them first
+            print(f"   ➡️  Starting edit journal block flow")
             blocks_info = list_journal_blocks(agent_id, db)
             blocks = blocks_info.get("blocks", [])
 
             if not blocks:
+                print(f"   ⚠️  No journal blocks exist")
                 wizard_state.reset_to_menu()
                 wizard_state.increment_iteration()
                 return ("You don't have any journal blocks yet!\n\n" + show_main_menu(),
@@ -146,10 +163,12 @@ async def process_wizard_step(
 
         elif choice == 4:
             # Read a journal block - list them first
+            print(f"   ➡️  Starting read journal block flow")
             blocks_info = list_journal_blocks(agent_id, db)
             blocks = blocks_info.get("blocks", [])
 
             if not blocks:
+                print(f"   ⚠️  No journal blocks exist")
                 wizard_state.reset_to_menu()
                 wizard_state.increment_iteration()
                 return ("You don't have any journal blocks yet!\n\n" + show_main_menu(),
@@ -168,10 +187,12 @@ async def process_wizard_step(
 
         elif choice == 5:
             # Delete a journal block - list them first
+            print(f"   ➡️  Starting delete journal block flow")
             blocks_info = list_journal_blocks(agent_id, db)
             blocks = blocks_info.get("blocks", [])
 
             if not blocks:
+                print(f"   ⚠️  No journal blocks exist")
                 wizard_state.reset_to_menu()
                 wizard_state.increment_iteration()
                 return ("You don't have any journal blocks yet!\n\n" + show_main_menu(),
@@ -190,6 +211,7 @@ async def process_wizard_step(
 
         elif choice == 6:
             # Search memories
+            print(f"   ➡️  Starting search memories flow")
             wizard_state.tool = "search"
             wizard_state.step = "search_query"
             return ("What would you like to search for in your memories?",
@@ -197,6 +219,7 @@ async def process_wizard_step(
 
         elif choice == 7:
             # List RAG files
+            print(f"   ➡️  Listing RAG files")
             from backend.services.tools import list_rag_files
             rag_info = list_rag_files(agent_id, db)
 
@@ -221,6 +244,7 @@ async def process_wizard_step(
 
         else:
             # Invalid choice
+            print(f"   ❌ INVALID CHOICE - LLM response was: {user_message[:100]}")
             return ("I didn't understand that choice. " + show_main_menu(),
                     wizard_state, True)
 
