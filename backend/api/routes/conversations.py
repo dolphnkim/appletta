@@ -1134,6 +1134,13 @@ async def _chat_stream_internal(
             for i, msg in enumerate(final_wizard_messages):
                 print(f"  {i+1}. [{msg['role']}]: {msg['content'][:100]}...")
 
+            # Capture agent properties BEFORE the generator to avoid DetachedInstanceError
+            agent_temperature = agent.temperature
+            agent_max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
+            agent_model_path = agent.model_path
+            mlx_port = mlx_process.port
+            user_msg_dict = user_message.to_dict()
+
             # Stream the final response
             async def generate_wizard_final():
                 final_response = ""
@@ -1141,11 +1148,11 @@ async def _chat_stream_internal(
                     async with httpx.AsyncClient(timeout=120.0) as client:
                         async with client.stream(
                             "POST",
-                            f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                            f"http://localhost:{mlx_port}/v1/chat/completions",
                             json={
                                 "messages": final_wizard_messages,
-                                "temperature": agent.temperature,
-                                "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                                "temperature": agent_temperature,
+                                "max_tokens": agent_max_tokens,
                                 "seed": 42,
                                 "stream": True
                             }
@@ -1174,7 +1181,7 @@ async def _chat_stream_internal(
                         role="assistant",
                         content=final_response,
                         metadata_={
-                            "model": agent.model_path,
+                            "model": agent_model_path,
                             "wizard_final": True,
                             "wizard_iterations": wizard_iteration,
                             "tags": assistant_tags
@@ -1186,7 +1193,7 @@ async def _chat_stream_internal(
                     db.commit()
                     db.refresh(assistant_message)
 
-                    yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', 'user_message': user_msg_dict, 'assistant_message': assistant_message.to_dict()})}\n\n"
 
                 except Exception as e:
                     import traceback
