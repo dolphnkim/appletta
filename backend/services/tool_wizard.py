@@ -78,6 +78,45 @@ def get_wizard_state(message_metadata: Optional[Dict[str, Any]]) -> WizardState:
     return WizardState(wizard_data)
 
 
+def clean_llm_response(response: str) -> str:
+    """
+    Clean up LLM response to extract just the actual answer.
+    Removes:
+    - Thinking tags and their content
+    - Markdown code blocks (takes the content inside)
+    - Extra whitespace
+    """
+    import re
+
+    cleaned = response.strip()
+
+    # Remove thinking tags and everything before them
+    if "</think>" in cleaned:
+        # Take only what's after the last </think> tag
+        cleaned = cleaned.split("</think>")[-1].strip()
+
+    # Remove <think> tags if they exist without closing
+    cleaned = re.sub(r'<think>.*', '', cleaned, flags=re.DOTALL)
+
+    # If there are markdown code blocks, extract the first one's content
+    code_block_match = re.search(r'```(?:\w+)?\s*\n?(.*?)\n?```', cleaned, re.DOTALL)
+    if code_block_match:
+        cleaned = code_block_match.group(1).strip()
+
+    # Remove surrounding quotes if present
+    if cleaned.startswith('"') and cleaned.endswith('"'):
+        cleaned = cleaned[1:-1]
+    if cleaned.startswith("'") and cleaned.endswith("'"):
+        cleaned = cleaned[1:-1]
+
+    # Take only the first line if multiple lines (likely the LLM over-answered)
+    lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
+    if lines:
+        cleaned = lines[0]
+
+    return cleaned.strip()
+
+
 def show_main_menu() -> str:
     """Generate the main menu prompt"""
     return """MANDATORY: Before responding to the user, you MUST select ONE option below.
@@ -117,6 +156,12 @@ async def process_wizard_step(
     Returns:
         (prompt_to_show, updated_wizard_state, should_continue_wizard)
     """
+
+    # Clean the LLM response to extract just the answer
+    # This removes thinking tags, code blocks, quotes, etc.
+    original_message = user_message
+    user_message = clean_llm_response(user_message)
+    print(f"   🧹 CLEANED RESPONSE: '{user_message}' (from: '{original_message[:50]}...')")
 
     # Check if we've exhausted iterations
     if wizard_state.is_exhausted():
