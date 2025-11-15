@@ -798,11 +798,18 @@ async def _chat_stream_internal(
     db.refresh(user_message)
 
     # === TOOL WIZARD CHECK ===
-    # If tools are enabled, check if we should use the wizard system
-    from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu
+    # If tools are enabled, use the wizard system to let LLM navigate menus and execute tools
+    from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu, WizardState
 
     if agent.enabled_tools and len(agent.enabled_tools) > 0:
-        # Get wizard state from the last assistant message
+        # Wizard loop: inject prompts → call LLM → parse response → repeat until done
+        # The LLM navigates the wizard menus and we execute tools when ready
+
+        max_wizard_iterations = 10
+        wizard_iteration = 0
+        wizard_messages_to_add = []  # Track wizard messages to add to DB later
+
+        # Get wizard state from last assistant message
         last_assistant_msg = db.query(Message).filter(
             Message.conversation_id == conversation_id,
             Message.role == "assistant"
@@ -810,88 +817,103 @@ async def _chat_stream_internal(
 
         wizard_state = get_wizard_state(last_assistant_msg.metadata_ if last_assistant_msg else None)
 
-        # Process this wizard step
-        wizard_response, new_wizard_state, continue_wizard = await process_wizard_step(
-            user_message=message,
-            wizard_state=wizard_state,
-            agent_id=str(agent.id),
-            db=db
-        )
+        # If first interaction, inject menu
+        if not last_assistant_msg or wizard_state.step == "main_menu" and wizard_state.iteration == 0:
+            wizard_prompt = show_main_menu()
+            print(f"\n🧙 WIZARD: Showing menu to LLM\n")
+        else:
+            # Process current wizard step with user's message
+            wizard_prompt, wizard_state, continue_wizard = await process_wizard_step(
+                user_message=message,
+                wizard_state=wizard_state,
+                agent_id=str(agent.id),
+                db=db
+            )
 
-        # If wizard handled it, return wizard response immediately
-        if continue_wizard:
-            # Create assistant message with wizard response
-            assistant_message = Message(
+            if not continue_wizard:
+                # Wizard says to exit - proceed to normal LLM call
+                print(f"\n🧙 WIZARD: User chose to chat normally\n")
+                wizard_prompt = None
+            else:
+                print(f"\n🧙 WIZARD: Step {wizard_state.step}, prompt: {wizard_prompt[:100]}...\n")
+
+        # Wizard loop: add prompt, call LLM, parse response
+        while wizard_prompt and wizard_iteration < max_wizard_iterations:
+            wizard_iteration += 1
+
+            # Add wizard prompt as assistant message (for LLM context, not saved yet)
+            wizard_messages_to_add.append({
+                "role": "assistant",
+                "content": wizard_prompt,
+                "wizard_state": wizard_state.to_dict()
+            })
+
+            # Build messages array with wizard prompts included
+            # TODO: This needs to integrate with the context window calculation below
+            # For now, just append wizard messages to the conversation
+            wizard_context = [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages_to_add]
+
+            # Call LLM with wizard prompt
+            # TODO: Use proper context window calculation
+            # For now, simple approach: system + history + user + wizard prompts
+            temp_messages = [
+                {"role": "system", "content": agent.project_instructions or ""},
+                {"role": "user", "content": message}
+            ] + wizard_context
+
+            print(f"\n🧙 WIZARD ITERATION {wizard_iteration}: Calling LLM with wizard prompt")
+            print(f"Messages: {len(temp_messages)}")
+
+            # Call MLX LLM
+            try:
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    response = await client.post(
+                        f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                        json={
+                            "messages": temp_messages,
+                            "temperature": agent.temperature,
+                            "max_tokens": 500,  # Wizard responses should be short
+                            "seed": 42,
+                        }
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+
+                llm_response = result["choices"][0]["message"].get("content", "")
+                print(f"🧙 LLM RESPONSE: {llm_response[:200]}")
+
+                # Process LLM's response through wizard
+                wizard_prompt, wizard_state, continue_wizard = await process_wizard_step(
+                    user_message=llm_response,
+                    wizard_state=wizard_state,
+                    agent_id=str(agent.id),
+                    db=db
+                )
+
+                if not continue_wizard:
+                    print(f"\n🧙 WIZARD: Flow complete, proceeding to final LLM call\n")
+                    break
+
+                print(f"\n🧙 WIZARD: Next step {wizard_state.step}\n")
+
+            except Exception as e:
+                print(f"\n🧙 WIZARD ERROR: {e}\n")
+                break
+
+        # Save all wizard messages to database
+        for wizard_msg in wizard_messages_to_add:
+            saved_msg = Message(
                 conversation_id=conversation_id,
-                role="assistant",
-                content=wizard_response,
-                metadata_={
-                    "wizard_state": new_wizard_state.to_dict(),
-                    "wizard_handled": True
-                }
+                role=wizard_msg["role"],
+                content=wizard_msg["content"],
+                metadata_={"wizard_state": wizard_msg.get("wizard_state"), "wizard_message": True}
             )
+            msg_embedding = embedding_service.embed_with_tags(wizard_msg["content"], [])
+            saved_msg.embedding = msg_embedding
+            db.add(saved_msg)
+        db.commit()
 
-            # Generate embedding
-            assistant_embedding = embedding_service.embed_with_tags(wizard_response, [])
-            assistant_message.embedding = assistant_embedding
-
-            db.add(assistant_message)
-            db.commit()
-            db.refresh(assistant_message)
-
-            # Stream the wizard response
-            async def generate_wizard_stream():
-                # Send the wizard response as content chunks
-                for char in wizard_response:
-                    yield f"data: {json.dumps({'type': 'content', 'content': char})}\n\n"
-
-                # Send done signal
-                yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
-
-            return StreamingResponse(
-                generate_wizard_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                }
-            )
-
-        # If wizard says to exit (choice 1 or exhausted), check if we should show menu
-        elif wizard_state.step == "main_menu" and wizard_state.iteration == 0:
-            # First message - show the menu!
-            menu_prompt = show_main_menu()
-
-            assistant_message = Message(
-                conversation_id=conversation_id,
-                role="assistant",
-                content=menu_prompt,
-                metadata_={
-                    "wizard_state": wizard_state.to_dict(),
-                    "wizard_menu": True
-                }
-            )
-
-            assistant_embedding = embedding_service.embed_with_tags(menu_prompt, [])
-            assistant_message.embedding = assistant_embedding
-
-            db.add(assistant_message)
-            db.commit()
-            db.refresh(assistant_message)
-
-            async def generate_menu_stream():
-                for char in menu_prompt:
-                    yield f"data: {json.dumps({'type': 'content', 'content': char})}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
-
-            return StreamingResponse(
-                generate_menu_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                }
-            )
+        # Now proceed to normal LLM call with full context
 
     # Get conversation history BEFORE the current user message (needed for context calculation)
     # We exclude the message we just added because it hasn't been answered yet
