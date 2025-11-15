@@ -959,14 +959,20 @@ async def _chat_stream_internal(
             # Use the full context window we built earlier, plus wizard messages
             temp_messages = base_messages + wizard_context
 
-            print(f"\n🧙 WIZARD ITERATION {wizard_iteration}: Calling LLM with wizard prompt")
-            print(f"  Base context messages: {len(base_messages)}")
-            print(f"  Wizard messages: {len(wizard_context)}")
-            print(f"  Total messages: {len(temp_messages)}")
-            for i, msg in enumerate(temp_messages):
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                print(f"  {i+1}. [{role}]: {content[:100]}...")
+            print(f"\n{'='*80}")
+            print(f"🧙 WIZARD ITERATION {wizard_iteration}")
+            print(f"{'='*80}")
+            print(f"Base context messages: {len(base_messages)}")
+            print(f"Wizard messages: {len(wizard_context)}")
+            print(f"Total messages: {len(temp_messages)}")
+
+            # Show the wizard prompt being sent (the last system message)
+            if wizard_context:
+                last_wizard_msg = wizard_context[-1]
+                print(f"\n📤 WIZARD PROMPT TO LLM:")
+                print(f"{'-'*40}")
+                print(last_wizard_msg.get("content", ""))
+                print(f"{'-'*40}")
 
             # Call MLX LLM
             try:
@@ -984,7 +990,11 @@ async def _chat_stream_internal(
                     result = response.json()
 
                 llm_response = result["choices"][0]["message"].get("content", "")
-                print(f"🧙 LLM RESPONSE: {llm_response[:200]}")
+
+                print(f"\n📥 LLM RESPONSE (FULL):")
+                print(f"{'-'*40}")
+                print(llm_response)
+                print(f"{'-'*40}")
 
                 # Add LLM's response to wizard conversation
                 wizard_messages_to_add.append({
@@ -1001,17 +1011,30 @@ async def _chat_stream_internal(
                     db=db
                 )
 
+                print(f"\n🔄 WIZARD STATE:")
+                print(f"  Step: {wizard_state.step}")
+                print(f"  Tool: {wizard_state.tool}")
+                print(f"  Iteration: {wizard_state.iteration}")
+                print(f"  Continue: {continue_wizard}")
+
                 # Track if tools were actually used (not just chatting normally)
                 # If wizard state step is not main_menu or tool is set, tools are being used
                 if wizard_state.tool is not None or wizard_state.iteration > 0:
                     tools_were_used = True
-                    print(f"🧙 WIZARD: Tools are being used (tool={wizard_state.tool}, iteration={wizard_state.iteration})")
+                    print(f"  ➡️  Tools ARE being used")
+
+                if wizard_prompt:
+                    print(f"\n📋 NEXT WIZARD PROMPT:")
+                    print(f"{'-'*40}")
+                    print(wizard_prompt[:500] + "..." if len(wizard_prompt) > 500 else wizard_prompt)
+                    print(f"{'-'*40}")
 
                 if not continue_wizard:
-                    print(f"\n🧙 WIZARD: Flow complete, proceeding to final LLM call\n")
+                    print(f"\n✅ WIZARD FLOW COMPLETE")
+                    print(f"{'='*80}\n")
                     break
 
-                print(f"\n🧙 WIZARD: Next step {wizard_state.step}\n")
+                print(f"{'='*80}\n")
 
             except Exception as e:
                 print(f"\n🧙 WIZARD ERROR: {e}\n")
