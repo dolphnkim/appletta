@@ -411,6 +411,7 @@ async def regenerate_from_message(
     if not from_message:
         raise HTTPException(404, f"Message {message_id} not found in this conversation")
 
+    #CULPRIT ???
     # If regenerating from assistant message, find the user message before it
     if from_message.role == "assistant":
         # Find the most recent user message before this assistant message
@@ -558,9 +559,11 @@ async def chat(
     db.commit()
     db.refresh(user_message)
 
-    # Get conversation history first (needed for context calculation)
+    # Get conversation history BEFORE the current user message (needed for context calculation)
+    # We exclude the message we just added because it hasn't been answered yet
     history = db.query(Message).filter(
-        Message.conversation_id == conversation_id
+        Message.conversation_id == conversation_id,
+        Message.id != user_message.id
     ).order_by(Message.created_at.asc()).all()
 
     # === PRE-CALCULATE CONTEXT WINDOW ===
@@ -679,9 +682,11 @@ async def chat(
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
     # Build final messages array using the pre-calculated messages_in_context
+    # IMPORTANT: Add the current user message at the end (it's not in history yet)
     system_message = {"role": "system", "content": system_content}
     messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
-    messages = [system_message] + messages_to_include
+    current_user_msg = {"role": "user", "content": request.message}
+    messages = [system_message] + messages_to_include + [current_user_msg]
 
     # Get or start MLX server
     mlx_manager = get_mlx_manager()
@@ -853,9 +858,11 @@ async def _chat_stream_internal(
     db.commit()
     db.refresh(user_message)
 
-    # Get conversation history first (needed for context calculation)
+    # Get conversation history BEFORE the current user message (needed for context calculation)
+    # We exclude the message we just added because it hasn't been answered yet
     history = db.query(Message).filter(
-        Message.conversation_id == conversation_id
+        Message.conversation_id == conversation_id,
+        Message.id != user_message.id
     ).order_by(Message.created_at.asc()).all()
 
     # === PRE-CALCULATE CONTEXT WINDOW ===
@@ -986,9 +993,11 @@ async def _chat_stream_internal(
         system_content += "\n\nNote: You have no tools enabled. You cannot interact with your environment until tools are configured."
 
     # Build final messages array using the pre-calculated messages_in_context
+    # IMPORTANT: Add the current user message at the end (it's not in history yet)
     system_message = {"role": "system", "content": system_content}
     messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
-    messages = [system_message] + messages_to_include
+    current_user_msg = {"role": "user", "content": message}
+    messages = [system_message] + messages_to_include + [current_user_msg]
 
     # Get or start MLX server
     import logging
