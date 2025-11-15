@@ -811,6 +811,116 @@ async def _chat_stream_internal(
     else:
         logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
 
+    # === BUILD CONTEXT WINDOW FIRST ===
+    # We need to build the full context BEFORE wizard check so LLM sees everything
+
+    # Get conversation history BEFORE the current user message (needed for context calculation)
+    history = db.query(Message).filter(
+        Message.conversation_id == conversation_id,
+        Message.id != user_message.id
+    ).order_by(Message.created_at.asc()).all()
+
+    # Calculate which messages will fit in context
+    preliminary_system_content = agent.project_instructions or ""
+    from backend.services.token_counter import count_message_tokens, count_tokens
+    preliminary_system_message = {"role": "system", "content": preliminary_system_content}
+    sticky_tokens = count_message_tokens(preliminary_system_message)
+    sticky_tokens += 1000  # Buffer for memories and journal blocks
+
+    max_context = agent.max_context_tokens
+    remaining_budget = max_context - sticky_tokens
+
+    messages_in_context = []
+    context_message_ids = []
+    current_tokens = 0
+
+    for msg in reversed(history):
+        msg_dict = {"role": msg.role, "content": msg.content}
+        msg_tokens = count_message_tokens(msg_dict)
+
+        if current_tokens + msg_tokens <= remaining_budget:
+            messages_in_context.insert(0, msg)
+            context_message_ids.append(str(msg.id))
+            current_tokens += msg_tokens
+        else:
+            break
+
+    # === MEMORY RETRIEVAL ===
+    memory_candidates = search_memories(
+        query_text=message,
+        agent_id=agent.id,
+        db=db,
+        limit=50,
+        exclude_message_ids=context_message_ids
+    )
+
+    memory_agent = None
+    memory_attachment = db.query(AgentAttachment).filter(
+        AgentAttachment.agent_id == agent.id,
+        AgentAttachment.attachment_type == "memory",
+        AgentAttachment.enabled == True
+    ).order_by(AgentAttachment.priority.desc()).first()
+
+    memory_narrative = ""
+    tag_updates = {}
+
+    if memory_attachment:
+        memory_agent = db.query(Agent).filter(
+            Agent.id == memory_attachment.attached_agent_id
+        ).first()
+
+        if memory_agent and memory_candidates:
+            memory_narrative, tag_updates = await coordinate_memories(
+                current_message=message,
+                memory_candidates=memory_candidates,
+                memory_agent=memory_agent,
+                db=db,
+                mlx_manager=mlx_manager,
+                main_model_path=agent.model_path
+            )
+
+            if tag_updates:
+                apply_tag_updates(tag_updates, db)
+
+    # Build system content with memories
+    system_content = agent.project_instructions or ""
+
+    # Add pinned journal blocks
+    pinned_blocks = db.query(JournalBlock).filter(
+        JournalBlock.agent_id == agent.id,
+        JournalBlock.always_in_context == True
+    ).order_by(JournalBlock.updated_at.desc()).all()
+
+    if pinned_blocks:
+        system_content += "\n\n=== Pinned Information ==="
+        for block in pinned_blocks:
+            system_content += f"\n\n[{block.label}]\n{block.value}"
+
+    # Add memory narrative
+    if memory_narrative:
+        import re
+        sanitized = memory_narrative
+        sanitized = re.sub(r'<think>.*?</think>', '', sanitized, flags=re.DOTALL)
+        sanitized = re.sub(r'!\[.*?\]\(.*?\)', '', sanitized)
+        sanitized = re.sub(r'https?://[^\s]+', '', sanitized)
+        sanitized = re.sub(r'\n\s*\n\s*\n+', '\n\n', sanitized)
+        sanitized = sanitized.strip()
+
+        if sanitized:
+            system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
+
+    # Build base messages array (system + history + current user message)
+    system_message = {"role": "system", "content": system_content}
+    messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
+    current_user_msg = {"role": "user", "content": message}
+    base_messages = [system_message] + messages_to_include + [current_user_msg]
+
+    print(f"\n📦 CONTEXT WINDOW BUILT:")
+    print(f"  System content: {len(system_content)} chars")
+    print(f"  History messages: {len(messages_in_context)}")
+    print(f"  Total messages: {len(base_messages)}")
+    print(f"  Memory narrative: {'Yes' if memory_narrative else 'No'}")
+
     # === TOOL WIZARD CHECK ===
     # If tools are enabled, use the wizard system to let LLM navigate menus and execute tools
     from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu, WizardState
@@ -822,61 +932,41 @@ async def _chat_stream_internal(
         max_wizard_iterations = 10
         wizard_iteration = 0
         wizard_messages_to_add = []  # Track wizard messages to add to DB later
+        tools_were_used = False  # Track if actual tools were executed
 
-        # Get wizard state from last assistant message
-        last_assistant_msg = db.query(Message).filter(
-            Message.conversation_id == conversation_id,
-            Message.role == "assistant"
-        ).order_by(Message.created_at.desc()).first()
-
-        wizard_state = get_wizard_state(last_assistant_msg.metadata_ if last_assistant_msg else None)
-
-        # If first interaction, inject menu
-        if not last_assistant_msg or wizard_state.step == "main_menu" and wizard_state.iteration == 0:
-            wizard_prompt = show_main_menu()
-            print(f"\n🧙 WIZARD: Showing menu to LLM\n")
-        else:
-            # Process current wizard step with user's message
-            wizard_prompt, wizard_state, continue_wizard = await process_wizard_step(
-                user_message=message,
-                wizard_state=wizard_state,
-                agent_id=str(agent.id),
-                db=db
-            )
-
-            if not continue_wizard:
-                # Wizard says to exit - proceed to normal LLM call
-                print(f"\n🧙 WIZARD: User chose to chat normally\n")
-                wizard_prompt = None
-            else:
-                print(f"\n🧙 WIZARD: Step {wizard_state.step}, prompt: {wizard_prompt[:100]}...\n")
+        # ALWAYS show the menu first - this is MANDATORY
+        # The LLM must choose an option before responding
+        wizard_state = WizardState()  # Fresh state for each user message
+        wizard_prompt = show_main_menu()
+        print(f"\n🧙 WIZARD: Showing MANDATORY menu to LLM\n")
+        print(f"   User's message: {message[:100]}...")
+        print(f"   LLM must choose an option before responding\n")
 
         # Wizard loop: add prompt, call LLM, parse response
         while wizard_prompt and wizard_iteration < max_wizard_iterations:
             wizard_iteration += 1
 
-            # Add wizard prompt as assistant message (for LLM context, not saved yet)
+            # Add wizard prompt as system message (instructions to LLM)
             wizard_messages_to_add.append({
-                "role": "assistant",
-                "content": wizard_prompt,
+                "role": "system",
+                "content": f"[TOOL WIZARD]\n{wizard_prompt}",
                 "wizard_state": wizard_state.to_dict()
             })
 
-            # Build messages array with wizard prompts included
-            # TODO: This needs to integrate with the context window calculation below
-            # For now, just append wizard messages to the conversation
+            # Build messages array: full context + wizard conversation
             wizard_context = [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages_to_add]
 
-            # Call LLM with wizard prompt
-            # TODO: Use proper context window calculation
-            # For now, simple approach: system + history + user + wizard prompts
-            temp_messages = [
-                {"role": "system", "content": agent.project_instructions or ""},
-                {"role": "user", "content": message}
-            ] + wizard_context
+            # Use the full context window we built earlier, plus wizard messages
+            temp_messages = base_messages + wizard_context
 
             print(f"\n🧙 WIZARD ITERATION {wizard_iteration}: Calling LLM with wizard prompt")
-            print(f"Messages: {len(temp_messages)}")
+            print(f"  Base context messages: {len(base_messages)}")
+            print(f"  Wizard messages: {len(wizard_context)}")
+            print(f"  Total messages: {len(temp_messages)}")
+            for i, msg in enumerate(temp_messages):
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                print(f"  {i+1}. [{role}]: {content[:100]}...")
 
             # Call MLX LLM
             try:
@@ -896,6 +986,13 @@ async def _chat_stream_internal(
                 llm_response = result["choices"][0]["message"].get("content", "")
                 print(f"🧙 LLM RESPONSE: {llm_response[:200]}")
 
+                # Add LLM's response to wizard conversation
+                wizard_messages_to_add.append({
+                    "role": "assistant",
+                    "content": llm_response,
+                    "wizard_llm_response": True
+                })
+
                 # Process LLM's response through wizard
                 wizard_prompt, wizard_state, continue_wizard = await process_wizard_step(
                     user_message=llm_response,
@@ -903,6 +1000,12 @@ async def _chat_stream_internal(
                     agent_id=str(agent.id),
                     db=db
                 )
+
+                # Track if tools were actually used (not just chatting normally)
+                # If wizard state step is not main_menu or tool is set, tools are being used
+                if wizard_state.tool is not None or wizard_state.iteration > 0:
+                    tools_were_used = True
+                    print(f"🧙 WIZARD: Tools are being used (tool={wizard_state.tool}, iteration={wizard_state.iteration})")
 
                 if not continue_wizard:
                     print(f"\n🧙 WIZARD: Flow complete, proceeding to final LLM call\n")
@@ -927,153 +1030,101 @@ async def _chat_stream_internal(
             db.add(saved_msg)
         db.commit()
 
-        # Now proceed to normal LLM call with full context
+        # If wizard executed tools (not just chat normally), make a final LLM call to summarize and respond naturally
+        if tools_were_used and wizard_iteration > 0:
+            print(f"\n🧙 WIZARD: Making final summary call after {wizard_iteration} wizard interactions (tools_were_used={tools_were_used})\n")
 
-    # Get conversation history BEFORE the current user message (needed for context calculation)
-    # We exclude the message we just added because it hasn't been answered yet
-    history = db.query(Message).filter(
-        Message.conversation_id == conversation_id,
-        Message.id != user_message.id
-    ).order_by(Message.created_at.asc()).all()
+            # Build context: full context + wizard conversation + "now respond naturally"
+            final_wizard_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages_to_add]
 
-    # === PRE-CALCULATE CONTEXT WINDOW ===
-    # We need to know which messages will be in context BEFORE searching memories
-    # to avoid surfacing redundant information
+            # Add instruction to respond naturally now
+            final_wizard_messages.append({
+                "role": "system",
+                "content": "You've completed the tool operations above. Now respond naturally to the user about what you did. Be conversational and helpful."
+            })
+        elif wizard_iteration > 0 and not tools_were_used:
+            # LLM chose to chat normally (option 1), proceed to normal streaming without wizard overhead
+            print(f"\n🧙 WIZARD: LLM chose to chat normally (no tools), proceeding to normal streaming\n")
 
-    # Build preliminary system content for token counting
-    preliminary_system_content = agent.project_instructions or ""
+        if tools_were_used and wizard_iteration > 0:
 
-    # Estimate tokens for system (we'll rebuild this properly later)
-    from backend.services.token_counter import count_message_tokens, count_tokens
-    preliminary_system_message = {"role": "system", "content": preliminary_system_content}
-    sticky_tokens = count_message_tokens(preliminary_system_message)
+            print(f"📤 FINAL WIZARD SUMMARY CALL:")
+            print(f"Messages: {len(final_wizard_messages)}")
+            for i, msg in enumerate(final_wizard_messages):
+                print(f"  {i+1}. [{msg['role']}]: {msg['content'][:100]}...")
 
-    # Add buffer for memories and journal blocks (estimate ~1000 tokens)
-    sticky_tokens += 1000
+            # Stream the final response
+            async def generate_wizard_final():
+                final_response = ""
+                try:
+                    async with httpx.AsyncClient(timeout=120.0) as client:
+                        async with client.stream(
+                            "POST",
+                            f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                            json={
+                                "messages": final_wizard_messages,
+                                "temperature": agent.temperature,
+                                "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                                "seed": 42,
+                                "stream": True
+                            }
+                        ) as stream_response:
+                            async for line in stream_response.aiter_lines():
+                                if line.startswith("data: "):
+                                    data = line[6:]
+                                    if data == "[DONE]":
+                                        break
+                                    try:
+                                        chunk = json.loads(data)
+                                        delta = chunk["choices"][0]["delta"]
+                                        if "content" in delta and delta["content"]:
+                                            content_chunk = delta["content"]
+                                            final_response += content_chunk
+                                            yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
+                                    except json.JSONDecodeError:
+                                        continue
 
-    max_context = agent.max_context_tokens
-    remaining_budget = max_context - sticky_tokens
+                    print(f"\n📥 WIZARD FINAL RESPONSE: {final_response[:200]}...")
 
-    # Calculate which messages will fit in context
-    messages_in_context = []
-    context_message_ids = []
-    current_tokens = 0
+                    # Save final response
+                    assistant_tags = extract_keywords(final_response, max_keywords=5)
+                    assistant_message = Message(
+                        conversation_id=conversation_id,
+                        role="assistant",
+                        content=final_response,
+                        metadata_={
+                            "model": agent.model_path,
+                            "wizard_final": True,
+                            "wizard_iterations": wizard_iteration,
+                            "tags": assistant_tags
+                        }
+                    )
+                    assistant_embedding = embedding_service.embed_with_tags(final_response, assistant_tags)
+                    assistant_message.embedding = assistant_embedding
+                    db.add(assistant_message)
+                    db.commit()
+                    db.refresh(assistant_message)
 
-    for msg in reversed(history):
-        msg_dict = {"role": msg.role, "content": msg.content}
-        msg_tokens = count_message_tokens(msg_dict)
+                    yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
 
-        if current_tokens + msg_tokens <= remaining_budget:
-            messages_in_context.insert(0, msg)
-            context_message_ids.append(str(msg.id))
-            current_tokens += msg_tokens
-        else:
-            break
+                except Exception as e:
+                    import traceback
+                    print(f"🧙 WIZARD FINAL ERROR: {traceback.format_exc()}")
+                    yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
-    # === MEMORY RETRIEVAL ===
-    # 1. Search for memory candidates, EXCLUDING messages in active context window
-    memory_candidates = search_memories(
-        query_text=message,
-        agent_id=agent.id,
-        db=db,
-        limit=50,
-        exclude_message_ids=context_message_ids
-    )
-
-    # 2. Load memory agent from attachments
-    memory_agent = None
-    memory_attachment = db.query(AgentAttachment).filter(
-        AgentAttachment.agent_id == agent.id,
-        AgentAttachment.attachment_type == "memory",
-        AgentAttachment.enabled == True
-    ).order_by(AgentAttachment.priority.desc()).first()
-
-    # 3. Only use memory coordinator if there's an attached memory agent
-    memory_narrative = ""
-    tag_updates = {}
-
-    if memory_attachment:
-        memory_agent = db.query(Agent).filter(
-            Agent.id == memory_attachment.attached_agent_id
-        ).first()
-
-        if memory_agent:
-            # Use memory coordinator to generate first-person narrative
-            memory_narrative, tag_updates = await coordinate_memories(
-                candidates=memory_candidates,
-                query_context=message,
-                memory_agent=memory_agent,
-                target_count=7
+            return StreamingResponse(
+                generate_wizard_final(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
             )
 
-            # Apply tag updates from memory agent
-            if tag_updates:
-                apply_tag_updates(tag_updates, db)
+        # If wizard didn't run (no iterations), proceed to normal LLM call
 
-    # Build system message with memories
-    # Note: Journal blocks are NOT included in system prompt by default - they live in the database
-    # and are retrieved via vector search (memory_service) when relevant.
-    # EXCEPT: blocks marked with always_in_context=True are pinned to system content
-    system_content = agent.project_instructions or ""
-
-    # Add pinned journal blocks (always_in_context=True)
-    pinned_blocks = db.query(JournalBlock).filter(
-        JournalBlock.agent_id == agent.id,
-        JournalBlock.always_in_context == True
-    ).order_by(JournalBlock.updated_at.desc()).all()
-
-    if pinned_blocks:
-        system_content += "\n\n=== Pinned Information ==="
-        for block in pinned_blocks:
-            system_content += f"\n\n[{block.label}]\n{block.value}"
-
-    # Add memory narrative as plain context (no <think> tags to avoid prompting base model)
-    # The adapter personality should handle this naturally without format prompting
-    if memory_narrative:
-        # Sanitize the narrative - remove existing <think> tags, broken markdown, weird links
-        import re
-        sanitized = memory_narrative
-
-        # Remove existing <think></think> tags and their content
-        sanitized = re.sub(r'<think>.*?</think>', '', sanitized, flags=re.DOTALL)
-
-        # Remove markdown image syntax ![](...)
-        sanitized = re.sub(r'!\[.*?\]\(.*?\)', '', sanitized)
-
-        # Remove standalone URLs (http/https links)
-        sanitized = re.sub(r'https?://[^\s]+', '', sanitized)
-
-        # Clean up extra whitespace
-        sanitized = re.sub(r'\n\s*\n\s*\n+', '\n\n', sanitized)
-        sanitized = sanitized.strip()
-
-        # Only add if there's actual content after sanitizing
-        if sanitized:
-            system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
-
-    # Tools are handled by the wizard system, not via OpenAI function calling
-
-    # Build final messages array using the pre-calculated messages_in_context
-    # IMPORTANT: Add the current user message at the end (it's not in history yet)
-    system_message = {"role": "system", "content": system_content}
-    messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
-    current_user_msg = {"role": "user", "content": message}
-    messages = [system_message] + messages_to_include + [current_user_msg]
-
-    # MLX server already acquired earlier (before wizard check)
-    import logging
-    logger = logging.getLogger(__name__)
-
-    if not mlx_process:
-        # This shouldn't happen since we acquired it earlier, but handle defensively
-        try:
-            logger.warning(f"MLX process was None after wizard check, reacquiring...")
-            mlx_process = await mlx_manager.start_agent_server(agent)
-            logger.info(f"MLX server started on port {mlx_process.port}")
-        except Exception as e:
-            raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
-    else:
-        logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
+    # Context window already built above as base_messages
+    messages = base_messages
 
     # Streaming generator function
     async def generate_stream():

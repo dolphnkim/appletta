@@ -63,17 +63,19 @@ def get_wizard_state(message_metadata: Optional[Dict[str, Any]]) -> WizardState:
 
 def show_main_menu() -> str:
     """Generate the main menu prompt"""
-    return """What would you like to do?
+    return """MANDATORY: Before responding to the user, you MUST select ONE option below.
 
-1. Chat normally (no tools)
-2. Create new journal block
-3. Edit existing journal block
-4. Read a journal block
-5. Delete a journal block
-6. Search my memories
-7. List my uploaded files (RAG)
+RESPOND WITH ONLY THE NUMBER OF YOUR CHOICE:
 
-Please respond with just the number of your choice."""
+1. Chat normally (no tools) - Just respond to the user's message
+2. Create new journal block - Store information in your memory
+3. Edit existing journal block - Modify stored information
+4. Read a journal block - View stored information
+5. Delete a journal block - Remove stored information
+6. Search my memories - Look for past conversations
+7. List my uploaded files (RAG) - See available documents
+
+YOUR RESPONSE MUST BE A SINGLE NUMBER (1-7). NO OTHER TEXT."""
 
 
 def parse_choice(response: str) -> Optional[int]:
@@ -199,11 +201,14 @@ async def process_wizard_step(
             rag_info = list_rag_files(agent_id, db)
 
             if "error" in rag_info:
-                response = f"Error: {rag_info['error']}\n\n" + show_main_menu()
+                result_msg = f"❌ TOOL FAILURE: {rag_info['error']}"
+                response = f"{result_msg}\n\n" + show_main_menu()
             elif rag_info.get("total_files", 0) == 0:
-                response = "You don't have any uploaded files yet!\n\n" + show_main_menu()
+                result_msg = "✅ TOOL SUCCESS: Listed RAG files - No uploaded files yet"
+                response = f"{result_msg}\n\n" + show_main_menu()
             else:
-                response = "Here are your uploaded files:\n\n"
+                result_msg = f"✅ TOOL SUCCESS: Listed RAG files - Found {rag_info.get('total_files', 0)} files in {rag_info.get('total_folders', 0)} folders"
+                response = f"{result_msg}\n\nHere are your uploaded files:\n\n"
                 for folder in rag_info.get("folders", []):
                     response += f"📁 {folder['folder_name']} ({folder['file_count']} files)\n"
                 for file in rag_info.get("files", []):
@@ -238,19 +243,27 @@ async def process_wizard_step(
         # They provided the content - create the block!
         wizard_state.context["content"] = user_message.strip()
 
-        # Create the block
+        # Create the block (agent_id, label, value, db)
+        # Note: description is collected but not stored in the current implementation
+        from uuid import UUID as UUIDType
         new_block = create_journal_block(
-            agent_id=agent_id,
-            label=wizard_state.context["label"],
-            description=wizard_state.context.get("description"),
-            value=wizard_state.context["content"],
-            db=db
+            UUIDType(agent_id),  # Convert string to UUID
+            wizard_state.context["label"],
+            wizard_state.context["content"],
+            db
         )
 
         # Done - back to main menu
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
-        return (f"✓ Created journal block '{new_block['label']}'!\n\n" + show_main_menu(),
+
+        # Add explicit success/failure message
+        if "error" in new_block:
+            result_msg = f"❌ TOOL FAILURE: {new_block['error']}"
+        else:
+            result_msg = f"✅ TOOL SUCCESS: Created journal block '{new_block['label']}' (ID: {new_block.get('id', 'unknown')})"
+
+        return (f"{result_msg}\n\n" + show_main_menu(),
                 wizard_state, True)
 
     # === EDIT JOURNAL BLOCK FLOW ===
@@ -317,17 +330,24 @@ Please respond with the number of your choice."""
 
         new_content = block["value"].replace(find_text, replace_text)
 
-        # Update the block
+        # Update the block (block_id, label, value, db)
         updated_block = update_journal_block(
-            agent_id=agent_id,
-            block_id=block["block_id"],
-            value=new_content,
-            db=db
+            block["id"],
+            None,  # Don't change label
+            new_content,
+            db
         )
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
-        return (f"✓ Updated '{block['label']}'!\n\n" + show_main_menu(),
+
+        # Add explicit success/failure message
+        if "error" in updated_block:
+            result_msg = f"❌ TOOL FAILURE: {updated_block['error']}"
+        else:
+            result_msg = f"✅ TOOL SUCCESS: Updated journal block '{block['label']}' (search/replace)"
+
+        return (f"{result_msg}\n\n" + show_main_menu(),
                 wizard_state, True)
 
     elif wizard_state.step == "edit_rewrite":
@@ -335,17 +355,24 @@ Please respond with the number of your choice."""
         block = wizard_state.context["selected_block"]
         new_content = user_message.strip()
 
-        # Update the block
+        # Update the block (block_id, label, value, db)
         updated_block = update_journal_block(
-            agent_id=agent_id,
-            block_id=block["block_id"],
-            value=new_content,
-            db=db
+            block["id"],
+            None,  # Don't change label
+            new_content,
+            db
         )
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
-        return (f"✓ Rewrote '{block['label']}'!\n\n" + show_main_menu(),
+
+        # Add explicit success/failure message
+        if "error" in updated_block:
+            result_msg = f"❌ TOOL FAILURE: {updated_block['error']}"
+        else:
+            result_msg = f"✅ TOOL SUCCESS: Rewrote journal block '{block['label']}'"
+
+        return (f"{result_msg}\n\n" + show_main_menu(),
                 wizard_state, True)
 
     elif wizard_state.step == "edit_append":
@@ -354,17 +381,24 @@ Please respond with the number of your choice."""
         append_text = user_message.strip()
         new_content = block["value"] + "\n" + append_text
 
-        # Update the block
+        # Update the block (block_id, label, value, db)
         updated_block = update_journal_block(
-            agent_id=agent_id,
-            block_id=block["block_id"],
-            value=new_content,
-            db=db
+            block["id"],
+            None,  # Don't change label
+            new_content,
+            db
         )
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
-        return (f"✓ Added to '{block['label']}'!\n\n" + show_main_menu(),
+
+        # Add explicit success/failure message
+        if "error" in updated_block:
+            result_msg = f"❌ TOOL FAILURE: {updated_block['error']}"
+        else:
+            result_msg = f"✅ TOOL SUCCESS: Appended to journal block '{block['label']}'"
+
+        return (f"{result_msg}\n\n" + show_main_menu(),
                 wizard_state, True)
 
     # === READ JOURNAL BLOCK FLOW ===
@@ -384,9 +418,11 @@ Please respond with the number of your choice."""
         full_block = read_journal_block(selected_block["id"], db)
 
         if "error" in full_block:
-            response = f"Error: {full_block['error']}\n\n" + show_main_menu()
+            result_msg = f"❌ TOOL FAILURE: {full_block['error']}"
+            response = f"{result_msg}\n\n" + show_main_menu()
         else:
-            response = f"=== {full_block['label']} ===\n\n{full_block['value']}\n\n" + show_main_menu()
+            result_msg = f"✅ TOOL SUCCESS: Read journal block '{full_block['label']}'"
+            response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n" + show_main_menu()
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
@@ -409,13 +445,13 @@ Please respond with the number of your choice."""
         result = delete_journal_block(selected_block["id"], db)
 
         if "error" in result:
-            response = f"Error: {result['error']}\n\n" + show_main_menu()
+            result_msg = f"❌ TOOL FAILURE: {result['error']}"
         else:
-            response = f"✓ Deleted '{selected_block['label']}'!\n\n" + show_main_menu()
+            result_msg = f"✅ TOOL SUCCESS: Deleted journal block '{selected_block['label']}'"
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
-        return (response, wizard_state, True)
+        return (f"{result_msg}\n\n" + show_main_menu(), wizard_state, True)
 
     # === SEARCH MEMORIES FLOW ===
     elif wizard_state.step == "search_query":
@@ -431,9 +467,11 @@ Please respond with the number of your choice."""
         )
 
         if not results:
-            response = "No memories found for that search.\n\n" + show_main_menu()
+            result_msg = f"✅ TOOL SUCCESS: Search completed for '{query}' - No memories found"
+            response = f"{result_msg}\n\n" + show_main_menu()
         else:
-            response = "Here's what I found:\n\n"
+            result_msg = f"✅ TOOL SUCCESS: Search completed for '{query}' - Found {len(results)} memories"
+            response = f"{result_msg}\n\nHere's what I found:\n\n"
             for i, result in enumerate(results, 1):
                 response += f"{i}. {result['content'][:200]}...\n\n"
             response += show_main_menu()
