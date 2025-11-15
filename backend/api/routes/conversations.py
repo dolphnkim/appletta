@@ -1023,13 +1023,18 @@ async def _chat_stream_internal(
 
     # Streaming generator function
     async def generate_stream():
-        """Generate SSE stream of response chunks with tool execution support"""
+        """Generate SSE stream with tool execution support
+
+        Strategy:
+        - Use non-streaming for iterations that have tool calls (need to execute tools and loop)
+        - Use streaming for the final iteration (no tool calls) to stream response to user
+        """
 
         # Send raw memory narrative first so user can see what the memory agent said
         if memory_narrative:
             yield f"data: {json.dumps({'type': 'memory_narrative', 'content': memory_narrative})}\n\n"
 
-        # Tool calling loop (similar to non-streaming endpoint)
+        # Tool calling loop
         max_iterations = 5
         iteration = 0
         final_response = ""
@@ -1046,10 +1051,19 @@ async def _chat_stream_internal(
                 print(f"\n{'='*80}")
                 print(f"🤖 MAIN AGENT LLM CALL (STREAMING) - Agent: {agent.name} - Iteration {iteration}")
                 print(f"{'='*80}")
+
+                request_payload = {
+                    "messages": current_messages,
+                    "tools": enabled_tools if enabled_tools else [],
+                    "temperature": agent.temperature,
+                    "top_p": agent.top_p,
+                    "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                    "seed": 42,
+                }
+
                 print(f"\n📤 REQUEST TO MAIN LLM:")
                 print(f"Port: {mlx_process.port}")
                 print(f"Temperature: {agent.temperature}")
-                print(f"Top P: {agent.top_p}")
                 print(f"Max Tokens: {agent.max_output_tokens if agent.max_output_tokens_enabled else 4096}")
                 print(f"\n📨 MESSAGES ARRAY ({len(current_messages)} messages):")
                 for i, msg in enumerate(current_messages):
@@ -1060,48 +1074,36 @@ async def _chat_stream_internal(
                 print(f"\n🔧 TOOLS: {len(enabled_tools) if enabled_tools else 0} tools enabled")
                 print(f"{'='*80}\n")
 
-                # Make streaming request
-                full_response = ""
+                # Always use streaming
+                request_payload["stream"] = True
+                full_content = ""
                 collected_tool_calls = []
 
                 async with httpx.AsyncClient(timeout=120.0) as client:
                     async with client.stream(
                         "POST",
                         f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                        json={
-                            "messages": current_messages,
-                            "tools": enabled_tools if enabled_tools else [],
-                            "temperature": agent.temperature,
-                            "top_p": agent.top_p,
-                            "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                            "seed": 42,  # For reproducibility and vibes
-                            "stream": True,
-                        }
-                    ) as response:
-                        async for line in response.aiter_lines():
+                        json=request_payload
+                    ) as stream_response:
+                        async for line in stream_response.aiter_lines():
                             if line.startswith("data: "):
-                                data = line[6:]  # Remove "data: " prefix
-
+                                data = line[6:]
                                 if data == "[DONE]":
                                     break
-
                                 try:
                                     chunk = json.loads(data)
                                     delta = chunk["choices"][0]["delta"]
 
-                                    # Stream content chunks
+                                    # Stream content to user AND collect it
                                     if "content" in delta and delta["content"]:
-                                        content = delta["content"]
-                                        full_response += content
-                                        # Only stream visible content to user (not tool calls)
-                                        if iteration == 1:  # Only stream first iteration to user
-                                            yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+                                        content_chunk = delta["content"]
+                                        full_content += content_chunk
+                                        # Always stream to user - they see it in real-time
+                                        yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
 
-                                    # Collect tool calls
+                                    # Collect tool calls (they come in deltas)
                                     if "tool_calls" in delta:
-                                        # Tool calls come in deltas, need to accumulate them
                                         for tool_call_delta in delta["tool_calls"]:
-                                            # Find or create the tool call entry
                                             index = tool_call_delta.get("index", 0)
                                             while len(collected_tool_calls) <= index:
                                                 collected_tool_calls.append({
@@ -1109,8 +1111,6 @@ async def _chat_stream_internal(
                                                     "type": "function",
                                                     "function": {"name": "", "arguments": ""}
                                                 })
-
-                                            # Accumulate the parts
                                             if "id" in tool_call_delta:
                                                 collected_tool_calls[index]["id"] = tool_call_delta["id"]
                                             if "function" in tool_call_delta:
@@ -1119,14 +1119,12 @@ async def _chat_stream_internal(
                                                     collected_tool_calls[index]["function"]["name"] += func_delta["name"]
                                                 if "arguments" in func_delta:
                                                     collected_tool_calls[index]["function"]["arguments"] += func_delta["arguments"]
-
                                 except json.JSONDecodeError:
                                     continue
 
-                # VERBOSE: Show the complete response
-                print(f"\n📥 COMPLETE RESPONSE FROM MAIN LLM (STREAMING) - Iteration {iteration}:")
-                print(f"Full Response ({len(full_response)} chars):")
-                print(f"{full_response}")
+                # VERBOSE: Show exactly what the LLM responded with
+                print(f"\n📥 RESPONSE FROM MAIN LLM (Iteration {iteration}):")
+                print(f"Content: {full_content[:500]}{'...' if len(full_content) > 500 else ''}")
                 if collected_tool_calls:
                     print(f"Tool Calls: {len(collected_tool_calls)} tool(s) called")
                     for tc in collected_tool_calls:
@@ -1135,34 +1133,36 @@ async def _chat_stream_internal(
 
                 # Check if there are tool calls
                 if not collected_tool_calls:
-                    # No more tool calls, we have the final response
-                    final_response = full_response
+                    # No tool calls - this was the final response and user already saw it streaming!
+                    final_response = full_content
                     break
 
-                # Execute tool calls
-                total_tool_calls += len(collected_tool_calls)
-
-                # Add assistant's tool call message to history
-                assistant_tool_message = {
+                # Build assistant message with tool calls
+                assistant_message_data = {
                     "role": "assistant",
-                    "content": full_response,
+                    "content": full_content,
                     "tool_calls": collected_tool_calls
                 }
-                current_messages.append(assistant_tool_message)
+                tool_calls = collected_tool_calls
+
+                # Execute tool calls
+                total_tool_calls += len(tool_calls)
+
+                # Add assistant's tool call message to history
+                current_messages.append(assistant_message_data)
 
                 # Notify user that tools are being executed
-                yield f"data: {json.dumps({'type': 'tool_execution', 'count': len(collected_tool_calls)})}\n\n"
+                yield f"data: {json.dumps({'type': 'tool_execution', 'count': len(tool_calls)})}\n\n"
 
                 # Execute each tool call
-                for tool_call in collected_tool_calls:
+                for tool_call in tool_calls:
                     tool_name = tool_call["function"]["name"]
-                    tool_args_str = tool_call["function"]["arguments"]
+                    tool_args = json.loads(tool_call["function"]["arguments"])
 
                     print(f"\n🔧 EXECUTING TOOL: {tool_name}")
-                    print(f"Arguments: {tool_args_str[:200]}{'...' if len(tool_args_str) > 200 else ''}")
+                    print(f"Arguments: {json.dumps(tool_args)[:200]}{'...' if len(json.dumps(tool_args)) > 200 else ''}")
 
                     try:
-                        tool_args = json.loads(tool_args_str)
                         tool_result = execute_tool(tool_name, tool_args, agent.id, db)
 
                         print(f"✅ TOOL RESULT: {json.dumps(tool_result)[:200]}{'...' if len(json.dumps(tool_result)) > 200 else ''}\n")
@@ -1188,15 +1188,14 @@ async def _chat_stream_internal(
                             "content": json.dumps(error_result)
                         })
 
-                # If this wasn't the first iteration, we need to stream the response after tool execution
-                # The loop will continue and make another LLM call with the tool results
-
-            # If we hit max iterations without final response, use last content
+            # If we hit max iterations without final response, use fallback
             if not final_response:
-                final_response = full_response if full_response else "I apologize, but I encountered an issue completing the request."
+                final_response = "I apologize, but I encountered an issue completing the request."
+                # Stream the error message
+                for char in final_response:
+                    yield f"data: {json.dumps({'type': 'content', 'content': char})}\n\n"
 
             # Save complete assistant message to database
-            # Extract initial thematic tags for assistant message
             assistant_tags = extract_keywords(final_response, max_keywords=5)
 
             assistant_message = Message(
@@ -1206,13 +1205,12 @@ async def _chat_stream_internal(
                 metadata_={
                     "model": agent.model_path,
                     "tool_calls_count": total_tool_calls,
-                    "surfaced_memories_count": 0,  # Will be updated by memory coordination
+                    "surfaced_memories_count": 0,
                     "streamed": True,
                     "tags": assistant_tags
                 }
             )
 
-            # Generate embedding with tags for assistant message
             assistant_embedding = embedding_service.embed_with_tags(final_response, assistant_tags)
             assistant_message.embedding = assistant_embedding
 
@@ -1230,9 +1228,6 @@ async def _chat_stream_internal(
             logger.error(f"Stream error for agent {agent.name} on port {mlx_process.port}")
             logger.error(f"MLX server process running: {mlx_process.is_running()}")
             logger.error(f"Full error: {traceback.format_exc()}")
-            error_details = traceback.format_exc()
-            # Log the full error
-            logger.error(f"Stream error occurred:\n{error_details}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(
