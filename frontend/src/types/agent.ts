@@ -10,6 +10,7 @@ export interface LLMConfig {
   seed?: number;
   max_output_tokens_enabled: boolean;
   max_output_tokens: number;
+  max_context_tokens: number;
 }
 
 export interface EmbeddingConfig {
