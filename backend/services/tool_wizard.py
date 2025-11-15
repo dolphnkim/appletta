@@ -78,6 +78,45 @@ def get_wizard_state(message_metadata: Optional[Dict[str, Any]]) -> WizardState:
     return WizardState(wizard_data)
 
 
+def clean_llm_response(response: str) -> str:
+    """
+    Clean up LLM response to extract just the actual answer.
+    Removes:
+    - Thinking tags and their content
+    - Markdown code blocks (takes the content inside)
+    - Extra whitespace
+    """
+    import re
+
+    cleaned = response.strip()
+
+    # Remove thinking tags and everything before them
+    if "</think>" in cleaned:
+        # Take only what's after the last </think> tag
+        cleaned = cleaned.split("</think>")[-1].strip()
+
+    # Remove <think> tags if they exist without closing
+    cleaned = re.sub(r'<think>.*', '', cleaned, flags=re.DOTALL)
+
+    # If there are markdown code blocks, extract the first one's content
+    code_block_match = re.search(r'```(?:\w+)?\s*\n?(.*?)\n?```', cleaned, re.DOTALL)
+    if code_block_match:
+        cleaned = code_block_match.group(1).strip()
+
+    # Remove surrounding quotes if present
+    if cleaned.startswith('"') and cleaned.endswith('"'):
+        cleaned = cleaned[1:-1]
+    if cleaned.startswith("'") and cleaned.endswith("'"):
+        cleaned = cleaned[1:-1]
+
+    # Take only the first line if multiple lines (likely the LLM over-answered)
+    lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
+    if lines:
+        cleaned = lines[0]
+
+    return cleaned.strip()
+
+
 def show_main_menu() -> str:
     """Generate the main menu prompt"""
     return """MANDATORY: Before responding to the user, you MUST select ONE option below.
@@ -118,6 +157,12 @@ async def process_wizard_step(
         (prompt_to_show, updated_wizard_state, should_continue_wizard)
     """
 
+    # Clean the LLM response to extract just the answer
+    # This removes thinking tags, code blocks, quotes, etc.
+    original_message = user_message
+    user_message = clean_llm_response(user_message)
+    print(f"   🧹 CLEANED RESPONSE: '{user_message}' (from: '{original_message[:50]}...')")
+
     # Check if we've exhausted iterations
     if wizard_state.is_exhausted():
         return ("You've used all your tool actions for now. Let's chat normally!",
@@ -150,7 +195,7 @@ async def process_wizard_step(
             print(f"   ➡️  Starting create journal block flow")
             wizard_state.tool = "create"
             wizard_state.step = "create_label"
-            return ("Great! Let's create a new journal block.\n\nWhat should the label/title be?",
+            return ("What should the label/title be for this journal block?\n\nRESPOND WITH ONLY THE LABEL TEXT. Maximum 50 characters. No quotes, no explanation, just the label itself.",
                     wizard_state, True)
 
         elif choice == 3:
@@ -234,7 +279,7 @@ async def process_wizard_step(
             print(f"   ➡️  Starting search memories flow")
             wizard_state.tool = "search"
             wizard_state.step = "search_query"
-            return ("What would you like to search for in your memories?",
+            return ("What would you like to search for in your memories?\n\nRESPOND WITH ONLY THE SEARCH QUERY. Maximum 100 characters. No quotes, no explanation.",
                     wizard_state, True)
 
         elif choice == 7:
@@ -273,17 +318,19 @@ async def process_wizard_step(
 
     # === CREATE JOURNAL BLOCK FLOW ===
     elif wizard_state.step == "create_label":
-        # They provided the label
-        wizard_state.context["label"] = user_message.strip()
-        wizard_state.step = "create_description"
-        return ("Got it! Now, what's a brief description for this journal block? (This helps you remember what it's for)",
-                wizard_state, True)
+        # They provided the label - enforce 50 char limit
+        label = user_message.strip()
 
-    elif wizard_state.step == "create_description":
-        # They provided the description
-        wizard_state.context["description"] = user_message.strip()
+        if len(label) > 50:
+            print(f"   ❌ LABEL TOO LONG: {len(label)} chars (max 50)")
+            return (f"❌ Label too long! You typed {len(label)} characters, but the maximum is 50.\n\nRESPOND WITH ONLY THE LABEL TEXT. Maximum 50 characters. No quotes, no explanation, just the label itself.",
+                    wizard_state, True)
+
+        wizard_state.context["label"] = label
         wizard_state.step = "create_content"
-        return ("Perfect! Now, what content should go in this journal block?",
+        print(f"   📝 LABEL SET: '{label}'")
+        # Skip description - go straight to content
+        return (f"Label set to: '{label}'\n\nNow, what content should go in this journal block?\n\nRESPOND WITH ONLY THE CONTENT TEXT. No quotes, no explanation, just the content itself.",
                 wizard_state, True)
 
     elif wizard_state.step == "create_content":
@@ -339,7 +386,7 @@ Choose an editing mode:
 2. Completely rewrite this block
 3. Append new text to the end
 
-Please respond with the number of your choice."""
+RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
 
         return (prompt, wizard_state, True)
 
@@ -350,17 +397,17 @@ Please respond with the number of your choice."""
         if choice == 1:
             # Search and replace
             wizard_state.step = "edit_search_find"
-            return ("What text would you like to find/replace?", wizard_state, True)
+            return ("What text would you like to find/replace?\n\nRESPOND WITH ONLY THE TEXT TO FIND. No quotes, no explanation.", wizard_state, True)
 
         elif choice == 2:
             # Complete rewrite
             wizard_state.step = "edit_rewrite"
-            return ("Enter the new content for this journal block:", wizard_state, True)
+            return ("Enter the new content for this journal block:\n\nRESPOND WITH ONLY THE NEW CONTENT. No quotes, no explanation.", wizard_state, True)
 
         elif choice == 3:
             # Append
             wizard_state.step = "edit_append"
-            return ("What would you like to add to the end?", wizard_state, True)
+            return ("What would you like to add to the end?\n\nRESPOND WITH ONLY THE TEXT TO APPEND. No quotes, no explanation.", wizard_state, True)
 
         else:
             return ("Invalid choice. Please enter 1, 2, or 3.", wizard_state, True)
@@ -369,7 +416,7 @@ Please respond with the number of your choice."""
         # They provided text to find
         wizard_state.context["find_text"] = user_message.strip()
         wizard_state.step = "edit_search_replace"
-        return ("What should it be replaced with?", wizard_state, True)
+        return (f"Found: '{user_message.strip()}'\n\nWhat should it be replaced with?\n\nRESPOND WITH ONLY THE REPLACEMENT TEXT. No quotes, no explanation.", wizard_state, True)
 
     elif wizard_state.step == "edit_search_replace":
         # They provided replacement text - do the replacement
@@ -516,6 +563,11 @@ Please respond with the number of your choice."""
     elif wizard_state.step == "search_query":
         # They provided a search query
         query = user_message.strip()
+
+        if len(query) > 100:
+            print(f"   ❌ QUERY TOO LONG: {len(query)} chars (max 100)")
+            return (f"❌ Search query too long! You typed {len(query)} characters, but the maximum is 100.\n\nRESPOND WITH ONLY THE SEARCH QUERY. Maximum 100 characters. No quotes, no explanation.",
+                    wizard_state, True)
 
         # Search memories
         results = search_memories(
