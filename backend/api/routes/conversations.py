@@ -797,6 +797,20 @@ async def _chat_stream_internal(
     db.commit()
     db.refresh(user_message)
 
+    # === GET MLX SERVER EARLY ===
+    # We need this before wizard check because wizard loop calls LLM
+    mlx_manager = get_mlx_manager()
+    mlx_process = mlx_manager.get_agent_server(agent.id)
+
+    if not mlx_process:
+        try:
+            mlx_process = await mlx_manager.start_agent_server(agent)
+            logger.info(f"MLX server started on port {mlx_process.port}")
+        except Exception as e:
+            raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
+    else:
+        logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
+
     # === TOOL WIZARD CHECK ===
     # If tools are enabled, use the wizard system to let LLM navigate menus and execute tools
     from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu, WizardState
@@ -1046,16 +1060,14 @@ async def _chat_stream_internal(
     current_user_msg = {"role": "user", "content": message}
     messages = [system_message] + messages_to_include + [current_user_msg]
 
-    # Get or start MLX server
+    # MLX server already acquired earlier (before wizard check)
     import logging
     logger = logging.getLogger(__name__)
 
-    mlx_manager = get_mlx_manager()
-    mlx_process = mlx_manager.get_agent_server(agent.id)
-
     if not mlx_process:
+        # This shouldn't happen since we acquired it earlier, but handle defensively
         try:
-            logger.info(f"Starting MLX server for agent {agent.id} ({agent.name})")
+            logger.warning(f"MLX process was None after wizard check, reacquiring...")
             mlx_process = await mlx_manager.start_agent_server(agent)
             logger.info(f"MLX server started on port {mlx_process.port}")
         except Exception as e:
