@@ -933,6 +933,7 @@ async def _chat_stream_internal(
         wizard_iteration = 0
         wizard_messages_to_add = []  # Track wizard messages to add to DB later
         tools_were_used = False  # Track if actual tools were executed
+        final_chat_response = None  # Track if LLM chose to chat normally with a full response
 
         # ALWAYS show the menu first - this is MANDATORY
         # The LLM must choose an option before responding
@@ -1024,6 +1025,20 @@ async def _chat_stream_internal(
                     tools_were_used = True
                     print(f"  ➡️  Tools ARE being used")
 
+                # If LLM chose to chat normally (option 1), save their FULL response
+                # We'll use this as the final response instead of making another call
+                if not continue_wizard and wizard_state.step == "main_menu" and wizard_state.tool is None:
+                    # Extract the actual message (after thinking tags)
+                    import re
+                    final_chat_response = llm_response
+                    # Remove thinking tags
+                    if "</think>" in final_chat_response:
+                        final_chat_response = final_chat_response.split("</think>")[-1].strip()
+                    final_chat_response = re.sub(r'<think>.*', '', final_chat_response, flags=re.DOTALL).strip()
+                    # Remove the leading "1" or "1!" that the LLM might have written
+                    final_chat_response = re.sub(r'^1[!\s]*\n*', '', final_chat_response).strip()
+                    print(f"  💬 LLM chose to chat normally - captured full response")
+
                 if wizard_prompt:
                     print(f"\n📋 NEXT WIZARD PROMPT:")
                     print(f"{'-'*40}")
@@ -1044,17 +1059,57 @@ async def _chat_stream_internal(
         # DON'T save wizard messages to database - they pollute conversation history
         # and confuse the LLM on subsequent interactions. The wizard is ephemeral.
         print(f"🧙 WIZARD: Completed with {len(wizard_messages_to_add)} internal messages (not saved to DB)")
-        # for wizard_msg in wizard_messages_to_add:
-        #     saved_msg = Message(
-        #         conversation_id=conversation_id,
-        #         role=wizard_msg["role"],
-        #         content=wizard_msg["content"],
-        #         metadata_={"wizard_state": wizard_msg.get("wizard_state"), "wizard_message": True}
-        #     )
-        #     msg_embedding = embedding_service.embed_with_tags(wizard_msg["content"], [])
-        #     saved_msg.embedding = msg_embedding
-        #     db.add(saved_msg)
-        # db.commit()
+
+        # If LLM chose to chat normally and has a full response, use that directly
+        if final_chat_response:
+            print(f"\n🧙 WIZARD: Using LLM's full 'chat normally' response (no additional call needed)")
+            print(f"Response preview: {final_chat_response[:200]}...")
+
+            async def generate_chat_normally():
+                # Stream the already-captured response
+                final_response = final_chat_response
+
+                try:
+                    # Send the response in chunks to simulate streaming
+                    chunk_size = 10
+                    for i in range(0, len(final_response), chunk_size):
+                        chunk = final_response[i:i+chunk_size]
+                        yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+
+                    # Save to database
+                    assistant_tags = extract_keywords(final_response, max_keywords=5)
+                    assistant_message = Message(
+                        conversation_id=conversation_id,
+                        role="assistant",
+                        content=final_response,
+                        metadata_={
+                            "model": agent.model_path,
+                            "wizard_chat_normally": True,
+                            "tools_used": tools_were_used,
+                            "tags": assistant_tags
+                        }
+                    )
+                    assistant_embedding = embedding_service.embed_with_tags(final_response, assistant_tags)
+                    assistant_message.embedding = assistant_embedding
+                    db.add(assistant_message)
+                    db.commit()
+                    db.refresh(assistant_message)
+
+                    yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
+
+                except Exception as e:
+                    import traceback
+                    print(f"🧙 WIZARD CHAT NORMALLY ERROR: {traceback.format_exc()}")
+                    yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+            return StreamingResponse(
+                generate_chat_normally(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
 
         # If wizard executed tools (not just chat normally), make a final LLM call to summarize and respond naturally
         if tools_were_used and wizard_iteration > 0:
@@ -1079,6 +1134,13 @@ async def _chat_stream_internal(
             for i, msg in enumerate(final_wizard_messages):
                 print(f"  {i+1}. [{msg['role']}]: {msg['content'][:100]}...")
 
+            # Capture agent properties BEFORE the generator to avoid DetachedInstanceError
+            agent_temperature = agent.temperature
+            agent_max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
+            agent_model_path = agent.model_path
+            mlx_port = mlx_process.port
+            user_msg_dict = user_message.to_dict()
+
             # Stream the final response
             async def generate_wizard_final():
                 final_response = ""
@@ -1086,11 +1148,11 @@ async def _chat_stream_internal(
                     async with httpx.AsyncClient(timeout=120.0) as client:
                         async with client.stream(
                             "POST",
-                            f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                            f"http://localhost:{mlx_port}/v1/chat/completions",
                             json={
                                 "messages": final_wizard_messages,
-                                "temperature": agent.temperature,
-                                "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                                "temperature": agent_temperature,
+                                "max_tokens": agent_max_tokens,
                                 "seed": 42,
                                 "stream": True
                             }
@@ -1119,7 +1181,7 @@ async def _chat_stream_internal(
                         role="assistant",
                         content=final_response,
                         metadata_={
-                            "model": agent.model_path,
+                            "model": agent_model_path,
                             "wizard_final": True,
                             "wizard_iterations": wizard_iteration,
                             "tags": assistant_tags
@@ -1131,7 +1193,7 @@ async def _chat_stream_internal(
                     db.commit()
                     db.refresh(assistant_message)
 
-                    yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', 'user_message': user_msg_dict, 'assistant_message': assistant_message.to_dict()})}\n\n"
 
                 except Exception as e:
                     import traceback

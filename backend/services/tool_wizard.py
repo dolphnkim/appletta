@@ -83,8 +83,9 @@ def clean_llm_response(response: str) -> str:
     Clean up LLM response to extract just the actual answer.
     Removes:
     - Thinking tags and their content
-    - Markdown code blocks (takes the content inside)
-    - Extra whitespace
+
+    NOTE: Preserves ALL content after thinking tags, including multi-line text.
+    This is important for journal block content which can be long.
     """
     import re
 
@@ -97,22 +98,6 @@ def clean_llm_response(response: str) -> str:
 
     # Remove <think> tags if they exist without closing
     cleaned = re.sub(r'<think>.*', '', cleaned, flags=re.DOTALL)
-
-    # If there are markdown code blocks, extract the first one's content
-    code_block_match = re.search(r'```(?:\w+)?\s*\n?(.*?)\n?```', cleaned, re.DOTALL)
-    if code_block_match:
-        cleaned = code_block_match.group(1).strip()
-
-    # Remove surrounding quotes if present
-    if cleaned.startswith('"') and cleaned.endswith('"'):
-        cleaned = cleaned[1:-1]
-    if cleaned.startswith("'") and cleaned.endswith("'"):
-        cleaned = cleaned[1:-1]
-
-    # Take only the first line if multiple lines (likely the LLM over-answered)
-    lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
-    if lines:
-        cleaned = lines[0]
 
     return cleaned.strip()
 
