@@ -855,10 +855,10 @@ async def _chat_stream_internal(
         while wizard_prompt and wizard_iteration < max_wizard_iterations:
             wizard_iteration += 1
 
-            # Add wizard prompt as assistant message (for LLM context, not saved yet)
+            # Add wizard prompt as system message (instructions to LLM)
             wizard_messages_to_add.append({
-                "role": "assistant",
-                "content": wizard_prompt,
+                "role": "system",
+                "content": f"[TOOL WIZARD]\n{wizard_prompt}",
                 "wizard_state": wizard_state.to_dict()
             })
 
@@ -896,6 +896,13 @@ async def _chat_stream_internal(
                 llm_response = result["choices"][0]["message"].get("content", "")
                 print(f"🧙 LLM RESPONSE: {llm_response[:200]}")
 
+                # Add LLM's response to wizard conversation
+                wizard_messages_to_add.append({
+                    "role": "assistant",
+                    "content": llm_response,
+                    "wizard_llm_response": True
+                })
+
                 # Process LLM's response through wizard
                 wizard_prompt, wizard_state, continue_wizard = await process_wizard_step(
                     user_message=llm_response,
@@ -927,7 +934,96 @@ async def _chat_stream_internal(
             db.add(saved_msg)
         db.commit()
 
-        # Now proceed to normal LLM call with full context
+        # If wizard executed tools, make a final LLM call to summarize and respond naturally
+        if wizard_iteration > 0:
+            print(f"\n🧙 WIZARD: Making final summary call after {wizard_iteration} wizard interactions\n")
+
+            # Build context: system + user message + wizard conversation + "now respond naturally"
+            final_wizard_messages = [
+                {"role": "system", "content": agent.project_instructions or ""},
+                {"role": "user", "content": message}
+            ] + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages_to_add]
+
+            # Add instruction to respond naturally now
+            final_wizard_messages.append({
+                "role": "system",
+                "content": "You've completed the tool operations above. Now respond naturally to the user about what you did. Be conversational and helpful."
+            })
+
+            print(f"📤 FINAL WIZARD SUMMARY CALL:")
+            print(f"Messages: {len(final_wizard_messages)}")
+            for i, msg in enumerate(final_wizard_messages):
+                print(f"  {i+1}. [{msg['role']}]: {msg['content'][:100]}...")
+
+            # Stream the final response
+            async def generate_wizard_final():
+                final_response = ""
+                try:
+                    async with httpx.AsyncClient(timeout=120.0) as client:
+                        async with client.stream(
+                            "POST",
+                            f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                            json={
+                                "messages": final_wizard_messages,
+                                "temperature": agent.temperature,
+                                "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                                "seed": 42,
+                                "stream": True
+                            }
+                        ) as stream_response:
+                            async for line in stream_response.aiter_lines():
+                                if line.startswith("data: "):
+                                    data = line[6:]
+                                    if data == "[DONE]":
+                                        break
+                                    try:
+                                        chunk = json.loads(data)
+                                        delta = chunk["choices"][0]["delta"]
+                                        if "content" in delta and delta["content"]:
+                                            content_chunk = delta["content"]
+                                            final_response += content_chunk
+                                            yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
+                                    except json.JSONDecodeError:
+                                        continue
+
+                    print(f"\n📥 WIZARD FINAL RESPONSE: {final_response[:200]}...")
+
+                    # Save final response
+                    assistant_tags = extract_keywords(final_response, max_keywords=5)
+                    assistant_message = Message(
+                        conversation_id=conversation_id,
+                        role="assistant",
+                        content=final_response,
+                        metadata_={
+                            "model": agent.model_path,
+                            "wizard_final": True,
+                            "wizard_iterations": wizard_iteration,
+                            "tags": assistant_tags
+                        }
+                    )
+                    assistant_embedding = embedding_service.embed_with_tags(final_response, assistant_tags)
+                    assistant_message.embedding = assistant_embedding
+                    db.add(assistant_message)
+                    db.commit()
+                    db.refresh(assistant_message)
+
+                    yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
+
+                except Exception as e:
+                    import traceback
+                    print(f"🧙 WIZARD FINAL ERROR: {traceback.format_exc()}")
+                    yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+
+            return StreamingResponse(
+                generate_wizard_final(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
+
+        # If wizard didn't run (no iterations), proceed to normal LLM call
 
     # Get conversation history BEFORE the current user message (needed for context calculation)
     # We exclude the message we just added because it hasn't been answered yet
