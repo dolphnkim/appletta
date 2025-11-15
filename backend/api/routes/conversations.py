@@ -1025,18 +1025,19 @@ async def _chat_stream_internal(
     async def generate_stream():
         """Generate SSE stream with tool execution support
 
-        Uses non-streaming MLX calls internally (which support tools reliably)
-        and simulates streaming by yielding progress updates.
+        Strategy:
+        - Use non-streaming for iterations that have tool calls (need to execute tools and loop)
+        - Use streaming for the final iteration (no tool calls) to stream response to user
         """
 
         # Send raw memory narrative first so user can see what the memory agent said
         if memory_narrative:
             yield f"data: {json.dumps({'type': 'memory_narrative', 'content': memory_narrative})}\n\n"
 
-        # Tool calling loop (using non-streaming approach which is known to work)
+        # Tool calling loop
         max_iterations = 5
         iteration = 0
-        final_response = None
+        final_response = ""
         total_tool_calls = 0
 
         # Start with the messages we already built
@@ -1057,7 +1058,7 @@ async def _chat_stream_internal(
                     "temperature": agent.temperature,
                     "top_p": agent.top_p,
                     "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                    "seed": 42,  # For reproducibility and vibes
+                    "seed": 42,
                 }
 
                 print(f"\n📤 REQUEST TO MAIN LLM:")
@@ -1073,43 +1074,76 @@ async def _chat_stream_internal(
                 print(f"\n🔧 TOOLS: {len(enabled_tools) if enabled_tools else 0} tools enabled")
                 print(f"{'='*80}\n")
 
-                # Use NON-STREAMING request (known to work with tools)
+                # Always use streaming
+                request_payload["stream"] = True
+                full_content = ""
+                collected_tool_calls = []
+
                 async with httpx.AsyncClient(timeout=120.0) as client:
-                    response = await client.post(
+                    async with client.stream(
+                        "POST",
                         f"http://localhost:{mlx_process.port}/v1/chat/completions",
                         json=request_payload
-                    )
-                    response.raise_for_status()
-                    result = response.json()
+                    ) as stream_response:
+                        async for line in stream_response.aiter_lines():
+                            if line.startswith("data: "):
+                                data = line[6:]
+                                if data == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data)
+                                    delta = chunk["choices"][0]["delta"]
+
+                                    # Stream content to user AND collect it
+                                    if "content" in delta and delta["content"]:
+                                        content_chunk = delta["content"]
+                                        full_content += content_chunk
+                                        # Always stream to user - they see it in real-time
+                                        yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
+
+                                    # Collect tool calls (they come in deltas)
+                                    if "tool_calls" in delta:
+                                        for tool_call_delta in delta["tool_calls"]:
+                                            index = tool_call_delta.get("index", 0)
+                                            while len(collected_tool_calls) <= index:
+                                                collected_tool_calls.append({
+                                                    "id": "",
+                                                    "type": "function",
+                                                    "function": {"name": "", "arguments": ""}
+                                                })
+                                            if "id" in tool_call_delta:
+                                                collected_tool_calls[index]["id"] = tool_call_delta["id"]
+                                            if "function" in tool_call_delta:
+                                                func_delta = tool_call_delta["function"]
+                                                if "name" in func_delta:
+                                                    collected_tool_calls[index]["function"]["name"] += func_delta["name"]
+                                                if "arguments" in func_delta:
+                                                    collected_tool_calls[index]["function"]["arguments"] += func_delta["arguments"]
+                                except json.JSONDecodeError:
+                                    continue
 
                 # VERBOSE: Show exactly what the LLM responded with
                 print(f"\n📥 RESPONSE FROM MAIN LLM (Iteration {iteration}):")
-                assistant_msg = result.get("choices", [{}])[0].get("message", {})
-                print(f"Role: {assistant_msg.get('role', 'unknown')}")
-                content = assistant_msg.get("content", "")
-                print(f"Content: {content[:500]}{'...' if len(content) > 500 else ''}")
-                tool_calls = assistant_msg.get("tool_calls")
-                if tool_calls:
-                    print(f"Tool Calls: {len(tool_calls)} tool(s) called")
-                    for tc in tool_calls:
+                print(f"Content: {full_content[:500]}{'...' if len(full_content) > 500 else ''}")
+                if collected_tool_calls:
+                    print(f"Tool Calls: {len(collected_tool_calls)} tool(s) called")
+                    for tc in collected_tool_calls:
                         print(f"  - {tc['function']['name']}: {tc['function']['arguments'][:200]}")
                 print(f"{'='*80}\n")
 
-                assistant_message_data = result["choices"][0]["message"]
-
                 # Check if there are tool calls
-                if not tool_calls:
-                    # No more tool calls, we have the final response
-                    final_response = assistant_message_data.get("content", "")
-
-                    # Stream the final response to user (simulate streaming)
-                    if final_response and iteration == 1:
-                        # Yield in chunks to simulate streaming
-                        chunk_size = 3
-                        for i in range(0, len(final_response), chunk_size):
-                            chunk = final_response[i:i+chunk_size]
-                            yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                if not collected_tool_calls:
+                    # No tool calls - this was the final response and user already saw it streaming!
+                    final_response = full_content
                     break
+
+                # Build assistant message with tool calls
+                assistant_message_data = {
+                    "role": "assistant",
+                    "content": full_content,
+                    "tool_calls": collected_tool_calls
+                }
+                tool_calls = collected_tool_calls
 
                 # Execute tool calls
                 total_tool_calls += len(tool_calls)
@@ -1154,12 +1188,14 @@ async def _chat_stream_internal(
                             "content": json.dumps(error_result)
                         })
 
-            # If we hit max iterations without final response, use last content
-            if final_response is None:
+            # If we hit max iterations without final response, use fallback
+            if not final_response:
                 final_response = "I apologize, but I encountered an issue completing the request."
+                # Stream the error message
+                for char in final_response:
+                    yield f"data: {json.dumps({'type': 'content', 'content': char})}\n\n"
 
             # Save complete assistant message to database
-            # Extract initial thematic tags for assistant message
             assistant_tags = extract_keywords(final_response, max_keywords=5)
 
             assistant_message = Message(
@@ -1169,13 +1205,12 @@ async def _chat_stream_internal(
                 metadata_={
                     "model": agent.model_path,
                     "tool_calls_count": total_tool_calls,
-                    "surfaced_memories_count": 0,  # Will be updated by memory coordination
+                    "surfaced_memories_count": 0,
                     "streamed": True,
                     "tags": assistant_tags
                 }
             )
 
-            # Generate embedding with tags for assistant message
             assistant_embedding = embedding_service.embed_with_tags(final_response, assistant_tags)
             assistant_message.embedding = assistant_embedding
 
@@ -1193,9 +1228,6 @@ async def _chat_stream_internal(
             logger.error(f"Stream error for agent {agent.name} on port {mlx_process.port}")
             logger.error(f"MLX server process running: {mlx_process.is_running()}")
             logger.error(f"Full error: {traceback.format_exc()}")
-            error_details = traceback.format_exc()
-            # Log the full error
-            logger.error(f"Stream error occurred:\n{error_details}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
     return StreamingResponse(
