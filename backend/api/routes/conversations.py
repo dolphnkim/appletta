@@ -932,34 +932,15 @@ async def _chat_stream_internal(
         max_wizard_iterations = 10
         wizard_iteration = 0
         wizard_messages_to_add = []  # Track wizard messages to add to DB later
+        tools_were_used = False  # Track if actual tools were executed
 
-        # Get wizard state from last assistant message
-        last_assistant_msg = db.query(Message).filter(
-            Message.conversation_id == conversation_id,
-            Message.role == "assistant"
-        ).order_by(Message.created_at.desc()).first()
-
-        wizard_state = get_wizard_state(last_assistant_msg.metadata_ if last_assistant_msg else None)
-
-        # If first interaction, inject menu
-        if not last_assistant_msg or wizard_state.step == "main_menu" and wizard_state.iteration == 0:
-            wizard_prompt = show_main_menu()
-            print(f"\n🧙 WIZARD: Showing menu to LLM\n")
-        else:
-            # Process current wizard step with user's message
-            wizard_prompt, wizard_state, continue_wizard = await process_wizard_step(
-                user_message=message,
-                wizard_state=wizard_state,
-                agent_id=str(agent.id),
-                db=db
-            )
-
-            if not continue_wizard:
-                # Wizard says to exit - proceed to normal LLM call
-                print(f"\n🧙 WIZARD: User chose to chat normally\n")
-                wizard_prompt = None
-            else:
-                print(f"\n🧙 WIZARD: Step {wizard_state.step}, prompt: {wizard_prompt[:100]}...\n")
+        # ALWAYS show the menu first - this is MANDATORY
+        # The LLM must choose an option before responding
+        wizard_state = WizardState()  # Fresh state for each user message
+        wizard_prompt = show_main_menu()
+        print(f"\n🧙 WIZARD: Showing MANDATORY menu to LLM\n")
+        print(f"   User's message: {message[:100]}...")
+        print(f"   LLM must choose an option before responding\n")
 
         # Wizard loop: add prompt, call LLM, parse response
         while wizard_prompt and wizard_iteration < max_wizard_iterations:
@@ -1020,6 +1001,12 @@ async def _chat_stream_internal(
                     db=db
                 )
 
+                # Track if tools were actually used (not just chatting normally)
+                # If wizard state step is not main_menu or tool is set, tools are being used
+                if wizard_state.tool is not None or wizard_state.iteration > 0:
+                    tools_were_used = True
+                    print(f"🧙 WIZARD: Tools are being used (tool={wizard_state.tool}, iteration={wizard_state.iteration})")
+
                 if not continue_wizard:
                     print(f"\n🧙 WIZARD: Flow complete, proceeding to final LLM call\n")
                     break
@@ -1043,9 +1030,9 @@ async def _chat_stream_internal(
             db.add(saved_msg)
         db.commit()
 
-        # If wizard executed tools, make a final LLM call to summarize and respond naturally
-        if wizard_iteration > 0:
-            print(f"\n🧙 WIZARD: Making final summary call after {wizard_iteration} wizard interactions\n")
+        # If wizard executed tools (not just chat normally), make a final LLM call to summarize and respond naturally
+        if tools_were_used and wizard_iteration > 0:
+            print(f"\n🧙 WIZARD: Making final summary call after {wizard_iteration} wizard interactions (tools_were_used={tools_were_used})\n")
 
             # Build context: full context + wizard conversation + "now respond naturally"
             final_wizard_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages_to_add]
@@ -1055,6 +1042,11 @@ async def _chat_stream_internal(
                 "role": "system",
                 "content": "You've completed the tool operations above. Now respond naturally to the user about what you did. Be conversational and helpful."
             })
+        elif wizard_iteration > 0 and not tools_were_used:
+            # LLM chose to chat normally (option 1), proceed to normal streaming without wizard overhead
+            print(f"\n🧙 WIZARD: LLM chose to chat normally (no tools), proceeding to normal streaming\n")
+
+        if tools_were_used and wizard_iteration > 0:
 
             print(f"📤 FINAL WIZARD SUMMARY CALL:")
             print(f"Messages: {len(final_wizard_messages)}")
