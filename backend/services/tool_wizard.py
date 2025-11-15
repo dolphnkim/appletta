@@ -367,14 +367,23 @@ async def process_wizard_step(
             return ("Invalid choice. Please enter a number from the list.",
                     wizard_state, True)
 
-        selected_block = blocks[choice - 1]
-        wizard_state.context["selected_block"] = selected_block
+        selected_block_summary = blocks[choice - 1]
+
+        # Read the full block content (the list only has id/label/updated_at)
+        from backend.services.tools import read_journal_block
+        full_block = read_journal_block(selected_block_summary["id"], db)
+
+        if "error" in full_block:
+            return (f"❌ Error reading block: {full_block['error']}\n\n" + show_main_menu(),
+                    wizard_state, True)
+
+        wizard_state.context["selected_block"] = full_block
         wizard_state.step = "edit_select_mode"
 
-        prompt = f"""How would you like to edit "{selected_block['label']}"?
+        prompt = f"""How would you like to edit "{full_block['label']}"?
 
 Current content:
-{selected_block['value']}
+{full_block['value']}
 
 Choose an editing mode:
 1. Search and replace text
