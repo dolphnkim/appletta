@@ -215,7 +215,7 @@ def get_tools_description(enabled_tool_names: Optional[List[str]] = None) -> str
         return "No tools enabled"
 
     # Compact format to save tokens - just list tools with brief descriptions
-    descriptions = ["Call tools using: <tool_call>{\"name\": \"tool_name\", \"arguments\": {...}}</tool_call>"]
+    descriptions = ["Call tools using: \n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {...}}\n</tool_call>\n For example: \n<tool_call> {\"name\": \"create_journal_block\", \"arguments\": {\"label\": \"AI Self Reflection\", \"value\": \"Today I realized X about myself\"}}\n</tool_call>\n" ]
 
     for tool in tools:
         tool_func = tool["function"]

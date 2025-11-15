@@ -148,7 +148,9 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     setMessages((prev) => [...prev, tempUserMessage]);
 
     const url = conversationAPI.getStreamURL(convId);
-    const eventSource = new EventSource(`${url}?message=${encodeURIComponent(content)}`);
+    // Add timestamp to prevent browser caching of EventSource GET requests
+    const timestamp = Date.now();
+    const eventSource = new EventSource(`${url}?message=${encodeURIComponent(content)}&_t=${timestamp}`);
     eventSourceRef.current = eventSource;
 
     eventSource.onmessage = (event) => {

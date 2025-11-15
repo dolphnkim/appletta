@@ -828,6 +828,11 @@ async def _chat_stream_internal(
 ):
     """Internal streaming logic shared by POST and GET endpoints"""
 
+    # DEBUG: Log the incoming message
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"\n🔵 INCOMING MESSAGE: '{message[:200]}{'...' if len(message) > 200 else ''}'")
+
     # Verify conversation exists
     conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
     if not conversation:
