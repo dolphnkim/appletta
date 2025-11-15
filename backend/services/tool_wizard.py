@@ -337,27 +337,37 @@ async def process_wizard_step(
         # They provided the content - create the block!
         wizard_state.context["content"] = user_message.strip()
 
+        # Verify we have the label from previous step
+        if "label" not in wizard_state.context:
+            print(f"   ❌ BUG: Label not in context! Context: {wizard_state.context}")
+            return ("❌ Something went wrong - label was lost. Let's start over.\n\n" + show_main_menu(),
+                    WizardState(), True)
+
+        label = wizard_state.context["label"]
+        content = wizard_state.context["content"]
+
+        print(f"   📦 CREATING BLOCK: label='{label}', content='{content[:50]}...'")
+
         # Create the block (agent_id, label, value, db)
-        # Note: description is collected but not stored in the current implementation
         from uuid import UUID as UUIDType
         new_block = create_journal_block(
             UUIDType(agent_id),  # Convert string to UUID
-            wizard_state.context["label"],
-            wizard_state.context["content"],
+            label,
+            content,
             db
         )
 
-        # Done - back to main menu
-        wizard_state.reset_to_menu()
-        wizard_state.increment_iteration()
-
-        # Add explicit success/failure message
+        # Add explicit success/failure message BEFORE resetting state
         if "error" in new_block:
             result_msg = f"❌ TOOL FAILURE: {new_block['error']}"
-            wizard_state.log_tool_use(f"FAILED to create journal block '{wizard_state.context['label']}'")
+            wizard_state.log_tool_use(f"FAILED to create journal block '{label}'")
         else:
             result_msg = f"✅ TOOL SUCCESS: Created journal block '{new_block['label']}' (ID: {new_block.get('id', 'unknown')})"
             wizard_state.log_tool_use(f"Created journal block '{new_block['label']}'")
+
+        # Done - back to main menu (AFTER logging the action)
+        wizard_state.reset_to_menu()
+        wizard_state.increment_iteration()
 
         return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
                 wizard_state, True)

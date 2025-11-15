@@ -1015,6 +1015,7 @@ async def _chat_stream_internal(
                 print(f"  Step: {wizard_state.step}")
                 print(f"  Tool: {wizard_state.tool}")
                 print(f"  Iteration: {wizard_state.iteration}")
+                print(f"  Context: {wizard_state.context}")
                 print(f"  Continue: {continue_wizard}")
 
                 # Track if tools were actually used (not just chatting normally)
