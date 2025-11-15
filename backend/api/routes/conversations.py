@@ -1041,18 +1041,20 @@ async def _chat_stream_internal(
                 print(f"\n🧙 WIZARD ERROR: {e}\n")
                 break
 
-        # Save all wizard messages to database
-        for wizard_msg in wizard_messages_to_add:
-            saved_msg = Message(
-                conversation_id=conversation_id,
-                role=wizard_msg["role"],
-                content=wizard_msg["content"],
-                metadata_={"wizard_state": wizard_msg.get("wizard_state"), "wizard_message": True}
-            )
-            msg_embedding = embedding_service.embed_with_tags(wizard_msg["content"], [])
-            saved_msg.embedding = msg_embedding
-            db.add(saved_msg)
-        db.commit()
+        # DON'T save wizard messages to database - they pollute conversation history
+        # and confuse the LLM on subsequent interactions. The wizard is ephemeral.
+        print(f"🧙 WIZARD: Completed with {len(wizard_messages_to_add)} internal messages (not saved to DB)")
+        # for wizard_msg in wizard_messages_to_add:
+        #     saved_msg = Message(
+        #         conversation_id=conversation_id,
+        #         role=wizard_msg["role"],
+        #         content=wizard_msg["content"],
+        #         metadata_={"wizard_state": wizard_msg.get("wizard_state"), "wizard_message": True}
+        #     )
+        #     msg_embedding = embedding_service.embed_with_tags(wizard_msg["content"], [])
+        #     saved_msg.embedding = msg_embedding
+        #     db.add(saved_msg)
+        # db.commit()
 
         # If wizard executed tools (not just chat normally), make a final LLM call to summarize and respond naturally
         if tools_were_used and wizard_iteration > 0:
