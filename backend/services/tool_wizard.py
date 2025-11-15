@@ -220,7 +220,7 @@ async def process_wizard_step(
             prompt = "Which journal block would you like to edit?\n\n"
             for i, block in enumerate(blocks, 1):
                 prompt += f"{i}. {block['label']}\n"
-            prompt += "\nPlease respond with the number of your choice."
+            prompt += "\nRESPOND WITH ONLY THE NUMBER. No text, no explanation, just the number."
 
             return (prompt, wizard_state, True)
 
@@ -245,7 +245,7 @@ async def process_wizard_step(
             prompt = "Which journal block would you like to read?\n\n"
             for i, block in enumerate(blocks, 1):
                 prompt += f"{i}. {block['label']}\n"
-            prompt += "\nPlease respond with the number of your choice."
+            prompt += "\nRESPOND WITH ONLY THE NUMBER. No text, no explanation, just the number."
 
             return (prompt, wizard_state, True)
 
@@ -270,7 +270,7 @@ async def process_wizard_step(
             prompt = "Which journal block would you like to delete?\n\n"
             for i, block in enumerate(blocks, 1):
                 prompt += f"{i}. {block['label']}\n"
-            prompt += "\nPlease respond with the number of your choice."
+            prompt += "\nRESPOND WITH ONLY THE NUMBER. No text, no explanation, just the number."
 
             return (prompt, wizard_state, True)
 
