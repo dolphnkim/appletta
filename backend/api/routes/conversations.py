@@ -808,6 +808,46 @@ async def _chat_stream_internal(
             Message.role == "assistant"
         ).order_by(Message.created_at.desc()).first()
 
+        # If no assistant messages yet, show the menu immediately (first interaction)
+        if not last_assistant_msg:
+            menu_prompt = show_main_menu()
+            wizard_state = WizardState()
+
+            assistant_message = Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=menu_prompt,
+                metadata_={
+                    "wizard_state": wizard_state.to_dict(),
+                    "wizard_menu": True
+                }
+            )
+
+            assistant_embedding = embedding_service.embed_with_tags(menu_prompt, [])
+            assistant_message.embedding = assistant_embedding
+
+            db.add(assistant_message)
+            db.commit()
+            db.refresh(assistant_message)
+
+            # Convert to dict before yielding
+            user_msg_dict = user_message.to_dict()
+            assistant_msg_dict = assistant_message.to_dict()
+
+            async def generate_first_menu_stream():
+                for char in menu_prompt:
+                    yield f"data: {json.dumps({'type': 'content', 'content': char})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'user_message': user_msg_dict, 'assistant_message': assistant_msg_dict})}\n\n"
+
+            return StreamingResponse(
+                generate_first_menu_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
+
         wizard_state = get_wizard_state(last_assistant_msg.metadata_ if last_assistant_msg else None)
 
         # Process this wizard step
@@ -839,6 +879,10 @@ async def _chat_stream_internal(
             db.commit()
             db.refresh(assistant_message)
 
+            # Convert to dict before yielding (to avoid SQLAlchemy DetachedInstanceError)
+            user_msg_dict = user_message.to_dict()
+            assistant_msg_dict = assistant_message.to_dict()
+
             # Stream the wizard response
             async def generate_wizard_stream():
                 # Send the wizard response as content chunks
@@ -846,7 +890,7 @@ async def _chat_stream_internal(
                     yield f"data: {json.dumps({'type': 'content', 'content': char})}\n\n"
 
                 # Send done signal
-                yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'user_message': user_msg_dict, 'assistant_message': assistant_msg_dict})}\n\n"
 
             return StreamingResponse(
                 generate_wizard_stream(),
@@ -879,10 +923,14 @@ async def _chat_stream_internal(
             db.commit()
             db.refresh(assistant_message)
 
+            # Convert to dict before yielding
+            user_msg_dict = user_message.to_dict()
+            assistant_msg_dict = assistant_message.to_dict()
+
             async def generate_menu_stream():
                 for char in menu_prompt:
                     yield f"data: {json.dumps({'type': 'content', 'content': char})}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'user_message': user_msg_dict, 'assistant_message': assistant_msg_dict})}\n\n"
 
             return StreamingResponse(
                 generate_menu_stream(),
