@@ -266,7 +266,11 @@ async def load_model_for_diagnostics(request: LoadModelRequest):
     This loads the model directly (not via MLX server) so we can patch it
     for full router introspection.
     """
-    service = get_diagnostic_service()
+    try:
+        service = get_diagnostic_service()
+    except ImportError as e:
+        raise HTTPException(500, f"MLX not installed: {str(e)}")
+
     try:
         result = service.load_model(request.model_path, request.adapter_path)
         return result
@@ -279,7 +283,11 @@ async def load_model_for_diagnostics(request: LoadModelRequest):
 @router.get("/diagnostic/model-status")
 async def get_diagnostic_model_status():
     """Get status of the diagnostic inference model"""
-    service = get_diagnostic_service()
+    try:
+        service = get_diagnostic_service()
+    except ImportError as e:
+        raise HTTPException(500, f"MLX not installed: {str(e)}")
+
     return {
         "model_loaded": service.model is not None,
         "model_path": service.model_path,
@@ -298,11 +306,13 @@ async def run_diagnostic_inference(request: DiagnosticInferenceRequest):
     - Entropy distribution
     - Co-occurrence patterns
     """
-    service = get_diagnostic_service()
+    try:
+        service = get_diagnostic_service()
+    except ImportError as e:
+        raise HTTPException(500, f"MLX not installed: {str(e)}")
 
-    if service.model is None and service.model_path is None:
-        # Return mock data if no model loaded
-        pass
+    if service.model is None:
+        raise HTTPException(400, "No model loaded. Load a model first with /diagnostic/load-model")
 
     try:
         result = service.run_inference(
@@ -324,7 +334,11 @@ async def run_diagnostic_inference(request: DiagnosticInferenceRequest):
 @router.post("/diagnostic/save-session")
 async def save_diagnostic_session(prompt_preview: str = "", notes: str = ""):
     """Save the current diagnostic session"""
-    service = get_diagnostic_service()
+    try:
+        service = get_diagnostic_service()
+    except ImportError as e:
+        raise HTTPException(500, f"MLX not installed: {str(e)}")
+
     filepath = service.save_session(prompt_preview, notes)
 
     # Also save to global inspector
@@ -342,9 +356,18 @@ async def save_diagnostic_session(prompt_preview: str = "", notes: str = ""):
 async def quick_diagnostic_test():
     """Run a quick test to generate sample router data
 
-    Uses mock data if model not loaded. Useful for testing the UI.
+    Requires MLX to be installed and a model to be loaded.
     """
-    service = get_diagnostic_service()
+    try:
+        service = get_diagnostic_service()
+    except ImportError as e:
+        raise HTTPException(500, f"MLX not installed: {str(e)}")
+
+    if service.model is None:
+        raise HTTPException(
+            400,
+            "No model loaded. Load an MoE model first with /diagnostic/load-model"
+        )
 
     # Use a simple test prompt
     test_prompts = [
@@ -356,15 +379,18 @@ async def quick_diagnostic_test():
     import random
     prompt = random.choice(test_prompts)
 
-    result = service.run_inference(
-        prompt=prompt,
-        max_tokens=50,
-        temperature=0.7,
-        log_routing=True
-    )
+    try:
+        result = service.run_inference(
+            prompt=prompt,
+            max_tokens=50,
+            temperature=0.7,
+            log_routing=True
+        )
 
-    # Sync to global inspector
-    inspector = get_router_inspector()
-    inspector.current_session = service.router_inspector.current_session.copy()
+        # Sync to global inspector
+        inspector = get_router_inspector()
+        inspector.current_session = service.router_inspector.current_session.copy()
 
-    return result
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Inference failed: {str(e)}")

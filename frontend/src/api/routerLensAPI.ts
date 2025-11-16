@@ -126,13 +126,28 @@ export const routerLensAPI = {
     }),
 
   // Diagnostic inference - direct model loading with router logging
+  loadDiagnosticModel: (
+    modelPath: string,
+    adapterPath?: string
+  ): Promise<{
+    status: string;
+    model_path: string;
+    is_moe: boolean;
+    config: Record<string, unknown>;
+  }> =>
+    fetchAPI('/diagnostic/load-model', {
+      method: 'POST',
+      body: JSON.stringify({
+        model_path: modelPath,
+        adapter_path: adapterPath || null,
+      }),
+    }),
+
   runQuickTest: (): Promise<{
     prompt: string;
     response: string;
     router_analysis: SessionSummary;
     timestamp: string;
-    mock_mode?: boolean;
-    note?: string;
   }> => fetchAPI('/diagnostic/quick-test', { method: 'POST' }),
 
   runDiagnosticInference: (

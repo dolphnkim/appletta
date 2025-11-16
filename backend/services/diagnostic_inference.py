@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
-# Try to import MLX - may not be available on all systems
+# Try to import MLX - REQUIRED for this application
 try:
     import mlx.core as mx
     from mlx_lm import load, generate
@@ -17,7 +17,6 @@ try:
     MLX_AVAILABLE = True
 except ImportError:
     MLX_AVAILABLE = False
-    print("Warning: MLX not available. Diagnostic inference will use mock data.")
 
 from services.router_lens import RouterInspector
 
@@ -26,6 +25,12 @@ class DiagnosticInferenceService:
     """Service for running single inference passes with full router introspection"""
 
     def __init__(self):
+        if not MLX_AVAILABLE:
+            raise ImportError(
+                "MLX is not installed. This application requires mlx and mlx_lm. "
+                "Please install with: pip install mlx mlx-lm"
+            )
+
         self.model = None
         self.tokenizer = None
         self.model_path = None
@@ -42,13 +47,6 @@ class DiagnosticInferenceService:
         Returns:
             Status dict with model info
         """
-        if not MLX_AVAILABLE:
-            return {
-                "status": "mock_mode",
-                "message": "MLX not available, using mock data for testing",
-                "model_path": model_path
-            }
-
         model_path = Path(model_path).expanduser()
         if not model_path.exists():
             raise FileNotFoundError(f"Model not found: {model_path}")
@@ -71,7 +69,7 @@ class DiagnosticInferenceService:
             print(f"[Diagnostic] Detected MoE model, patching for router introspection...")
             self._patch_moe_model()
         else:
-            print(f"[Diagnostic] Not an MoE model, router logging will be simulated")
+            print(f"[Diagnostic] Not an MoE model, router logging disabled")
 
         # Get model config info
         config_info = self._get_model_config()
@@ -141,7 +139,7 @@ class DiagnosticInferenceService:
 
         except Exception as e:
             print(f"[Diagnostic] Failed to patch MoE model: {e}")
-            # Continue without patching - will use simulated data
+            raise RuntimeError(f"Failed to patch MoE model for router logging: {e}")
 
     def _wrap_gate(self, mlp_module, layer_idx: int):
         """Wrap the gate computation to log router decisions"""
@@ -217,8 +215,8 @@ class DiagnosticInferenceService:
         Returns:
             Dict with generated text and router analysis
         """
-        if not MLX_AVAILABLE or self.model is None:
-            return self._mock_inference(prompt, max_tokens)
+        if self.model is None:
+            raise RuntimeError("No model loaded. Call load_model() first.")
 
         # Reset and enable router logging
         self.router_inspector.reset_session()
@@ -248,60 +246,6 @@ class DiagnosticInferenceService:
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
 
-    def _mock_inference(self, prompt: str, max_tokens: int) -> Dict[str, Any]:
-        """Generate mock data when MLX isn't available"""
-        import random
-
-        # Generate fake router data for testing the UI
-        self.router_inspector.reset_session()
-
-        # Simulate token-by-token expert selection
-        num_tokens = min(max_tokens, 50)
-        for token_idx in range(num_tokens):
-            # Random gate logits
-            gate_logits = [random.gauss(0, 1) for _ in range(64)]
-
-            # Softmax
-            exp_logits = [2.718 ** x for x in gate_logits]
-            sum_exp = sum(exp_logits)
-            probs = [x / sum_exp for x in exp_logits]
-
-            # Top-k selection
-            indexed_probs = [(i, p) for i, p in enumerate(probs)]
-            indexed_probs.sort(key=lambda x: x[1], reverse=True)
-            top_k = indexed_probs[:8]
-
-            selected_experts = [x[0] for x in top_k]
-            expert_weights = [x[1] for x in top_k]
-
-            self.router_inspector.log_router_decision(
-                token_idx=token_idx,
-                gate_logits=gate_logits,
-                selected_experts=selected_experts,
-                expert_weights=expert_weights,
-                input_token=f"<token_{token_idx}>"
-            )
-
-        # Mock response
-        mock_responses = [
-            "I understand your question. Let me think about this carefully...",
-            "That's an interesting perspective. From my analysis...",
-            "Based on the information provided, I believe...",
-            "This is a complex topic. There are several factors to consider...",
-        ]
-        response = random.choice(mock_responses)
-
-        session_summary = self.router_inspector.get_session_summary()
-
-        return {
-            "prompt": prompt,
-            "response": response,
-            "router_analysis": session_summary,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "mock_mode": True,
-            "note": "MLX not available, using simulated router data for testing"
-        }
-
     def save_session(self, prompt_preview: str = "", notes: str = "") -> str:
         """Save current session to file"""
         return self.router_inspector.save_session(prompt_preview, notes)
@@ -311,11 +255,15 @@ class DiagnosticInferenceService:
         return self.router_inspector.get_status()
 
 
-# Global singleton
+# Global singleton - lazy initialization
 _diagnostic_service = None
 
 def get_diagnostic_service() -> DiagnosticInferenceService:
-    """Get the global diagnostic inference service"""
+    """Get the global diagnostic inference service
+
+    Raises:
+        ImportError: If MLX is not installed
+    """
     global _diagnostic_service
     if _diagnostic_service is None:
         _diagnostic_service = DiagnosticInferenceService()

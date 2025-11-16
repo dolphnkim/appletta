@@ -348,6 +348,101 @@
   margin-bottom: 10px;
 }
 
+/* Model Loader Section */
+.model-loader-section {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.model-loader-section h5 {
+  margin: 0 0 10px 0;
+  font-size: 12px;
+  color: var(--accent-color, #4a9eff);
+}
+
+.model-loaded-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.model-path {
+  color: var(--text-muted, #888);
+  font-family: monospace;
+  font-size: 10px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moe-badge {
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.moe-badge.is-moe {
+  background: rgba(76, 175, 80, 0.2);
+  color: #81c784;
+  border: 1px solid #4caf50;
+}
+
+.moe-badge.not-moe {
+  background: rgba(255, 152, 0, 0.2);
+  color: #ffb74d;
+  border: 1px solid #ff9800;
+}
+
+.model-loader-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-row label {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  font-weight: 600;
+}
+
+.form-row input {
+  background: var(--hover-bg, #333);
+  border: 1px solid var(--border-color, #555);
+  color: var(--text-color, #e0e0e0);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.form-row input:focus {
+  outline: none;
+  border-color: var(--accent-color, #4a9eff);
+}
+
+.form-row input::placeholder {
+  color: var(--text-muted, #666);
+  font-style: italic;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .router-status-bar {
   background: var(--card-bg, #2a2a2a);
   border: 1px solid var(--border-color, #444);
