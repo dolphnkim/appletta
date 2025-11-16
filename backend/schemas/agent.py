@@ -54,9 +54,15 @@ class EmbeddingConfig(BaseModel):
 
     chunk_size: int = Field(default=300, gt=0)
 
- 
 
- 
+
+class FreeChoiceConfig(BaseModel):
+    """Free choice mode configuration for autonomous exploration"""
+    enabled: bool = Field(default=False, description="Enable autonomous free choice sessions")
+    interval_minutes: int = Field(default=10, ge=1, le=1440, description="Minutes between sessions")
+    last_session_at: Optional[datetime] = Field(None, description="When last session occurred")
+
+
 
 # Request schemas
 
@@ -124,9 +130,9 @@ class AgentUpdate(BaseModel):
 
     embedding_config: Optional[EmbeddingConfig] = None
 
- 
+    free_choice_config: Optional[FreeChoiceConfig] = None
 
- 
+
 
 # Response schemas
 
@@ -158,13 +164,13 @@ class AgentResponse(BaseModel):
 
     embedding_config: EmbeddingConfig
 
+    free_choice_config: FreeChoiceConfig
+
     created_at: datetime
 
     updated_at: datetime
 
- 
 
- 
 
 class AgentListResponse(BaseModel):
 

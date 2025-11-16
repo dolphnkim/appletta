@@ -19,6 +19,12 @@ export interface EmbeddingConfig {
   chunk_size: number;
 }
 
+export interface FreeChoiceConfig {
+  enabled: boolean;
+  interval_minutes: number;
+  last_session_at?: string;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -31,6 +37,7 @@ export interface Agent {
   project_instructions: string;
   llm_config: LLMConfig;
   embedding_config: EmbeddingConfig;
+  free_choice_config: FreeChoiceConfig;
   created_at: string;
   updated_at: string;
 }
@@ -59,6 +66,7 @@ export interface AgentUpdate {
   project_instructions?: string;
   llm_config?: Partial<LLMConfig>;
   embedding_config?: Partial<EmbeddingConfig>;
+  free_choice_config?: Partial<FreeChoiceConfig>;
 }
 
 export interface AgentFile {

@@ -9,6 +9,7 @@ import AgentManagement from './AgentManagement';
 import AgentAttachments from './AgentAttachments';
 import LLMConfig from './LLMConfig';
 import EmbeddingConfig from './EmbeddingConfig';
+import FreeChoiceConfig from './FreeChoiceConfig';
 import './AgentSettings.css';
 
 interface AgentSettingsProps {
@@ -110,6 +111,15 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
     await handleTemplateUpdate({
       embedding_config: {
         ...agent.embedding_config,
+        ...updates,
+      },
+    });
+  };
+
+  const handleFreeChoiceConfigUpdate = async (updates: Partial<typeof agent.free_choice_config>) => {
+    await handleTemplateUpdate({
+      free_choice_config: {
+        ...agent.free_choice_config,
         ...updates,
       },
     });
@@ -243,6 +253,11 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
         <EmbeddingConfig
           config={agent.embedding_config}
           onUpdate={handleEmbeddingConfigUpdate}
+        />
+
+        <FreeChoiceConfig
+          config={agent.free_choice_config}
+          onUpdate={handleFreeChoiceConfigUpdate}
         />
       </div>
 

@@ -23,5 +23,10 @@ tiktoken==0.7.0  # For context window management
 pydantic==2.9.2
 pydantic-settings==2.5.2
 
+# Web search and fetching
+duckduckgo-search==6.3.0  # Free web search
+trafilatura==1.12.2  # Extract main content from web pages
+cachetools==5.5.0  # TTL caching
+
 # Python version compatibility
 typing-extensions==4.12.2

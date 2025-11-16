@@ -262,6 +262,17 @@ async def update_agent(
 
 
 
+    if "free_choice_config" in update_data:
+        free_config = update_data["free_choice_config"]
+        if "enabled" in free_config:
+            agent.free_choice_enabled = free_config["enabled"]
+        if "interval_minutes" in free_config:
+            agent.free_choice_interval_minutes = free_config["interval_minutes"]
+        # Note: last_session_at is managed internally, not through updates
+        del update_data["free_choice_config"]
+
+
+
     # Apply remaining updates
 
     for key, value in update_data.items():
@@ -740,4 +751,85 @@ async def get_agent_tools_description(
         "agent_id": str(agent_id),
         "enabled_tools": agent.enabled_tools if agent.enabled_tools else [],
         "tools_description": description
+    }
+
+
+# ============================================================================
+# Free Choice Mode
+# ============================================================================
+
+@router.post("/{agent_id}/free-choice")
+async def start_free_choice_session(
+    agent_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Start a free choice session for the agent
+
+    Checks if enough time has passed since last session, then creates
+    a free choice conversation where the agent can explore autonomously.
+    """
+    from datetime import datetime, timedelta
+    from backend.db.models.conversation import Conversation, Message
+
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    if not agent.free_choice_enabled:
+        raise HTTPException(400, "Free choice mode is not enabled for this agent")
+
+    # Check if enough time has passed
+    now = datetime.utcnow()
+    if agent.last_free_choice_at:
+        time_since_last = now - agent.last_free_choice_at
+        required_interval = timedelta(minutes=agent.free_choice_interval_minutes)
+        if time_since_last < required_interval:
+            remaining = required_interval - time_since_last
+            return {
+                "status": "too_soon",
+                "message": f"Next session available in {int(remaining.total_seconds() / 60)} minutes",
+                "next_available_at": (agent.last_free_choice_at + required_interval).isoformat()
+            }
+
+    # Create free choice conversation
+    conversation = Conversation(
+        agent_id=agent_id,
+        title=f"Free Choice Session - {now.strftime('%Y-%m-%d %H:%M')}",
+        conversation_type="free_choice"
+    )
+    db.add(conversation)
+    db.flush()  # Get the conversation ID
+
+    # Create the initial system prompt for free choice
+    free_choice_prompt = """You have free time to explore and learn autonomously. You can:
+
+- **Search the web** for topics that interest you (web_search, fetch_url) - max 10 pages
+- **Review your memories** to find patterns or insights (search_memories, fetch_memories)
+- **Organize your thoughts** by updating journal blocks (list_journal_blocks, update_journal_block)
+- **Explore your knowledge base** (list_rag_files)
+
+What would you like to explore or reflect on? This is your time to learn, think, and grow.
+
+Remember: You're limited to 10 web page fetches and 20 total tool calls per session."""
+
+    # Add the prompt as a system message
+    system_message = Message(
+        conversation_id=conversation.id,
+        role="system",
+        content=free_choice_prompt,
+        metadata_={"type": "free_choice_prompt"}
+    )
+    db.add(system_message)
+
+    # Update the last free choice timestamp
+    agent.last_free_choice_at = now
+
+    db.commit()
+    db.refresh(conversation)
+
+    return {
+        "status": "started",
+        "conversation_id": str(conversation.id),
+        "message": "Free choice session started. Agent is ready to explore.",
+        "started_at": now.isoformat()
     }
