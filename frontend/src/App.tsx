@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import LeftPanel from './components/LeftPanel/LeftPanel';
 import ChatPanel from './components/ChatPanel/ChatPanel';
 import DatabasePanel from './components/DatabasePanel/DatabasePanel';
@@ -6,6 +7,7 @@ import type { Agent } from './types/agent';
 import './App.css';
 
 function App() {
+  const navigate = useNavigate();
   // Restore state from localStorage
   const [agentId, setAgentId] = useState<string | null>(() => {
     return localStorage.getItem('selectedAgentId');
@@ -154,6 +156,13 @@ function App() {
 
   return (
     <div className="app">
+      <button
+        className="home-button"
+        title="Back to dashboard"
+        onClick={() => navigate('/')}
+      >
+        🏠
+      </button>
       <div className="app-left-panel" style={{ width: `${leftWidth}%` }}>
         <LeftPanel
           agentId={agentId}

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.db.models.journal_block import JournalBlock
+from backend.db.models.agent_journal_block import AgentJournalBlock
 from backend.services.embedding_service import get_embedding_service
 from backend.services.memory_service import search_memories as search_memories_service, fetch_full_memories
 
@@ -271,7 +272,7 @@ def execute_tool(
         )
 
     elif tool_name == "delete_journal_block":
-        return delete_journal_block(arguments["block_id"], db)
+        return delete_journal_block(arguments["block_id"], db, agent_id)
 
     elif tool_name == "search_memories":
         return search_memories(
@@ -296,10 +297,20 @@ def execute_tool(
 # ============================================================================
 
 def list_journal_blocks(agent_id: UUID, db: Session) -> Dict[str, Any]:
-    """List all journal blocks for the agent"""
-    blocks = db.query(JournalBlock).filter(
-        JournalBlock.agent_id == agent_id
-    ).order_by(JournalBlock.updated_at.desc()).all()
+    """List all journal blocks attached to the agent"""
+    # Get block IDs attached to this agent
+    associations = db.query(AgentJournalBlock).filter(
+        AgentJournalBlock.agent_id == agent_id
+    ).all()
+
+    block_ids = [assoc.journal_block_id for assoc in associations]
+
+    if block_ids:
+        blocks = db.query(JournalBlock).filter(
+            JournalBlock.id.in_(block_ids)
+        ).order_by(JournalBlock.updated_at.desc()).all()
+    else:
+        blocks = []
 
     return {
         "blocks": [
@@ -340,27 +351,35 @@ def create_journal_block(
     value: str,
     db: Session
 ) -> Dict[str, Any]:
-    """Create a new journal block"""
+    """Create a new global journal block and attach it to the agent"""
     # Generate block_id from label
     block_id = JournalBlock.generate_block_id(label)
 
-    # Check if block_id already exists for this agent
+    # Check if block_id already exists globally
     existing = db.query(JournalBlock).filter(
-        JournalBlock.agent_id == agent_id,
         JournalBlock.block_id == block_id
     ).first()
 
     if existing:
-        return {
-            "error": f"Journal block with label '{label}' (block_id: '{block_id}') already exists. Consider updating it instead or using a different label."
-        }
+        # Block exists globally - check if already attached to this agent
+        attached = db.query(AgentJournalBlock).filter(
+            AgentJournalBlock.agent_id == agent_id,
+            AgentJournalBlock.journal_block_id == existing.id
+        ).first()
+        if attached:
+            return {
+                "error": f"Journal block with label '{label}' already exists and is attached to you. Consider updating it instead."
+            }
+        else:
+            return {
+                "error": f"Journal block with label '{label}' already exists globally. Use a different label or ask to attach the existing block."
+            }
 
     # Generate embedding for the value
     embedding_service = get_embedding_service()
     block_embedding = embedding_service.embed_text(value)
 
     block = JournalBlock(
-        agent_id=agent_id,
         label=label,
         block_id=block_id,
         value=value,
@@ -371,6 +390,15 @@ def create_journal_block(
     )
 
     db.add(block)
+    db.flush()  # Get the block ID
+
+    # Attach the block to the agent
+    association = AgentJournalBlock(
+        agent_id=agent_id,
+        journal_block_id=block.id
+    )
+    db.add(association)
+
     db.commit()
     db.refresh(block)
 
@@ -422,8 +450,8 @@ def update_journal_block(
         return {"error": f"Invalid block ID: {block_id}"}
 
 
-def delete_journal_block(block_id: str, db: Session) -> Dict[str, Any]:
-    """Delete a journal block"""
+def delete_journal_block(block_id: str, db: Session, agent_id: UUID = None) -> Dict[str, Any]:
+    """Detach a journal block from the agent (block remains globally)"""
     try:
         block = db.query(JournalBlock).filter(
             JournalBlock.id == UUID(block_id)
@@ -434,19 +462,37 @@ def delete_journal_block(block_id: str, db: Session) -> Dict[str, Any]:
 
         # Check permissions
         if block.read_only:
-            return {"error": f"Journal block '{block.label}' is read-only and cannot be deleted"}
+            return {"error": f"Journal block '{block.label}' is read-only and cannot be removed"}
 
         if not block.editable_by_main_agent:
-            return {"error": f"Journal block '{block.label}' cannot be deleted by the main agent"}
+            return {"error": f"Journal block '{block.label}' cannot be removed by the main agent"}
 
         label = block.label
-        db.delete(block)
-        db.commit()
 
-        return {
-            "success": True,
-            "message": f"Deleted journal block '{label}'"
-        }
+        # If agent_id is provided, detach from agent instead of deleting globally
+        if agent_id:
+            association = db.query(AgentJournalBlock).filter(
+                AgentJournalBlock.agent_id == agent_id,
+                AgentJournalBlock.journal_block_id == UUID(block_id)
+            ).first()
+
+            if association:
+                db.delete(association)
+                db.commit()
+                return {
+                    "success": True,
+                    "message": f"Removed journal block '{label}' from your access (block still exists globally)"
+                }
+            else:
+                return {"error": f"Journal block '{label}' is not attached to you"}
+        else:
+            # No agent_id means delete globally (for admin purposes)
+            db.delete(block)
+            db.commit()
+            return {
+                "success": True,
+                "message": f"Deleted journal block '{label}' globally"
+            }
     except ValueError:
         return {"error": f"Invalid block ID: {block_id}"}
 

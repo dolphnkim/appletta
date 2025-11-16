@@ -1,6 +1,6 @@
 """Pydantic schemas for journal block API"""
 
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -10,8 +10,7 @@ from pydantic import BaseModel, Field
 # ============================================================================
 
 class JournalBlockCreate(BaseModel):
-    """Schema for creating a journal block"""
-    agent_id: str
+    """Schema for creating a global journal block"""
     label: str = Field(..., min_length=1, max_length=255, description="Label/title for the block")
     description: Optional[str] = Field(None, description="Optional description of the block")
     value: str = Field(..., min_length=1, description="Content of the journal block")
@@ -38,7 +37,6 @@ class JournalBlockUpdate(BaseModel):
 class JournalBlockResponse(BaseModel):
     """Schema for journal block responses"""
     id: str
-    agent_id: str
     label: str
     block_id: str
     description: Optional[str]
@@ -55,9 +53,26 @@ class JournalBlockResponse(BaseModel):
 class JournalBlockList(BaseModel):
     """Schema for listing journal blocks (minimal info)"""
     id: str
-    agent_id: str
     label: str
     block_id: str
     description: Optional[str]
     created_at: datetime
     updated_at: datetime
+
+
+class AttachBlockRequest(BaseModel):
+    """Schema for attaching a journal block to an agent"""
+    agent_id: str = Field(..., description="Agent ID to attach the block to")
+    journal_block_id: str = Field(..., description="Journal block ID to attach")
+
+
+class DetachBlockRequest(BaseModel):
+    """Schema for detaching a journal block from an agent"""
+    agent_id: str = Field(..., description="Agent ID to detach the block from")
+    journal_block_id: str = Field(..., description="Journal block ID to detach")
+
+
+class AgentBlocksResponse(BaseModel):
+    """Schema for listing blocks attached to an agent"""
+    agent_id: str
+    blocks: List[JournalBlockResponse]

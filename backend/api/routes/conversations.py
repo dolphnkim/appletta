@@ -923,7 +923,7 @@ async def _chat_stream_internal(
 
     # === TOOL WIZARD CHECK ===
     # If tools are enabled, use the wizard system to let LLM navigate menus and execute tools
-    from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu, WizardState
+    from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu, show_main_menu_with_resources, WizardState
 
     if agent.enabled_tools and len(agent.enabled_tools) > 0:
         # Wizard loop: inject prompts → call LLM → parse response → repeat until done
@@ -938,7 +938,7 @@ async def _chat_stream_internal(
         # ALWAYS show the menu first - this is MANDATORY
         # The LLM must choose an option before responding
         wizard_state = WizardState()  # Fresh state for each user message
-        wizard_prompt = show_main_menu()
+        wizard_prompt = show_main_menu_with_resources(str(agent.id), db)
         print(f"\n🧙 WIZARD: Showing MANDATORY menu to LLM\n")
         print(f"   User's message: {message[:100]}...")
         print(f"   LLM must choose an option before responding\n")

@@ -149,6 +149,8 @@ class Agent(Base):
 
                               back_populates="agent", cascade="all, delete-orphan")
 
+    journal_block_associations = relationship("AgentJournalBlock", back_populates="agent", cascade="all, delete-orphan")
+
 
 
     def __repr__(self):
