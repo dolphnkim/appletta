@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import LeftPanel from './components/LeftPanel/LeftPanel';
 import ChatPanel from './components/ChatPanel/ChatPanel';
 import DatabasePanel from './components/DatabasePanel/DatabasePanel';
@@ -6,6 +7,7 @@ import type { Agent } from './types/agent';
 import './App.css';
 
 function App() {
+  const navigate = useNavigate();
   // Restore state from localStorage
   const [agentId, setAgentId] = useState<string | null>(() => {
     return localStorage.getItem('selectedAgentId');
@@ -157,10 +159,7 @@ function App() {
       <button
         className="home-button"
         title="Back to dashboard"
-        onClick={() => {
-          // TODO: Navigate to dashboard when it exists
-          console.log('Navigate to dashboard');
-        }}
+        onClick={() => navigate('/')}
       >
         🏠
       </button>
