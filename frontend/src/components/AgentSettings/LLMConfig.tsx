@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { LLMConfig as LLMConfigType } from '../../types/agent';
 import FilePicker from './FilePicker';
 import ProjectInstructionsField from './ProjectInstructionsField';
+import { getLocalConfig } from '../../stores/localConfig';
 import './LLMConfig.css';
 
 interface LLMConfigProps {
@@ -52,6 +53,8 @@ export default function LLMConfig({
     onUpdate({ max_context_tokens: parseInt(e.target.value, 10) });
   };
 
+  const localConfig = getLocalConfig();
+
   return (
     <div className="config-section">
       <button
@@ -80,6 +83,7 @@ export default function LLMConfig({
             helpText="choose MLX model folder from filepath"
             required
             selectFolders={true}
+            defaultPath={localConfig.default_model_folder}
           />
 
           {/* Adapter Path */}
@@ -89,6 +93,7 @@ export default function LLMConfig({
             onSelect={onAdapterPathUpdate}
             helpText="choose adapter folder"
             selectFolders={true}
+            defaultPath={localConfig.default_adapter_folder || localConfig.default_model_folder}
           />
 
           {/* Project Instructions */}

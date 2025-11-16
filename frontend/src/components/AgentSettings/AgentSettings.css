@@ -22,13 +22,35 @@
   color: #f48771;
 }
 
+.agent-settings-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
 .agent-settings-header-label {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.5px;
   color: #888;
-  margin-bottom: 20px;
   text-transform: uppercase;
+  margin-bottom: 0;
+}
+
+.local-settings-button {
+  background: none;
+  border: none;
+  color: #888;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.local-settings-button:hover {
+  background-color: #333;
+  color: #e0e0e0;
 }
 
 .agent-settings-content {

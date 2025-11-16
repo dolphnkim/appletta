@@ -10,6 +10,7 @@ interface FilePickerProps {
   helpText?: string;
   required?: boolean;
   selectFolders?: boolean;  // If true, can select folders; if false, only files
+  defaultPath?: string;     // Default folder to open when picker is launched
 }
 
 export default function FilePicker({
@@ -19,6 +20,7 @@ export default function FilePicker({
   helpText,
   required = false,
   selectFolders = false,
+  defaultPath = '',
 }: FilePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentPath, setCurrentPath] = useState('');
@@ -60,8 +62,8 @@ export default function FilePicker({
   const handleOpen = () => {
     setIsOpen(true);
     if (items.length === 0) {
-      // Load home directory or suggested paths
-      loadPath();
+      // Load default path or home directory
+      loadPath(defaultPath || undefined);
     }
   };
 
