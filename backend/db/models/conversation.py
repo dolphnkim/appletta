@@ -17,6 +17,7 @@ class Conversation(Base):
     agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
 
     title = Column(String(512))
+    conversation_type = Column(String(50), default="user")  # 'user', 'free_choice', 'agent_chat'
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -30,6 +31,7 @@ class Conversation(Base):
             "id": str(self.id),
             "agent_id": str(self.agent_id),
             "title": self.title,
+            "conversation_type": self.conversation_type or "user",
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "message_count": len(self.messages) if self.messages else 0,
