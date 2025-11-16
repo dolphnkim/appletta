@@ -154,6 +154,16 @@ function App() {
 
   return (
     <div className="app">
+      <button
+        className="home-button"
+        title="Back to dashboard"
+        onClick={() => {
+          // TODO: Navigate to dashboard when it exists
+          console.log('Navigate to dashboard');
+        }}
+      >
+        🏠
+      </button>
       <div className="app-left-panel" style={{ width: `${leftWidth}%` }}>
         <LeftPanel
           agentId={agentId}
