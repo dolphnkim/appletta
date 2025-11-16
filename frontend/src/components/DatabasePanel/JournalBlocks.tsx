@@ -14,7 +14,6 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
   const [selectedBlock, setSelectedBlock] = useState<JournalBlock | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showAttachModal, setShowAttachModal] = useState(false);
 
   const loadBlocks = async () => {
     try {
@@ -37,10 +36,8 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
   const handleCreate = async (data: JournalBlockCreate) => {
     try {
       console.log('Creating journal block:', data);
-      const newBlock = await journalAPI.create(data);
-      // After creating globally, attach it to this agent
-      await journalAPI.attach(agentId, newBlock.id);
-      console.log('Journal block created and attached:', newBlock);
+      const newBlock = await journalAPI.create(agentId, data);
+      console.log('Journal block created:', newBlock);
       setBlocks([newBlock, ...blocks]);
       setShowCreateModal(false);
       setError(null);
@@ -48,13 +45,14 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
       console.error('Failed to create journal block:', err);
       const errorMsg = err instanceof Error ? err.message : 'Failed to create journal block';
       setError(errorMsg);
+      // Don't close modal on error so user can see what went wrong
       alert(`Error creating journal block: ${errorMsg}`);
     }
   };
 
   const handleUpdate = async (blockId: string, value: string) => {
     try {
-      const updated = await journalAPI.update(blockId, { value });
+      const updated = await journalAPI.update(agentId, blockId, { value });
       setBlocks(blocks.map((b) => (b.id === blockId ? updated : b)));
       setSelectedBlock(updated);
       setShowEditModal(false);
@@ -63,29 +61,19 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
     }
   };
 
-  const handleDetach = async (blockId: string) => {
-    if (!confirm('Detach this journal block from this agent? The block will still exist globally.')) {
+  const handleDelete = async (blockId: string) => {
+    if (!confirm('Delete this journal block? This cannot be undone.')) {
       return;
     }
 
     try {
-      await journalAPI.detach(agentId, blockId);
+      await journalAPI.delete(agentId, blockId);
       setBlocks(blocks.filter((b) => b.id !== blockId));
       if (selectedBlock?.id === blockId) {
         setSelectedBlock(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to detach journal block');
-    }
-  };
-
-  const handleAttach = async (blockId: string) => {
-    try {
-      await journalAPI.attach(agentId, blockId);
-      await loadBlocks();
-      setShowAttachModal(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to attach journal block');
+      setError(err instanceof Error ? err.message : 'Failed to delete journal block');
     }
   };
 
@@ -112,9 +100,6 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
       <div className="journal-header">
         <button onClick={() => setShowCreateModal(true)} className="new-block-button">
           + New Block
-        </button>
-        <button onClick={() => setShowAttachModal(true)} className="attach-block-button">
-          Attach Block
         </button>
       </div>
 
@@ -172,7 +157,7 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
             setShowEditModal(true);
             setSelectedBlock(null);
           }}
-          onDetach={() => handleDetach(selectedBlock.id)}
+          onDelete={() => handleDelete(selectedBlock.id)}
         />
       )}
 
@@ -187,15 +172,6 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
           onSave={(value) => handleUpdate(selectedBlock.id, value)}
         />
       )}
-
-      {showAttachModal && (
-        <BlockAttachModal
-          agentId={agentId}
-          attachedBlockIds={blocks.map((b) => b.id)}
-          onClose={() => setShowAttachModal(false)}
-          onAttach={handleAttach}
-        />
-      )}
     </div>
   );
 }
@@ -205,10 +181,10 @@ interface BlockViewModalProps {
   block: JournalBlock;
   onClose: () => void;
   onEdit: () => void;
-  onDetach: () => void;
+  onDelete: () => void;
 }
 
-function BlockViewModal({ block, onClose, onEdit, onDetach }: BlockViewModalProps) {
+function BlockViewModal({ block, onClose, onEdit, onDelete }: BlockViewModalProps) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -256,8 +232,8 @@ function BlockViewModal({ block, onClose, onEdit, onDetach }: BlockViewModalProp
           </div>
         </div>
         <div className="modal-footer">
-          <button onClick={onDetach} className="button-delete">
-            Detach
+          <button onClick={onDelete} className="button-delete">
+            Delete
           </button>
           <button onClick={onEdit} className="button-primary" disabled={block.read_only}>
             Edit
@@ -423,84 +399,6 @@ function BlockEditModal({ block, onClose, onSave }: BlockEditModalProps) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
-
-// Block Attach Modal
-interface BlockAttachModalProps {
-  agentId: string;
-  attachedBlockIds: string[];
-  onClose: () => void;
-  onAttach: (blockId: string) => void;
-}
-
-function BlockAttachModal({ attachedBlockIds, onClose, onAttach }: BlockAttachModalProps) {
-  const [allBlocks, setAllBlocks] = useState<JournalBlock[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadAllBlocks = async () => {
-      try {
-        setLoading(true);
-        const blocks = await journalAPI.listAll();
-        setAllBlocks(blocks);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load blocks');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadAllBlocks();
-  }, []);
-
-  const availableBlocks = allBlocks.filter((b) => !attachedBlockIds.includes(b.id));
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Attach Journal Block</h2>
-          <button onClick={onClose} className="modal-close">
-            ×
-          </button>
-        </div>
-        <div className="modal-body">
-          {loading ? (
-            <p>Loading available blocks...</p>
-          ) : error ? (
-            <p className="error">{error}</p>
-          ) : availableBlocks.length === 0 ? (
-            <p>No available blocks to attach. All blocks are already attached or none exist.</p>
-          ) : (
-            <div className="attach-blocks-list">
-              {availableBlocks.map((block) => (
-                <div key={block.id} className="attach-block-item">
-                  <div className="attach-block-info">
-                    <div className="attach-block-label">{block.label}</div>
-                    <div className="attach-block-id">{block.block_id}</div>
-                    {block.description && (
-                      <div className="attach-block-description">{block.description}</div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => onAttach(block.id)}
-                    className="button-primary attach-button"
-                  >
-                    Attach
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="modal-footer">
-          <button onClick={onClose} className="button-secondary">
-            Close
-          </button>
-        </div>
       </div>
     </div>
   );

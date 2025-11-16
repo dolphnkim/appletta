@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 import re
-from sqlalchemy import Column, String, Text, DateTime, Boolean, UniqueConstraint
+from sqlalchemy import Column, String, Text, ForeignKey, DateTime, Boolean, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -15,10 +15,11 @@ class JournalBlock(Base):
     __tablename__ = "journal_blocks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
 
     # Block identification
     label = Column(String(255), nullable=False)  # e.g., "User Info", "Project Notes"
-    block_id = Column(String(255), nullable=False, unique=True)  # User-friendly ID (auto-generated from label)
+    block_id = Column(String(255), nullable=False)  # User-friendly ID (auto-generated from label)
 
     # Content
     description = Column(Text, nullable=True)  # Optional description of what this block contains
@@ -41,8 +42,13 @@ class JournalBlock(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships - many-to-many with agents through junction table
-    agent_associations = relationship("AgentJournalBlock", back_populates="journal_block", cascade="all, delete-orphan")
+    # Relationships
+    agent = relationship("Agent")
+
+    # Unique constraint on agent_id + block_id
+    __table_args__ = (
+        UniqueConstraint('agent_id', 'block_id', name='uq_agent_block_id'),
+    )
 
     @staticmethod
     def generate_block_id(label: str) -> str:
@@ -63,6 +69,7 @@ class JournalBlock(Base):
     def to_dict(self):
         return {
             "id": str(self.id),
+            "agent_id": str(self.agent_id),
             "label": self.label,
             "block_id": self.block_id,
             "description": self.description,

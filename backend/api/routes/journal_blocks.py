@@ -7,16 +7,12 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
 from backend.db.models.journal_block import JournalBlock
-from backend.db.models.agent_journal_block import AgentJournalBlock
 from backend.db.models.agent import Agent
 from backend.schemas.journal_block import (
     JournalBlockCreate,
     JournalBlockUpdate,
     JournalBlockResponse,
     JournalBlockList,
-    AttachBlockRequest,
-    DetachBlockRequest,
-    AgentBlocksResponse,
 )
 from backend.services.embedding_service import get_embedding_service
 
@@ -24,7 +20,7 @@ router = APIRouter(prefix="/api/v1/journal-blocks", tags=["journal-blocks"])
 
 
 # ============================================================================
-# Global Journal Block CRUD
+# Journal Block CRUD
 # ============================================================================
 
 @router.post("", response_model=JournalBlockResponse)
@@ -32,21 +28,30 @@ async def create_journal_block(
     data: JournalBlockCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new global journal block"""
+    """Create a new journal block"""
+
+    # Verify agent exists
+    agent = db.query(Agent).filter(Agent.id == UUID(data.agent_id)).first()
+    if not agent:
+        raise HTTPException(404, f"Agent {data.agent_id} not found")
 
     # Generate block_id if not provided
     block_id = data.block_id if data.block_id else JournalBlock.generate_block_id(data.label)
 
-    # Check if block_id already exists globally
-    existing = db.query(JournalBlock).filter(JournalBlock.block_id == block_id).first()
+    # Check if block_id already exists for this agent
+    existing = db.query(JournalBlock).filter(
+        JournalBlock.agent_id == UUID(data.agent_id),
+        JournalBlock.block_id == block_id
+    ).first()
     if existing:
-        raise HTTPException(409, f"Journal block with block_id '{block_id}' already exists")
+        raise HTTPException(409, f"Journal block with block_id '{block_id}' already exists for this agent")
 
     # Generate embedding for the block value
     embedding_service = get_embedding_service()
     block_embedding = embedding_service.embed_text(data.value)
 
     block = JournalBlock(
+        agent_id=UUID(data.agent_id),
         label=data.label,
         block_id=block_id,
         description=data.description,
@@ -67,12 +72,15 @@ async def create_journal_block(
 
 
 @router.get("", response_model=List[JournalBlockResponse])
-async def list_all_journal_blocks(
+async def list_journal_blocks(
+    agent_id: str,
     db: Session = Depends(get_db)
 ):
-    """List all global journal blocks"""
+    """List all journal blocks for an agent (labels only)"""
 
-    blocks = db.query(JournalBlock).order_by(JournalBlock.updated_at.desc()).all()
+    blocks = db.query(JournalBlock).filter(
+        JournalBlock.agent_id == UUID(agent_id)
+    ).order_by(JournalBlock.updated_at.desc()).all()
 
     return [block.to_dict() for block in blocks]
 
@@ -139,7 +147,7 @@ async def delete_journal_block(
     block_id: UUID,
     db: Session = Depends(get_db)
 ):
-    """Delete a journal block globally"""
+    """Delete a journal block"""
 
     block = db.query(JournalBlock).filter(JournalBlock.id == block_id).first()
     if not block:
@@ -153,96 +161,3 @@ async def delete_journal_block(
     db.commit()
 
     return {"message": f"Journal block {block_id} deleted"}
-
-
-# ============================================================================
-# Agent-Block Associations (Attach/Detach)
-# ============================================================================
-
-@router.post("/attach")
-async def attach_block_to_agent(
-    data: AttachBlockRequest,
-    db: Session = Depends(get_db)
-):
-    """Attach a journal block to an agent"""
-
-    # Verify agent exists
-    agent = db.query(Agent).filter(Agent.id == UUID(data.agent_id)).first()
-    if not agent:
-        raise HTTPException(404, f"Agent {data.agent_id} not found")
-
-    # Verify block exists
-    block = db.query(JournalBlock).filter(JournalBlock.id == UUID(data.journal_block_id)).first()
-    if not block:
-        raise HTTPException(404, f"Journal block {data.journal_block_id} not found")
-
-    # Check if already attached
-    existing = db.query(AgentJournalBlock).filter(
-        AgentJournalBlock.agent_id == UUID(data.agent_id),
-        AgentJournalBlock.journal_block_id == UUID(data.journal_block_id)
-    ).first()
-    if existing:
-        raise HTTPException(409, f"Journal block '{block.label}' is already attached to this agent")
-
-    # Create association
-    association = AgentJournalBlock(
-        agent_id=UUID(data.agent_id),
-        journal_block_id=UUID(data.journal_block_id)
-    )
-
-    db.add(association)
-    db.commit()
-
-    return {"message": f"Journal block '{block.label}' attached to agent '{agent.name}'"}
-
-
-@router.post("/detach")
-async def detach_block_from_agent(
-    data: DetachBlockRequest,
-    db: Session = Depends(get_db)
-):
-    """Detach a journal block from an agent (agent 'deletes' but block remains globally)"""
-
-    # Find the association
-    association = db.query(AgentJournalBlock).filter(
-        AgentJournalBlock.agent_id == UUID(data.agent_id),
-        AgentJournalBlock.journal_block_id == UUID(data.journal_block_id)
-    ).first()
-
-    if not association:
-        raise HTTPException(404, "This journal block is not attached to this agent")
-
-    db.delete(association)
-    db.commit()
-
-    return {"message": "Journal block detached from agent"}
-
-
-@router.get("/agent/{agent_id}", response_model=AgentBlocksResponse)
-async def list_agent_blocks(
-    agent_id: str,
-    db: Session = Depends(get_db)
-):
-    """List all journal blocks attached to an agent"""
-
-    # Verify agent exists
-    agent = db.query(Agent).filter(Agent.id == UUID(agent_id)).first()
-    if not agent:
-        raise HTTPException(404, f"Agent {agent_id} not found")
-
-    # Get all blocks attached to this agent
-    associations = db.query(AgentJournalBlock).filter(
-        AgentJournalBlock.agent_id == UUID(agent_id)
-    ).all()
-
-    block_ids = [assoc.journal_block_id for assoc in associations]
-
-    if block_ids:
-        blocks = db.query(JournalBlock).filter(JournalBlock.id.in_(block_ids)).order_by(JournalBlock.updated_at.desc()).all()
-    else:
-        blocks = []
-
-    return {
-        "agent_id": agent_id,
-        "blocks": [block.to_dict() for block in blocks]
-    }
