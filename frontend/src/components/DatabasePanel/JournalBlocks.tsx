@@ -77,6 +77,20 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
     }
   };
 
+  const handleToggleAttached = async (blockId: string, currentlyAttached: boolean) => {
+    try {
+      const updated = await journalAPI.update(agentId, blockId, {
+        attached: !currentlyAttached
+      });
+      setBlocks(blocks.map((b) => (b.id === blockId ? updated : b)));
+      if (selectedBlock?.id === blockId) {
+        setSelectedBlock(updated);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle attached state');
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleString('en-US', {
@@ -123,12 +137,18 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
           blocks.map((block) => (
             <div
               key={block.id}
-              className={`journal-block-item ${selectedBlock?.id === block.id ? 'active' : ''}`}
+              className={`journal-block-item ${selectedBlock?.id === block.id ? 'active' : ''} ${!block.attached ? 'detached' : ''}`}
               onClick={() => setSelectedBlock(block)}
             >
               <div className="block-item-header">
                 <div className="block-label">{block.label}</div>
                 <div className="block-badges">
+                  {!block.attached && (
+                    <span className="badge detached">Detached</span>
+                  )}
+                  {block.always_in_context && (
+                    <span className="badge sticky">Sticky</span>
+                  )}
                   {block.read_only && <span className="badge read-only">Read-only</span>}
                   {!block.editable_by_main_agent && (
                     <span className="badge no-main">Main: No</span>
@@ -143,6 +163,15 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
               <div className="block-item-preview">{block.value.substring(0, 100)}...</div>
               <div className="block-item-meta">
                 <span>Updated: {formatDate(block.updated_at)}</span>
+                <button
+                  className={`context-toggle ${block.attached ? 'attached' : 'detached'}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleAttached(block.id, block.attached);
+                  }}
+                >
+                  {block.attached ? 'Detach' : 'Attach'}
+                </button>
               </div>
             </div>
           ))
@@ -158,6 +187,7 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
             setSelectedBlock(null);
           }}
           onDelete={() => handleDelete(selectedBlock.id)}
+          onToggleAttached={() => handleToggleAttached(selectedBlock.id, selectedBlock.attached)}
         />
       )}
 
@@ -182,14 +212,16 @@ interface BlockViewModalProps {
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleAttached: () => void;
 }
 
-function BlockViewModal({ block, onClose, onEdit, onDelete }: BlockViewModalProps) {
+function BlockViewModal({ block, onClose, onEdit, onDelete, onToggleAttached }: BlockViewModalProps) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{block.label}</h2>
+          {!block.attached && <span className="modal-detached-badge">Detached</span>}
           <button onClick={onClose} className="modal-close">
             ×
           </button>

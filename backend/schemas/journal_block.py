@@ -19,6 +19,7 @@ class JournalBlockCreate(BaseModel):
     read_only: bool = Field(default=False, description="If true, block cannot be modified")
     editable_by_main_agent: bool = Field(default=True, description="Main LLM can edit this block")
     editable_by_memory_agent: bool = Field(default=False, description="Memory coordinator can edit this block")
+    attached: bool = Field(default=True, description="If false, block is grayed out and not accessible")
     always_in_context: bool = Field(default=False, description="If true, always included in system prompt")
     metadata: Optional[dict] = None
 
@@ -31,6 +32,7 @@ class JournalBlockUpdate(BaseModel):
     read_only: Optional[bool] = None
     editable_by_main_agent: Optional[bool] = None
     editable_by_memory_agent: Optional[bool] = None
+    attached: Optional[bool] = None
     always_in_context: Optional[bool] = None
     metadata: Optional[dict] = None
 
@@ -46,6 +48,7 @@ class JournalBlockResponse(BaseModel):
     read_only: bool
     editable_by_main_agent: bool
     editable_by_memory_agent: bool
+    attached: bool
     always_in_context: bool
     metadata: Optional[dict]
     created_at: datetime

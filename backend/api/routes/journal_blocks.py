@@ -59,6 +59,7 @@ async def create_journal_block(
         read_only=data.read_only,
         editable_by_main_agent=data.editable_by_main_agent,
         editable_by_memory_agent=data.editable_by_memory_agent,
+        attached=data.attached,
         always_in_context=data.always_in_context,
         embedding=block_embedding,
         metadata_=data.metadata,
@@ -131,6 +132,8 @@ async def update_journal_block(
         block.editable_by_main_agent = updates.editable_by_main_agent
     if updates.editable_by_memory_agent is not None:
         block.editable_by_memory_agent = updates.editable_by_memory_agent
+    if updates.attached is not None:
+        block.attached = updates.attached
     if updates.always_in_context is not None:
         block.always_in_context = updates.always_in_context
     if updates.metadata is not None:
