@@ -75,14 +75,72 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
   const [routerLensError, setRouterLensError] = useState<string | null>(null);
   const [selectedSessionView, setSelectedSessionView] = useState<'current' | 'saved' | 'analysis'>('current');
 
+  // Model loader state
+  const [modelPath, setModelPath] = useState<string>('');
+  const [adapterPath, setAdapterPath] = useState<string>('');
+  const [modelStatus, setModelStatus] = useState<{ loaded: boolean; path: string | null; isMoE: boolean } | null>(
+    null
+  );
+
   // Fetch Router Lens status when MoE Debug tab is active
   useEffect(() => {
     if (activeSection === 'moe-debug') {
       fetchRouterLensStatus();
       fetchDiagnosticPrompts();
       fetchSavedSessions();
+      fetchModelStatus();
     }
   }, [activeSection]);
+
+  const fetchModelStatus = async () => {
+    try {
+      const status = await routerLensAPI.getDiagnosticModelStatus();
+      setModelStatus({
+        loaded: status.model_loaded,
+        path: status.model_path,
+        isMoE: status.is_moe_model,
+      });
+    } catch {
+      // MLX might not be installed - that's okay, we'll show the error when they try to load
+      setModelStatus(null);
+    }
+  };
+
+  const loadModel = async () => {
+    if (!modelPath.trim()) {
+      setRouterLensError('Please enter a model path');
+      return;
+    }
+
+    try {
+      setRouterLensLoading(true);
+      setRouterLensError(null);
+      const result = await routerLensAPI.loadDiagnosticModel(
+        modelPath.trim(),
+        adapterPath.trim() || undefined
+      );
+      setModelStatus({
+        loaded: true,
+        path: result.model_path,
+        isMoE: result.is_moe,
+      });
+      alert(
+        `Model loaded successfully!\n\nPath: ${result.model_path}\nMoE Model: ${result.is_moe ? 'Yes' : 'No'}\n\n${result.is_moe ? 'Router introspection enabled.' : 'Warning: Not an MoE model, router logging disabled.'}`
+      );
+    } catch (err: unknown) {
+      console.error('Failed to load model:', err);
+      const error = err as { message?: string };
+      if (error.message?.includes('MLX not installed')) {
+        setRouterLensError('MLX is not installed. Please install: pip install mlx mlx-lm');
+      } else if (error.message?.includes('404')) {
+        setRouterLensError('Model not found at the specified path');
+      } else {
+        setRouterLensError(`Failed to load model: ${error.message || 'Unknown error'}`);
+      }
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
 
   const fetchRouterLensStatus = async () => {
     try {
@@ -176,6 +234,34 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
     } catch (err) {
       console.error('Failed to save session:', err);
       alert('Failed to save session');
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
+  const runQuickTest = async () => {
+    try {
+      setRouterLensLoading(true);
+      setRouterLensError(null);
+      const result = await routerLensAPI.runQuickTest();
+      setCurrentSession(result.router_analysis);
+      setSelectedSessionView('current');
+
+      alert(`Quick Test Complete\n\nPrompt: ${result.prompt}\nResponse: ${result.response}`);
+    } catch (err: unknown) {
+      console.error('Failed to run quick test:', err);
+      const error = err as { message?: string };
+      if (error.message?.includes('No model loaded') || error.message?.includes('400')) {
+        setRouterLensError(
+          'No model loaded. Load an MoE model first using the model loader below.'
+        );
+      } else if (error.message?.includes('MLX not installed') || error.message?.includes('500')) {
+        setRouterLensError(
+          'MLX is not installed on the backend. Please install: pip install mlx mlx-lm'
+        );
+      } else {
+        setRouterLensError('Failed to run quick test. Check backend logs.');
+      }
     } finally {
       setRouterLensLoading(false);
     }
@@ -379,6 +465,13 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
               <h4>🔬 Router Lens</h4>
               <div className="router-lens-controls">
                 <button
+                  className="btn-primary"
+                  onClick={runQuickTest}
+                  disabled={routerLensLoading}
+                >
+                  ⚡ Quick Test
+                </button>
+                <button
                   className="btn-secondary"
                   onClick={fetchCurrentSession}
                   disabled={routerLensLoading}
@@ -403,6 +496,48 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
             </div>
 
             {routerLensError && <div className="error-banner">{routerLensError}</div>}
+
+            {/* Model Loader Section */}
+            <div className="model-loader-section">
+              <h5>Model Status</h5>
+              {modelStatus?.loaded ? (
+                <div className="model-loaded-info">
+                  <span className="status-indicator active">● Model Loaded</span>
+                  <span className="model-path">{modelStatus.path}</span>
+                  <span className={`moe-badge ${modelStatus.isMoE ? 'is-moe' : 'not-moe'}`}>
+                    {modelStatus.isMoE ? '🔀 MoE Model' : '⚠️ Not MoE'}
+                  </span>
+                </div>
+              ) : (
+                <div className="model-loader-form">
+                  <div className="form-row">
+                    <label>Model Path:</label>
+                    <input
+                      type="text"
+                      value={modelPath}
+                      onChange={(e) => setModelPath(e.target.value)}
+                      placeholder="e.g., ~/.cache/huggingface/Qwen2-MoE-3B"
+                    />
+                  </div>
+                  <div className="form-row">
+                    <label>Adapter Path (optional):</label>
+                    <input
+                      type="text"
+                      value={adapterPath}
+                      onChange={(e) => setAdapterPath(e.target.value)}
+                      placeholder="e.g., ./adapters/my-lora"
+                    />
+                  </div>
+                  <button
+                    className="btn-primary"
+                    onClick={loadModel}
+                    disabled={routerLensLoading || !modelPath.trim()}
+                  >
+                    Load Model for Diagnostics
+                  </button>
+                </div>
+              )}
+            </div>
 
             {routerStatus && (
               <div className="router-status-bar">
@@ -499,9 +634,12 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
 
             {selectedSessionView === 'current' && !currentSession && !routerLensLoading && (
               <div className="empty-session">
-                <p>No session data yet. Run inference with Router Lens enabled to capture expert activations.</p>
-                <button className="btn-primary" onClick={fetchCurrentSession}>
-                  Load Current Session
+                <p>No session data yet. Run a quick test to capture expert activations.</p>
+                <button className="btn-primary" onClick={runQuickTest} disabled={routerLensLoading}>
+                  ⚡ Run Quick Test
+                </button>
+                <button className="btn-secondary" onClick={fetchCurrentSession} style={{ marginLeft: '10px' }}>
+                  Load Existing Session
                 </button>
               </div>
             )}

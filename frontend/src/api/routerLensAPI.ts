@@ -124,4 +124,55 @@ export const routerLensAPI = {
         disabled_experts: disabledExperts,
       }),
     }),
+
+  // Diagnostic inference - direct model loading with router logging
+  loadDiagnosticModel: (
+    modelPath: string,
+    adapterPath?: string
+  ): Promise<{
+    status: string;
+    model_path: string;
+    is_moe: boolean;
+    config: Record<string, unknown>;
+  }> =>
+    fetchAPI('/diagnostic/load-model', {
+      method: 'POST',
+      body: JSON.stringify({
+        model_path: modelPath,
+        adapter_path: adapterPath || null,
+      }),
+    }),
+
+  runQuickTest: (): Promise<{
+    prompt: string;
+    response: string;
+    router_analysis: SessionSummary;
+    timestamp: string;
+  }> => fetchAPI('/diagnostic/quick-test', { method: 'POST' }),
+
+  runDiagnosticInference: (
+    prompt: string,
+    maxTokens: number = 100,
+    temperature: number = 0.7
+  ): Promise<{
+    prompt: string;
+    response: string;
+    router_analysis: SessionSummary;
+    timestamp: string;
+  }> =>
+    fetchAPI('/diagnostic/infer', {
+      method: 'POST',
+      body: JSON.stringify({
+        prompt,
+        max_tokens: maxTokens,
+        temperature,
+      }),
+    }),
+
+  getDiagnosticModelStatus: (): Promise<{
+    model_loaded: boolean;
+    model_path: string | null;
+    is_moe_model: boolean;
+    inspector_status: RouterLensStatus;
+  }> => fetchAPI('/diagnostic/model-status'),
 };
