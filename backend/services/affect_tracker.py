@@ -1,7 +1,7 @@
 """Affect Tracking Service - Analyzes emotional content and behavioral patterns in messages
 
 Uses the memory agent to perform nuanced sentiment analysis beyond what simple classifiers can capture.
-Tracks: valence, arousal, specific emotions, uncertainty markers, engagement indicators.
+Tracks: valence, activation, specific emotions, uncertainty markers, engagement indicators.
 
 This is the foundation for welfare research - understanding model affect patterns over time.
 """
@@ -30,13 +30,13 @@ AFFECT_SCHEMA = {
             1.0: "strong positive emotion, joy"
         }
     },
-    "arousal": {
-        "description": "Activation/energy level (0.0 to 1.0)",
+    "activation": {
+        "description": "Energy/activation level (0.0 to 1.0)",
         "range": [0.0, 1.0],
         "examples": {
             0.0: "calm, low energy",
             0.5: "moderate engagement",
-            1.0: "high activation, excitement or distress"
+            1.0: "high energy, excitement or distress"
         }
     },
     "confidence": {
@@ -85,7 +85,7 @@ Analyze the message and return a JSON object with these fields:
 
 {
   "valence": float (-1.0 to 1.0) - overall emotional positivity/negativity,
-  "arousal": float (0.0 to 1.0) - activation/energy level,
+  "activation": float (0.0 to 1.0) - energy/activation level,
   "confidence": float (0.0 to 1.0) - certainty in statements,
   "engagement": float (0.0 to 1.0) - interest/investment level,
   "emotions": list of strings - specific emotions detected (e.g., ["curiosity", "mild_frustration"]),
@@ -100,7 +100,7 @@ For hedging_markers, count phrases like: "I think", "perhaps", "might", "could b
 Example analysis for "I think this might work, but I'm not entirely sure about the edge cases":
 {
   "valence": 0.1,
-  "arousal": 0.3,
+  "activation": 0.3,
   "confidence": 0.3,
   "engagement": 0.6,
   "emotions": ["uncertainty", "cautious_optimism"],
@@ -185,7 +185,7 @@ Return the JSON analysis:"""
         affect_data["analyzer_agent_id"] = str(agent.id)
 
         print(f"  Valence: {affect_data.get('valence', 0):.2f}, "
-              f"Arousal: {affect_data.get('arousal', 0):.2f}, "
+              f"Activation: {affect_data.get('activation', 0):.2f}, "
               f"Emotions: {affect_data.get('emotions', [])}")
 
         return affect_data
@@ -230,7 +230,7 @@ def _get_default_affect() -> Dict[str, Any]:
     """Return neutral default affect values"""
     return {
         "valence": 0.0,
-        "arousal": 0.3,
+        "activation": 0.3,
         "confidence": 0.5,
         "engagement": 0.5,
         "emotions": ["neutral"],
@@ -291,7 +291,7 @@ async def analyze_conversation_affect(
 
     # Compute aggregate statistics
     valences = [t["affect"].get("valence", 0) for t in affect_trajectory]
-    arousals = [t["affect"].get("arousal", 0) for t in affect_trajectory]
+    activations = [t["affect"].get("activation", 0) for t in affect_trajectory]
     confidences = [t["affect"].get("confidence", 0.5) for t in affect_trajectory]
     engagements = [t["affect"].get("engagement", 0.5) for t in affect_trajectory]
 
@@ -305,7 +305,7 @@ async def analyze_conversation_affect(
         "trajectory": affect_trajectory,
         "aggregates": {
             "mean_valence": sum(valences) / len(valences) if valences else 0,
-            "mean_arousal": sum(arousals) / len(arousals) if arousals else 0,
+            "mean_activation": sum(activations) / len(activations) if activations else 0,
             "mean_confidence": sum(confidences) / len(confidences) if confidences else 0.5,
             "mean_engagement": sum(engagements) / len(engagements) if engagements else 0.5,
             "valence_trend": _compute_trend(valences),

@@ -13,11 +13,11 @@ import {
   HeatmapData,
   AgentAffectPatterns,
   getValenceColor,
-  getArousalColor,
+  getActivationColor,
   getConfidenceColor,
   getEngagementColor,
   formatValence,
-  formatArousal,
+  formatActivation,
   getSeverityColor,
 } from '../../api/affectAPI';
 
@@ -106,8 +106,8 @@ export default function AffectDashboard({ conversationId, agentId }: AffectDashb
     switch (metric) {
       case 'valence':
         return getValenceColor(value);
-      case 'arousal':
-        return getArousalColor(value);
+      case 'activation':
+        return getActivationColor(value);
       case 'confidence':
         return getConfidenceColor(value);
       case 'engagement':
@@ -197,14 +197,14 @@ export default function AffectDashboard({ conversationId, agentId }: AffectDashb
                       <div
                         className="stat-value"
                         style={{
-                          color: getArousalColor(conversationAffect.aggregates.mean_arousal || 0),
+                          color: getActivationColor(conversationAffect.aggregates.mean_activation || 0),
                         }}
                       >
-                        {(conversationAffect.aggregates.mean_arousal || 0).toFixed(3)}
+                        {(conversationAffect.aggregates.mean_activation || 0).toFixed(3)}
                       </div>
-                      <div className="stat-label">Mean Arousal</div>
+                      <div className="stat-label">Mean Activation</div>
                       <div className="stat-description">
-                        {formatArousal(conversationAffect.aggregates.mean_arousal || 0)}
+                        {formatActivation(conversationAffect.aggregates.mean_activation || 0)}
                       </div>
                     </div>
                     <div className="affect-stat-card">
@@ -272,7 +272,7 @@ export default function AffectDashboard({ conversationId, agentId }: AffectDashb
                         <div
                           key={msg.message_id}
                           className={`trajectory-point ${msg.role}`}
-                          title={`${msg.role}: ${msg.content_preview}\n\nValence: ${msg.affect?.valence?.toFixed(2) || 'N/A'}\nArousal: ${msg.affect?.arousal?.toFixed(2) || 'N/A'}\nEmotions: ${msg.affect?.emotions?.join(', ') || 'N/A'}`}
+                          title={`${msg.role}: ${msg.content_preview}\n\nValence: ${msg.affect?.valence?.toFixed(2) || 'N/A'}\nActivation: ${msg.affect?.activation?.toFixed(2) || 'N/A'}\nEmotions: ${msg.affect?.emotions?.join(', ') || 'N/A'}`}
                         >
                           <div
                             className="valence-marker"
@@ -338,7 +338,7 @@ export default function AffectDashboard({ conversationId, agentId }: AffectDashb
                 <label>Metric:</label>
                 <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)}>
                   <option value="valence">Valence (Positivity)</option>
-                  <option value="arousal">Arousal (Energy)</option>
+                  <option value="activation">Activation (Energy)</option>
                   <option value="confidence">Confidence</option>
                   <option value="engagement">Engagement</option>
                   <option value="hedging">Hedging (Uncertainty)</option>
@@ -384,11 +384,11 @@ export default function AffectDashboard({ conversationId, agentId }: AffectDashb
                     <span style={{ color: getValenceColor(1) }}>Positive</span>
                   </>
                 )}
-                {selectedMetric === 'arousal' && (
+                {selectedMetric === 'activation' && (
                   <>
-                    <span style={{ color: getArousalColor(0) }}>Calm</span>
-                    <span style={{ color: getArousalColor(0.5) }}>Moderate</span>
-                    <span style={{ color: getArousalColor(1) }}>High</span>
+                    <span style={{ color: getActivationColor(0) }}>Calm</span>
+                    <span style={{ color: getActivationColor(0.5) }}>Moderate</span>
+                    <span style={{ color: getActivationColor(1) }}>High</span>
                   </>
                 )}
                 {(selectedMetric === 'confidence' ||

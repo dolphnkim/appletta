@@ -87,17 +87,17 @@ async def get_conversation_affect(
     aggregates = {}
     if with_affect:
         valences = [m.metadata_["affect"].get("valence", 0) for m in with_affect]
-        arousals = [m.metadata_["affect"].get("arousal", 0) for m in with_affect]
+        activations = [m.metadata_["affect"].get("activation", 0) for m in with_affect]
         confidences = [m.metadata_["affect"].get("confidence", 0.5) for m in with_affect]
         engagements = [m.metadata_["affect"].get("engagement", 0.5) for m in with_affect]
 
         aggregates = {
             "mean_valence": sum(valences) / len(valences),
-            "mean_arousal": sum(arousals) / len(arousals),
+            "mean_activation": sum(activations) / len(activations),
             "mean_confidence": sum(confidences) / len(confidences),
             "mean_engagement": sum(engagements) / len(engagements),
             "valence_range": [min(valences), max(valences)],
-            "arousal_range": [min(arousals), max(arousals)],
+            "activation_range": [min(activations), max(activations)],
         }
 
         # Compute fatigue indicator
@@ -382,7 +382,7 @@ async def get_affect_heatmap_data(
         "roles": [],
         "metrics": {
             "valence": [],
-            "arousal": [],
+            "activation": [],
             "confidence": [],
             "engagement": [],
             "hedging": [],
@@ -398,7 +398,7 @@ async def get_affect_heatmap_data(
         if msg.metadata_ and "affect" in msg.metadata_:
             affect = msg.metadata_["affect"]
             heatmap_data["metrics"]["valence"].append(affect.get("valence", 0))
-            heatmap_data["metrics"]["arousal"].append(affect.get("arousal", 0))
+            heatmap_data["metrics"]["activation"].append(affect.get("activation", 0))
             heatmap_data["metrics"]["confidence"].append(affect.get("confidence", 0.5))
             heatmap_data["metrics"]["engagement"].append(affect.get("engagement", 0.5))
             # Normalize hedging to 0-1 scale (assume max 10 hedges)

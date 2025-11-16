@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface AffectMetrics {
   valence: number; // -1.0 to 1.0
-  arousal: number; // 0.0 to 1.0
+  activation: number; // 0.0 to 1.0
   confidence: number; // 0.0 to 1.0
   engagement: number; // 0.0 to 1.0
   emotions: string[];
@@ -48,11 +48,11 @@ export interface ConversationAffect {
   trajectory: MessageAffect[];
   aggregates: {
     mean_valence?: number;
-    mean_arousal?: number;
+    mean_activation?: number;
     mean_confidence?: number;
     mean_engagement?: number;
     valence_range?: [number, number];
-    arousal_range?: [number, number];
+    activation_range?: [number, number];
     fatigue?: FatigueIndicator;
   };
   has_affect_data: boolean;
@@ -89,7 +89,7 @@ export interface HeatmapData {
   roles: string[];
   metrics: {
     valence: (number | null)[];
-    arousal: (number | null)[];
+    activation: (number | null)[];
     confidence: (number | null)[];
     engagement: (number | null)[];
     hedging: (number | null)[];
@@ -198,11 +198,11 @@ export function getValenceColor(valence: number): string {
   }
 }
 
-export function getArousalColor(arousal: number): string {
+export function getActivationColor(activation: number): string {
   // 0 to 1: cool blue to hot red
-  const r = Math.floor(255 * arousal);
-  const g = Math.floor(100 * (1 - arousal));
-  const b = Math.floor(255 * (1 - arousal));
+  const r = Math.floor(255 * activation);
+  const g = Math.floor(100 * (1 - activation));
+  const b = Math.floor(255 * (1 - activation));
   return `rgb(${r}, ${g}, ${b})`;
 }
 
@@ -232,10 +232,10 @@ export function formatValence(v: number): string {
   return 'Strongly Positive';
 }
 
-export function formatArousal(a: number): string {
+export function formatActivation(a: number): string {
   if (a < 0.3) return 'Calm';
   if (a < 0.6) return 'Moderate';
-  return 'High Activation';
+  return 'High Energy';
 }
 
 export function getSeverityColor(severity: 'high' | 'moderate' | 'low'): string {
