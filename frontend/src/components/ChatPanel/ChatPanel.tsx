@@ -288,7 +288,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
           role: 'assistant',
           content: streamingContent,
           created_at: new Date().toISOString(),
-          metadata_: { partial: true, unsaved: true }
+          metadata: { partial: true, unsaved: true }
         };
         setMessages(prev => [...prev, tempMessage]);
       }

@@ -9,9 +9,6 @@ import { useState, useEffect } from 'react';
 import './AffectDashboard.css';
 import {
   affectAPI,
-  ConversationAffect,
-  HeatmapData,
-  AgentAffectPatterns,
   getValenceColor,
   getActivationColor,
   getConfidenceColor,
@@ -19,6 +16,11 @@ import {
   formatValence,
   formatActivation,
   getSeverityColor,
+} from '../../api/affectAPI';
+import type {
+  ConversationAffect,
+  HeatmapData,
+  AgentAffectPatterns,
 } from '../../api/affectAPI';
 
 interface AffectDashboardProps {
