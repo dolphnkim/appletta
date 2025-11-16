@@ -79,6 +79,12 @@ export const conversationAPI = {
       method: 'POST',
     }),
 
+  savePartialMessage: (conversationId: string, content: string): Promise<{ success: boolean; message: Message }> =>
+    fetchAPI(`/conversations/${conversationId}/save-partial-message`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+
   copyMessage: (content: string): void => {
     navigator.clipboard.writeText(content);
   },

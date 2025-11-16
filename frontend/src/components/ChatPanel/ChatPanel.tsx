@@ -264,11 +264,36 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     }
   };
 
-  const stopStreaming = () => {
+  const stopStreaming = async () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+
+    // Save partial message if there was content being streamed
+    if (streamingContent && conversationId) {
+      try {
+        const result = await conversationAPI.savePartialMessage(conversationId, streamingContent);
+        if (result.success && result.message) {
+          // Add the saved message to the messages list
+          setMessages(prev => [...prev, result.message]);
+        }
+      } catch (err) {
+        console.error('Failed to save partial message:', err);
+        // Still show the content even if save failed
+        // Create a temporary message to display
+        const tempMessage: Message = {
+          id: `temp-${Date.now()}`,
+          conversation_id: conversationId,
+          role: 'assistant',
+          content: streamingContent,
+          created_at: new Date().toISOString(),
+          metadata_: { partial: true, unsaved: true }
+        };
+        setMessages(prev => [...prev, tempMessage]);
+      }
+    }
+
     setStreaming(false);
     setStreamingContent('');
   };

@@ -152,7 +152,7 @@ def show_main_menu_with_resources(agent_id: str, db: Session, post_response: boo
     else:
         menu += "  (none)\n"
 
-    menu += "\n[TOOL WIZARD]\nRESPOND WITH ONLY YOUR CHOICE:\n\n"
+    menu += "\n[TOOL WIZARD]\nWHAT NEXT? YOU MUST CHOOSE ONE OF THE FOLLOWING OPTIONS!:\n\n"
 
     # Post-response menu (after streaming response to user)
     if post_response:
@@ -177,7 +177,7 @@ def show_main_menu_with_resources(agent_id: str, db: Session, post_response: boo
         for block in blocks:
             menu += f"delete_block, {block['label']}\n"
 
-    menu += "\nYOUR RESPONSE MUST BE EXACTLY ONE LINE FROM ABOVE."
+    menu += "\nRESPOND WITH EXACTLY ONE LINE FROM ABOVE. NOTHING ELSE."
 
     return menu
 

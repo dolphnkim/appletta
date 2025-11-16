@@ -30,6 +30,7 @@ from backend.services.embedding_service import get_embedding_service
 from backend.services.keyword_extraction import extract_keywords
 from backend.services.tag_update_service import apply_tag_updates
 from backend.services.token_counter import count_tokens, count_messages_tokens, count_message_tokens
+from backend.services.conversation_logger import log_message, log_conversation_event
 
 router = APIRouter(prefix="/api/v1/conversations", tags=["conversations"])
 
@@ -370,6 +371,77 @@ async def delete_message(
     db.commit()
 
     return {"success": True, "message": "Message deleted"}
+
+
+@router.post("/{conversation_id}/save-partial-message")
+async def save_partial_message(
+    conversation_id: UUID,
+    request: dict,
+    db: Session = Depends(get_db)
+):
+    """Save a partial assistant message when user stops streaming
+
+    Used when user clicks STOP button to preserve the partial response.
+    """
+    from pydantic import BaseModel
+
+    content = request.get("content", "")
+    user_message_id = request.get("user_message_id")
+
+    if not content:
+        raise HTTPException(400, "Content is required")
+
+    # Verify conversation exists
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(404, f"Conversation {conversation_id} not found")
+
+    # Get the agent for model info
+    agent = db.query(Agent).filter(Agent.id == conversation.agent_id).first()
+    model_path = agent.model_path if agent else "unknown"
+
+    # Generate tags and embedding
+    embedding_service = get_embedding_service()
+    assistant_tags = extract_keywords(content, max_keywords=5)
+
+    # Create the partial assistant message
+    assistant_message = Message(
+        conversation_id=conversation_id,
+        role="assistant",
+        content=content,
+        metadata_={
+            "model": model_path,
+            "partial": True,  # Mark as partial/stopped
+            "tags": assistant_tags
+        }
+    )
+
+    # Generate embedding
+    assistant_embedding = embedding_service.embed_with_tags(content, assistant_tags)
+    assistant_message.embedding = assistant_embedding
+
+    db.add(assistant_message)
+    db.commit()
+    db.refresh(assistant_message)
+
+    # Log partial assistant message to JSONL
+    log_message(
+        conversation_id=str(conversation_id),
+        agent_id=str(agent.id) if agent else "unknown",
+        agent_name=agent.name if agent else "Unknown Agent",
+        role="assistant",
+        content=content,
+        metadata={
+            "model": model_path,
+            "partial": True,
+            "tags": assistant_tags
+        }
+    )
+
+    return {
+        "success": True,
+        "message": assistant_message.to_dict()
+    }
 
 
 @router.post("/{conversation_id}/messages/{message_id}/regenerate")
@@ -797,6 +869,16 @@ async def _chat_stream_internal(
     db.commit()
     db.refresh(user_message)
 
+    # Log user message to JSONL
+    log_message(
+        conversation_id=str(conversation_id),
+        agent_id=str(agent.id),
+        agent_name=agent.name,
+        role="user",
+        content=message,
+        metadata={"tags": initial_tags} if initial_tags else None
+    )
+
     # === GET MLX SERVER EARLY ===
     # We need this before wizard check because wizard loop calls LLM
     mlx_manager = get_mlx_manager()
@@ -1046,10 +1128,11 @@ async def _chat_stream_internal(
                 })
 
                 # STEP 3: Get LLM's choice (non-streaming, short response)
+                # Use a SHORT timeout (15s) - if LLM takes too long, auto-finalize
                 choice_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages]
 
                 try:
-                    async with httpx.AsyncClient(timeout=120.0) as client:
+                    async with httpx.AsyncClient(timeout=15.0) as client:  # 15 second timeout for wizard choice
                         response = await client.post(
                             f"http://localhost:{mlx_process.port}/v1/chat/completions",
                             json={
@@ -1075,6 +1158,11 @@ async def _chat_stream_internal(
                         "content": llm_choice
                     })
 
+                except httpx.TimeoutException:
+                    # Timeout - auto-finalize with send_message_to_user
+                    print(f"⏰ WIZARD CHOICE TIMEOUT - auto-finalizing message")
+                    wizard_loop_active = False
+                    continue
                 except Exception as e:
                     print(f"🧙 WIZARD CHOICE ERROR: {e}")
                     # On error, auto-finalize
@@ -1202,6 +1290,20 @@ async def _chat_stream_internal(
             db.commit()
             db.refresh(assistant_message)
 
+            # Log assistant message to JSONL
+            log_message(
+                conversation_id=str(conversation_id),
+                agent_id=str(agent.id),
+                agent_name=agent.name,
+                role="assistant",
+                content=accumulated_response,
+                metadata={
+                    "model": agent.model_path,
+                    "wizard_tools_used": tool_call_count,
+                    "tags": assistant_tags
+                }
+            )
+
             yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
 
             print(f"✅ WIZARD FLOW COMPLETE - Message saved to DB")
@@ -1314,6 +1416,20 @@ async def _chat_stream_internal(
             db.add(assistant_message)
             db.commit()
             db.refresh(assistant_message)
+
+            # Log assistant message to JSONL
+            log_message(
+                conversation_id=str(conversation_id),
+                agent_id=str(agent.id),
+                agent_name=agent.name,
+                role="assistant",
+                content=final_response,
+                metadata={
+                    "model": agent.model_path,
+                    "streamed": True,
+                    "tags": assistant_tags
+                }
+            )
 
             # Send final message with both user and assistant messages
             yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
