@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import './TrainingPanel.css';
-import {
-  routerLensAPI,
+import { routerLensAPI } from '../../api/routerLensAPI';
+import type {
   RouterLensStatus,
   SessionSummary,
   SavedSession,
