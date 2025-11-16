@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import AgentSettings from '../AgentSettings/AgentSettings';
 import ConversationsList from './ConversationsList';
 import ToolsPanel from './ToolsPanel';
+import TrainingPanel from '../TrainingPanel/TrainingPanel';
 import './LeftPanel.css';
 import { agentAPI } from '../../api/agentAPI';
 import type { Agent } from '../../types/agent';
@@ -15,7 +16,7 @@ interface LeftPanelProps {
   onClone?: (newAgentId: string) => void;
 }
 
-type TabType = 'conversations' | 'settings' | 'tools';
+type TabType = 'conversations' | 'settings' | 'tools' | 'training';
 
 export default function LeftPanel({
   agentId,
@@ -58,19 +59,25 @@ export default function LeftPanel({
             className={`tab-button ${activeTab === 'conversations' ? 'active' : ''}`}
             onClick={() => setActiveTab('conversations')}
           >
-            Conversations
+            Chats
           </button>
           <button
             className={`tab-button ${activeTab === 'settings' ? 'active' : ''}`}
             onClick={() => setActiveTab('settings')}
           >
-            Agent Settings
+            Agent
           </button>
           <button
             className={`tab-button ${activeTab === 'tools' ? 'active' : ''}`}
             onClick={() => setActiveTab('tools')}
           >
             Tools
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'training' ? 'active' : ''}`}
+            onClick={() => setActiveTab('training')}
+          >
+            Training
           </button>
         </div>
       </div>
@@ -94,6 +101,7 @@ export default function LeftPanel({
             onToolsChange={handleToolsChange}
           />
         )}
+        {activeTab === 'training' && <TrainingPanel agentId={agentId} />}
       </div>
     </div>
   );

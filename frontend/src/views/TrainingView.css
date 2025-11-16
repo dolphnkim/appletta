@@ -1,0 +1,46 @@
+.training-view {
+  min-height: 100vh;
+  background: #121212;
+  color: #e0e0e0;
+  display: flex;
+  flex-direction: column;
+}
+
+.training-view-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 24px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #333;
+}
+
+.back-button {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid #404040;
+  border-radius: 6px;
+  color: #a0a0a0;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.back-button:hover {
+  background: #2d2d2d;
+  color: #e0e0e0;
+  border-color: #505050;
+}
+
+.training-view-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.training-view-content {
+  flex: 1;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
