@@ -127,7 +127,12 @@ class Agent(Base):
 
     embedding_chunk_size = Column(Integer, default=300)
 
- 
+
+
+    # Free Choice Mode - autonomous exploration
+    free_choice_enabled = Column(Boolean, default=False)
+    free_choice_interval_minutes = Column(Integer, default=10)  # How often to trigger
+    last_free_choice_at = Column(DateTime, nullable=True)  # When last session occurred
 
     # TODO: Projects integration (future)
 
@@ -211,6 +216,12 @@ class Agent(Base):
 
             },
 
+            "free_choice_config": {
+                "enabled": self.free_choice_enabled,
+                "interval_minutes": self.free_choice_interval_minutes,
+                "last_session_at": self.last_free_choice_at.isoformat() if self.last_free_choice_at else None,
+            },
+
             "created_at": self.created_at.isoformat(),
 
             "updated_at": self.updated_at.isoformat(),
@@ -273,6 +284,11 @@ class Agent(Base):
 
                 },
 
+                "free_choice_config": {
+                    "enabled": self.free_choice_enabled,
+                    "interval_minutes": self.free_choice_interval_minutes,
+                },
+
             }
 
         }
@@ -290,6 +306,8 @@ class Agent(Base):
         llm_config = agent_dict.get("llm_config", {})
 
         embedding_config = agent_dict.get("embedding_config", {})
+
+        free_choice_config = agent_dict.get("free_choice_config", {})
 
 
 
@@ -341,6 +359,10 @@ class Agent(Base):
 
             embedding_chunk_size=embedding_config.get("chunk_size", 300),
 
+            free_choice_enabled=free_choice_config.get("enabled", False),
+
+            free_choice_interval_minutes=free_choice_config.get("interval_minutes", 10),
+
         )
 
- 
+

@@ -262,6 +262,17 @@ async def update_agent(
 
 
 
+    if "free_choice_config" in update_data:
+        free_config = update_data["free_choice_config"]
+        if "enabled" in free_config:
+            agent.free_choice_enabled = free_config["enabled"]
+        if "interval_minutes" in free_config:
+            agent.free_choice_interval_minutes = free_config["interval_minutes"]
+        # Note: last_session_at is managed internally, not through updates
+        del update_data["free_choice_config"]
+
+
+
     # Apply remaining updates
 
     for key, value in update_data.items():
