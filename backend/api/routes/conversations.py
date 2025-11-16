@@ -1061,7 +1061,8 @@ async def _chat_stream_internal(
         print(f"🧙 WIZARD: Completed with {len(wizard_messages_to_add)} internal messages (not saved to DB)")
 
         # If LLM chose to chat normally and has a full response, use that directly
-        if final_chat_response:
+        # But only if it's a REAL response, not just the literal command string
+        if final_chat_response and final_chat_response.lower() != "chat_normally":
             print(f"\n🧙 WIZARD: Using LLM's full 'chat normally' response (no additional call needed)")
             print(f"Response preview: {final_chat_response[:200]}...")
 
@@ -1126,6 +1127,10 @@ async def _chat_stream_internal(
         elif wizard_iteration > 0 and not tools_were_used:
             # LLM chose to chat normally (option 1), proceed to normal streaming without wizard overhead
             print(f"\n🧙 WIZARD: LLM chose to chat normally (no tools), proceeding to normal streaming\n")
+            # Clear final_chat_response if it was just the command string
+            if final_chat_response and final_chat_response.lower() == "chat_normally":
+                print(f"  ➡️  Clearing literal 'chat_normally' response, will make new LLM call")
+                final_chat_response = None
 
         if tools_were_used and wizard_iteration > 0:
 
