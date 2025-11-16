@@ -8,10 +8,16 @@ from typing import Dict, List, Any, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from cachetools import TTLCache
 
 from backend.db.models.journal_block import JournalBlock
 from backend.services.embedding_service import get_embedding_service
 from backend.services.memory_service import search_memories as search_memories_service, fetch_full_memories
+
+# ============================================================================
+# Web Tools Cache (30 minute TTL)
+# ============================================================================
+_web_cache = TTLCache(maxsize=100, ttl=1800)  # 100 items, 30 min TTL
 
 
 # ============================================================================
@@ -165,6 +171,50 @@ JOURNAL_BLOCK_TOOLS = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets. Use this to find current information or research topics.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default: 5, max: 10)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "Fetch and extract the main content from a web page URL. Returns the page title and content in markdown format. Use this to read specific web pages.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of the web page to fetch"
+                    },
+                    "include_links": {
+                        "type": "boolean",
+                        "description": "Whether to include links found on the page (default: false)",
+                        "default": False
+                    }
+                },
+                "required": ["url"]
+            }
+        }
     }
 ]
 
@@ -286,6 +336,18 @@ def execute_tool(
 
     elif tool_name == "list_rag_files":
         return list_rag_files(agent_id, db)
+
+    elif tool_name == "web_search":
+        return web_search(
+            arguments["query"],
+            arguments.get("max_results", 5)
+        )
+
+    elif tool_name == "fetch_url":
+        return fetch_url(
+            arguments["url"],
+            arguments.get("include_links", False)
+        )
 
     else:
         return {"error": f"Unknown tool: {tool_name}"}
@@ -559,3 +621,120 @@ def list_rag_files(agent_id: UUID, db: Session) -> Dict[str, Any]:
         }
     except Exception as e:
         return {"error": f"Failed to list RAG files: {str(e)}"}
+
+
+# ============================================================================
+# Web Search and Fetch Tools
+# ============================================================================
+
+def web_search(query: str, max_results: int = 5) -> Dict[str, Any]:
+    """Search the web using DuckDuckGo"""
+    try:
+        # Check cache first
+        cache_key = f"search:{query}:{max_results}"
+        if cache_key in _web_cache:
+            return _web_cache[cache_key]
+
+        # Lazy import to avoid startup cost
+        from duckduckgo_search import DDGS
+
+        # Clamp max_results
+        max_results = min(max(1, max_results), 10)
+
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+
+        formatted_results = [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("href", ""),
+                "snippet": r.get("body", "")
+            }
+            for r in results
+        ]
+
+        response = {
+            "query": query,
+            "results": formatted_results,
+            "count": len(formatted_results)
+        }
+
+        # Cache the result
+        _web_cache[cache_key] = response
+        return response
+
+    except Exception as e:
+        return {"error": f"Web search failed: {str(e)}"}
+
+
+def fetch_url(url: str, include_links: bool = False) -> Dict[str, Any]:
+    """Fetch and extract main content from a web page"""
+    try:
+        # Check cache first
+        cache_key = f"fetch:{url}:{include_links}"
+        if cache_key in _web_cache:
+            return _web_cache[cache_key]
+
+        # Lazy import
+        import trafilatura
+        from trafilatura.settings import use_config
+
+        # Configure trafilatura
+        config = use_config()
+        config.set("DEFAULT", "EXTRACTION_TIMEOUT", "30")
+
+        # Download the page
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return {"error": f"Failed to download page: {url}"}
+
+        # Extract main content as markdown
+        content = trafilatura.extract(
+            downloaded,
+            output_format="markdown",
+            include_links=include_links,
+            include_tables=True,
+            favor_precision=True,
+            config=config
+        )
+
+        if not content:
+            return {"error": f"Failed to extract content from: {url}"}
+
+        # Get metadata (title, etc.)
+        metadata = trafilatura.extract_metadata(downloaded)
+        title = metadata.title if metadata else "Unknown"
+
+        # Truncate if too long (avoid massive responses)
+        max_chars = 50000
+        truncated = False
+        if len(content) > max_chars:
+            content = content[:max_chars] + "\n\n[Content truncated...]"
+            truncated = True
+
+        response = {
+            "url": url,
+            "title": title,
+            "content": content,
+            "truncated": truncated,
+            "character_count": len(content)
+        }
+
+        # Optionally extract links
+        if include_links:
+            # Extract all links from the page
+            from trafilatura import extract
+            links_content = extract(
+                downloaded,
+                output_format="xml",
+                include_links=True
+            )
+            # Parse links if needed (simplified for now)
+            response["links_included"] = True
+
+        # Cache the result
+        _web_cache[cache_key] = response
+        return response
+
+    except Exception as e:
+        return {"error": f"Failed to fetch URL: {str(e)}"}
