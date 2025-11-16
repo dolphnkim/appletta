@@ -181,6 +181,29 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
     }
   };
 
+  const runQuickTest = async () => {
+    try {
+      setRouterLensLoading(true);
+      setRouterLensError(null);
+      const result = await routerLensAPI.runQuickTest();
+      setCurrentSession(result.router_analysis);
+      setSelectedSessionView('current');
+
+      if (result.mock_mode) {
+        alert(
+          `Quick Test Complete (Mock Mode)\n\nPrompt: ${result.prompt}\nResponse: ${result.response}\n\nNote: ${result.note || 'Using simulated router data'}`
+        );
+      } else {
+        alert(`Quick Test Complete\n\nPrompt: ${result.prompt}\nResponse: ${result.response}`);
+      }
+    } catch (err) {
+      console.error('Failed to run quick test:', err);
+      setRouterLensError('Failed to run quick test. Check backend logs.');
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
   // Placeholder data for now
   useEffect(() => {
     // TODO: Fetch from backend
@@ -379,6 +402,13 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
               <h4>🔬 Router Lens</h4>
               <div className="router-lens-controls">
                 <button
+                  className="btn-primary"
+                  onClick={runQuickTest}
+                  disabled={routerLensLoading}
+                >
+                  ⚡ Quick Test
+                </button>
+                <button
                   className="btn-secondary"
                   onClick={fetchCurrentSession}
                   disabled={routerLensLoading}
@@ -499,9 +529,12 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
 
             {selectedSessionView === 'current' && !currentSession && !routerLensLoading && (
               <div className="empty-session">
-                <p>No session data yet. Run inference with Router Lens enabled to capture expert activations.</p>
-                <button className="btn-primary" onClick={fetchCurrentSession}>
-                  Load Current Session
+                <p>No session data yet. Run a quick test to capture expert activations.</p>
+                <button className="btn-primary" onClick={runQuickTest} disabled={routerLensLoading}>
+                  ⚡ Run Quick Test
+                </button>
+                <button className="btn-secondary" onClick={fetchCurrentSession} style={{ marginLeft: '10px' }}>
+                  Load Existing Session
                 </button>
               </div>
             )}

@@ -12,6 +12,7 @@ from backend.db.session import get_db
 from backend.db.models.agent import Agent
 from backend.services.router_lens import get_router_inspector, reset_router_inspector
 from backend.services.moe_model_wrapper import create_diagnostic_prompt_set
+from backend.services.diagnostic_inference import get_diagnostic_service
 
 router = APIRouter(prefix="/api/v1/router-lens", tags=["router-lens"])
 
@@ -26,6 +27,17 @@ class ExpertMaskTestRequest(BaseModel):
     agent_id: str
     prompt: str
     disabled_experts: List[int]
+
+
+class DiagnosticInferenceRequest(BaseModel):
+    prompt: str
+    max_tokens: int = 100
+    temperature: float = 0.7
+
+
+class LoadModelRequest(BaseModel):
+    model_path: str
+    adapter_path: Optional[str] = None
 
 
 @router.get("/status")
@@ -241,3 +253,118 @@ async def get_current_monitoring_data():
         "current_usage": inspector.current_session.get("expert_usage_count", {}),
         "recent_entropy": inspector.current_session.get("entropy_history", [])[-10:],
     }
+
+
+# =============================================================================
+# Diagnostic Inference - Direct model loading with router logging
+# =============================================================================
+
+@router.post("/diagnostic/load-model")
+async def load_model_for_diagnostics(request: LoadModelRequest):
+    """Load a model for diagnostic inference with router logging
+
+    This loads the model directly (not via MLX server) so we can patch it
+    for full router introspection.
+    """
+    service = get_diagnostic_service()
+    try:
+        result = service.load_model(request.model_path, request.adapter_path)
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"Failed to load model: {str(e)}")
+
+
+@router.get("/diagnostic/model-status")
+async def get_diagnostic_model_status():
+    """Get status of the diagnostic inference model"""
+    service = get_diagnostic_service()
+    return {
+        "model_loaded": service.model is not None,
+        "model_path": service.model_path,
+        "is_moe_model": service.is_moe_model,
+        "inspector_status": service.get_inspector_status()
+    }
+
+
+@router.post("/diagnostic/infer")
+async def run_diagnostic_inference(request: DiagnosticInferenceRequest):
+    """Run a single inference with full router logging
+
+    Returns the generated text and complete router analysis including:
+    - Expert usage counts
+    - Token-by-token routing decisions
+    - Entropy distribution
+    - Co-occurrence patterns
+    """
+    service = get_diagnostic_service()
+
+    if service.model is None and service.model_path is None:
+        # Return mock data if no model loaded
+        pass
+
+    try:
+        result = service.run_inference(
+            prompt=request.prompt,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            log_routing=True
+        )
+
+        # Also update the global inspector for UI consistency
+        inspector = get_router_inspector()
+        inspector.current_session = service.router_inspector.current_session.copy()
+
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Inference failed: {str(e)}")
+
+
+@router.post("/diagnostic/save-session")
+async def save_diagnostic_session(prompt_preview: str = "", notes: str = ""):
+    """Save the current diagnostic session"""
+    service = get_diagnostic_service()
+    filepath = service.save_session(prompt_preview, notes)
+
+    # Also save to global inspector
+    inspector = get_router_inspector()
+    inspector.current_session = service.router_inspector.current_session.copy()
+    inspector.save_session(prompt_preview, notes)
+
+    return {
+        "saved": True,
+        "filepath": filepath
+    }
+
+
+@router.post("/diagnostic/quick-test")
+async def quick_diagnostic_test():
+    """Run a quick test to generate sample router data
+
+    Uses mock data if model not loaded. Useful for testing the UI.
+    """
+    service = get_diagnostic_service()
+
+    # Use a simple test prompt
+    test_prompts = [
+        "Explain the concept of empathy in simple terms.",
+        "What is 2 + 2?",
+        "Write a haiku about coding.",
+    ]
+
+    import random
+    prompt = random.choice(test_prompts)
+
+    result = service.run_inference(
+        prompt=prompt,
+        max_tokens=50,
+        temperature=0.7,
+        log_routing=True
+    )
+
+    # Sync to global inspector
+    inspector = get_router_inspector()
+    inspector.current_session = service.router_inspector.current_session.copy()
+
+    return result
