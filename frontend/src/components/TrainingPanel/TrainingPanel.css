@@ -947,3 +947,161 @@
   border-radius: 4px;
   cursor: pointer;
 }
+
+/* New Job Modal Form */
+.new-job-modal {
+  max-width: 600px;
+  width: 90%;
+}
+
+.new-job-modal h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  color: var(--accent-color, #4a9eff);
+}
+
+.job-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.form-section {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.form-section h4 {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: var(--accent-color, #4a9eff);
+  border-bottom: 1px solid var(--border-color, #444);
+  padding-bottom: 8px;
+}
+
+.form-section .form-row {
+  margin-bottom: 10px;
+}
+
+.form-section .form-row:last-child {
+  margin-bottom: 0;
+}
+
+.form-section select {
+  background: var(--hover-bg, #333);
+  border: 1px solid var(--border-color, #555);
+  color: var(--text-color, #e0e0e0);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  width: 100%;
+}
+
+.form-section select:focus {
+  outline: none;
+  border-color: var(--accent-color, #4a9eff);
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-color, #ccc);
+  cursor: pointer;
+}
+
+.radio-label input[type='radio'] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-color, #ccc);
+  cursor: pointer;
+}
+
+.checkbox-label input[type='checkbox'] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.lora-params {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.form-row.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-row.inline label {
+  white-space: nowrap;
+  min-width: auto;
+}
+
+.form-row.inline input {
+  width: 100px;
+}
+
+.form-row small {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--text-muted, #666);
+  font-style: italic;
+}
+
+.hyperparam-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.moe-section h4 {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 8px;
+}
+
+.moe-section h4 .checkbox-label {
+  font-size: 12px;
+  color: var(--accent-color, #4a9eff);
+}
+
+.moe-options {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color, #444);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color, #444);
+}
+
+.modal-actions button {
+  margin-top: 0;
+}
