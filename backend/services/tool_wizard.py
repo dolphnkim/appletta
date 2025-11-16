@@ -103,24 +103,113 @@ def clean_llm_response(response: str) -> str:
 
 
 def show_main_menu() -> str:
-    """Generate the main menu prompt"""
+    """Generate the main menu prompt - basic version without resources"""
+    # This is kept for backwards compatibility but should not be used
+    # Use show_main_menu_with_resources() instead
     return """MANDATORY: Before responding to the user, you MUST select ONE option below.
 
-RESPOND WITH ONLY THE NUMBER OF YOUR CHOICE:
+RESPOND WITH ONLY YOUR CHOICE:
 
-1. Chat normally (no tools) - Just respond to the user's message
-2. Create new journal block - Store information in your memory
-3. Edit existing journal block - Modify stored information
-4. Read a journal block - View stored information
-5. Delete a journal block - Remove stored information
-6. Search my memories - Look for past conversations
-7. List my uploaded files (RAG) - See available documents
+chat_normally
+create_journal_block
+search_memories
 
-YOUR RESPONSE MUST BE A SINGLE NUMBER (1-7). NO OTHER TEXT."""
+YOUR RESPONSE MUST BE EXACTLY ONE OF THE ABOVE COMMANDS."""
+
+
+def show_main_menu_with_resources(agent_id: str, db: Session) -> str:
+    """Generate the main menu with available resources listed"""
+    from uuid import UUID as UUIDType
+    from backend.services.tools import list_rag_files
+
+    # Get available journal blocks
+    blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+    blocks = blocks_info.get("blocks", [])
+
+    # Get available RAG folders
+    rag_info = list_rag_files(agent_id, db)
+    folders = rag_info.get("folders", [])
+
+    # Build the menu
+    menu = "📋 Available Journal Blocks:\n"
+    if blocks:
+        for block in blocks:
+            menu += f"  - {block['label']}\n"
+    else:
+        menu += "  (none)\n"
+
+    menu += "\n📁 Available RAG Folders:\n"
+    if folders:
+        for folder in folders:
+            menu += f"  - {folder['folder_name']}\n"
+    else:
+        menu += "  (none)\n"
+
+    menu += "\n[TOOL WIZARD]\nRESPOND WITH ONLY YOUR CHOICE:\n\n"
+
+    # Always available commands
+    menu += "chat_normally\n"
+    menu += "create_journal_block\n"
+    menu += "search_memories\n"
+
+    # Block-specific commands
+    if blocks:
+        menu += "\n"
+        for block in blocks:
+            menu += f"read_block, {block['label']}\n"
+        menu += "\n"
+        for block in blocks:
+            menu += f"edit_block, {block['label']}\n"
+        menu += "\n"
+        for block in blocks:
+            menu += f"delete_block, {block['label']}\n"
+
+    menu += "\nYOUR RESPONSE MUST BE EXACTLY ONE LINE FROM ABOVE."
+
+    return menu
+
+
+def parse_command(response: str) -> Tuple[str, Optional[str]]:
+    """Parse command and optional target from response
+
+    Returns: (command, target) where target is None for commands without targets
+    """
+    response = response.strip()
+
+    # Handle simple commands
+    if response == "chat_normally":
+        return ("chat_normally", None)
+    if response == "create_journal_block":
+        return ("create_journal_block", None)
+    if response == "search_memories":
+        return ("search_memories", None)
+
+    # Handle commands with targets (e.g., "edit_block, Me & Gala 💜")
+    if ", " in response:
+        parts = response.split(", ", 1)
+        command = parts[0].strip()
+        target = parts[1].strip() if len(parts) > 1 else None
+        return (command, target)
+
+    # Fallback - try to parse as old numeric choice for backwards compatibility
+    import re
+    match = re.search(r'\b([1-7])\b', response)
+    if match:
+        num = int(match.group(1))
+        # Map old numbers to new commands
+        old_map = {
+            1: "chat_normally",
+            2: "create_journal_block",
+            6: "search_memories"
+        }
+        if num in old_map:
+            return (old_map[num], None)
+
+    return (response, None)  # Return as-is for unknown commands
 
 
 def parse_choice(response: str) -> Optional[int]:
-    """Extract numeric choice from AI response"""
+    """Extract numeric choice from AI response - kept for sub-menus"""
     # Try to find the first number in the response
     import re
     match = re.search(r'\b([1-7])\b', response)
@@ -155,27 +244,15 @@ async def process_wizard_step(
 
     # Main menu - figure out what they want to do
     if wizard_state.step == "main_menu":
-        choice = parse_choice(user_message)
+        command, target = parse_command(user_message)
+        print(f"\n🎯 LLM COMMAND: {command}" + (f" (target: {target})" if target else ""))
 
-        # Map choice to human-readable option
-        choice_map = {
-            1: "Chat normally (no tools)",
-            2: "Create new journal block",
-            3: "Edit existing journal block",
-            4: "Read a journal block",
-            5: "Delete a journal block",
-            6: "Search memories",
-            7: "List RAG files"
-        }
-        choice_name = choice_map.get(choice, f"INVALID ({choice})")
-        print(f"\n🎯 LLM CHOSE OPTION: {choice} - {choice_name}")
-
-        if choice == 1:
+        if command == "chat_normally":
             # Chat normally - exit wizard
             print(f"   ➡️  Exiting wizard, will proceed to normal chat")
             return ("", WizardState(), False)
 
-        elif choice == 2:
+        elif command == "create_journal_block":
             # Create new journal block
             print(f"   ➡️  Starting create journal block flow")
             wizard_state.tool = "create"
@@ -183,83 +260,7 @@ async def process_wizard_step(
             return ("What should the label/title be for this journal block?\n\nRESPOND WITH ONLY THE LABEL TEXT. Maximum 50 characters. No quotes, no explanation, just the label itself.",
                     wizard_state, True)
 
-        elif choice == 3:
-            # Edit existing journal block - list them first
-            print(f"   ➡️  Starting edit journal block flow")
-            from uuid import UUID as UUIDType
-            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
-            blocks = blocks_info.get("blocks", [])
-
-            if not blocks:
-                print(f"   ⚠️  No journal blocks exist")
-                wizard_state.reset_to_menu()
-                wizard_state.increment_iteration()
-                return ("You don't have any journal blocks yet!\n\n" + show_main_menu(),
-                        wizard_state, True)
-
-            # Store blocks in context and show them
-            wizard_state.tool = "edit"
-            wizard_state.step = "edit_select_block"
-            wizard_state.context["blocks"] = blocks
-
-            prompt = "Which journal block would you like to edit?\n\n"
-            for i, block in enumerate(blocks, 1):
-                prompt += f"{i}. {block['label']}\n"
-            prompt += "\nRESPOND WITH ONLY THE NUMBER. No text, no explanation, just the number."
-
-            return (prompt, wizard_state, True)
-
-        elif choice == 4:
-            # Read a journal block - list them first
-            print(f"   ➡️  Starting read journal block flow")
-            from uuid import UUID as UUIDType
-            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
-            blocks = blocks_info.get("blocks", [])
-
-            if not blocks:
-                print(f"   ⚠️  No journal blocks exist")
-                wizard_state.reset_to_menu()
-                wizard_state.increment_iteration()
-                return ("You don't have any journal blocks yet!\n\n" + show_main_menu(),
-                        wizard_state, True)
-
-            wizard_state.tool = "read"
-            wizard_state.step = "read_select_block"
-            wizard_state.context["blocks"] = blocks
-
-            prompt = "Which journal block would you like to read?\n\n"
-            for i, block in enumerate(blocks, 1):
-                prompt += f"{i}. {block['label']}\n"
-            prompt += "\nRESPOND WITH ONLY THE NUMBER. No text, no explanation, just the number."
-
-            return (prompt, wizard_state, True)
-
-        elif choice == 5:
-            # Delete a journal block - list them first
-            print(f"   ➡️  Starting delete journal block flow")
-            from uuid import UUID as UUIDType
-            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
-            blocks = blocks_info.get("blocks", [])
-
-            if not blocks:
-                print(f"   ⚠️  No journal blocks exist")
-                wizard_state.reset_to_menu()
-                wizard_state.increment_iteration()
-                return ("You don't have any journal blocks yet!\n\n" + show_main_menu(),
-                        wizard_state, True)
-
-            wizard_state.tool = "delete"
-            wizard_state.step = "delete_select_block"
-            wizard_state.context["blocks"] = blocks
-
-            prompt = "Which journal block would you like to delete?\n\n"
-            for i, block in enumerate(blocks, 1):
-                prompt += f"{i}. {block['label']}\n"
-            prompt += "\nRESPOND WITH ONLY THE NUMBER. No text, no explanation, just the number."
-
-            return (prompt, wizard_state, True)
-
-        elif choice == 6:
+        elif command == "search_memories":
             # Search memories
             print(f"   ➡️  Starting search memories flow")
             wizard_state.tool = "search"
@@ -267,38 +268,128 @@ async def process_wizard_step(
             return ("What would you like to search for in your memories?\n\nRESPOND WITH ONLY THE SEARCH QUERY. Maximum 100 characters. No quotes, no explanation.",
                     wizard_state, True)
 
-        elif choice == 7:
-            # List RAG files
-            print(f"   ➡️  Listing RAG files")
-            from backend.services.tools import list_rag_files
-            rag_info = list_rag_files(agent_id, db)
+        elif command == "read_block" and target:
+            # Read a specific journal block directly
+            print(f"   ➡️  Reading journal block: {target}")
+            from uuid import UUID as UUIDType
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+            blocks = blocks_info.get("blocks", [])
 
-            if "error" in rag_info:
-                result_msg = f"❌ TOOL FAILURE: {rag_info['error']}"
-                wizard_state.log_tool_use(f"FAILED to list RAG files")
-                response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
-            elif rag_info.get("total_files", 0) == 0:
-                result_msg = "✅ TOOL SUCCESS: Listed RAG files - No uploaded files yet"
-                wizard_state.log_tool_use(f"Listed RAG files - No files uploaded")
-                response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
+            # Find the block by label
+            target_block = None
+            for block in blocks:
+                if block["label"] == target:
+                    target_block = block
+                    break
+
+            if not target_block:
+                print(f"   ❌ Block not found: {target}")
+                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu_with_resources(agent_id, db),
+                        wizard_state, True)
+
+            # Read the full block content
+            from backend.services.tools import read_journal_block
+            full_block = read_journal_block(target_block["id"], db)
+
+            if "error" in full_block:
+                result_msg = f"❌ TOOL FAILURE: {full_block['error']}"
+                wizard_state.log_tool_use(f"FAILED to read journal block '{target}'")
             else:
-                result_msg = f"✅ TOOL SUCCESS: Listed RAG files - Found {rag_info.get('total_files', 0)} files in {rag_info.get('total_folders', 0)} folders"
-                wizard_state.log_tool_use(f"Listed RAG files - Found {rag_info.get('total_files', 0)} files")
-                response = f"{result_msg}\n\nHere are your uploaded files:\n\n"
-                for folder in rag_info.get("folders", []):
-                    response += f"📁 {folder['folder_name']} ({folder['file_count']} files)\n"
-                for file in rag_info.get("files", []):
-                    response += f"  📄 {file['filename']}\n"
-                response += f"\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
+                result_msg = f"✅ TOOL SUCCESS: Read journal block '{full_block['label']}'"
+                wizard_state.log_tool_use(f"Read journal block '{full_block['label']}'")
+
+            if "error" in full_block:
+                response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu_with_resources(agent_id, db)
+            else:
+                response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu_with_resources(agent_id, db)
 
             wizard_state.reset_to_menu()
             wizard_state.increment_iteration()
             return (response, wizard_state, True)
 
+        elif command == "edit_block" and target:
+            # Edit a specific journal block directly
+            print(f"   ➡️  Starting edit for block: {target}")
+            from uuid import UUID as UUIDType
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+            blocks = blocks_info.get("blocks", [])
+
+            # Find the block by label
+            target_block = None
+            for block in blocks:
+                if block["label"] == target:
+                    target_block = block
+                    break
+
+            if not target_block:
+                print(f"   ❌ Block not found: {target}")
+                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu_with_resources(agent_id, db),
+                        wizard_state, True)
+
+            # Read the full block content
+            from backend.services.tools import read_journal_block
+            full_block = read_journal_block(target_block["id"], db)
+
+            if "error" in full_block:
+                return (f"❌ Error reading block: {full_block['error']}\n\n" + show_main_menu_with_resources(agent_id, db),
+                        wizard_state, True)
+
+            wizard_state.tool = "edit"
+            wizard_state.context["selected_block"] = full_block
+            wizard_state.step = "edit_select_mode"
+
+            prompt = f"""How would you like to edit "{full_block['label']}"?
+
+Current content:
+{full_block['value']}
+
+Choose an editing mode:
+1. Search and replace text
+2. Completely rewrite this block
+3. Append new text to the end
+
+RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
+
+            return (prompt, wizard_state, True)
+
+        elif command == "delete_block" and target:
+            # Delete a specific journal block directly
+            print(f"   ➡️  Deleting journal block: {target}")
+            from uuid import UUID as UUIDType
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+            blocks = blocks_info.get("blocks", [])
+
+            # Find the block by label
+            target_block = None
+            for block in blocks:
+                if block["label"] == target:
+                    target_block = block
+                    break
+
+            if not target_block:
+                print(f"   ❌ Block not found: {target}")
+                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu_with_resources(agent_id, db),
+                        wizard_state, True)
+
+            # Delete the block
+            from backend.services.tools import delete_journal_block
+            result = delete_journal_block(target_block["id"], db)
+
+            if "error" in result:
+                result_msg = f"❌ TOOL FAILURE: {result['error']}"
+                wizard_state.log_tool_use(f"FAILED to delete journal block '{target}'")
+            else:
+                result_msg = f"✅ TOOL SUCCESS: Deleted journal block '{target}'"
+                wizard_state.log_tool_use(f"Deleted journal block '{target}'")
+
+            wizard_state.reset_to_menu()
+            wizard_state.increment_iteration()
+            return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu_with_resources(agent_id, db), wizard_state, True)
+
         else:
-            # Invalid choice
-            print(f"   ❌ INVALID CHOICE - LLM response was: {user_message[:100]}")
-            return ("I didn't understand that choice. " + show_main_menu(),
+            # Invalid command
+            print(f"   ❌ INVALID COMMAND - LLM response was: {user_message[:100]}")
+            return (f"I didn't understand that command: '{user_message}'\n\n" + show_main_menu_with_resources(agent_id, db),
                     wizard_state, True)
 
     # === CREATE JOURNAL BLOCK FLOW ===
