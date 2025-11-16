@@ -117,8 +117,15 @@ search_memories
 YOUR RESPONSE MUST BE EXACTLY ONE OF THE ABOVE COMMANDS."""
 
 
-def show_main_menu_with_resources(agent_id: str, db: Session) -> str:
-    """Generate the main menu with available resources listed"""
+def show_main_menu_with_resources(agent_id: str, db: Session, post_response: bool = False) -> str:
+    """Generate the main menu with available resources listed
+
+    Args:
+        agent_id: The agent's UUID as string
+        db: Database session
+        post_response: If True, shows post-response menu (send_message_to_user, continue_chatting)
+                      If False, shows legacy pre-response menu (chat_normally)
+    """
     from uuid import UUID as UUIDType
     from backend.services.tools import list_rag_files
 
@@ -147,8 +154,14 @@ def show_main_menu_with_resources(agent_id: str, db: Session) -> str:
 
     menu += "\n[TOOL WIZARD]\nRESPOND WITH ONLY YOUR CHOICE:\n\n"
 
-    # Always available commands
-    menu += "chat_normally\n"
+    # Post-response menu (after streaming response to user)
+    if post_response:
+        menu += "send_message_to_user\n"
+        menu += "continue_chatting\n"
+    else:
+        # Legacy pre-response menu
+        menu += "chat_normally\n"
+
     menu += "create_journal_block\n"
     menu += "search_memories\n"
 
@@ -179,6 +192,10 @@ def parse_command(response: str) -> Tuple[str, Optional[str]]:
     # Handle simple commands
     if response == "chat_normally":
         return ("chat_normally", None)
+    if response == "send_message_to_user":
+        return ("send_message_to_user", None)
+    if response == "continue_chatting":
+        return ("continue_chatting", None)
     if response == "create_journal_block":
         return ("create_journal_block", None)
     if response == "search_memories":
@@ -248,8 +265,18 @@ async def process_wizard_step(
         print(f"\n🎯 LLM COMMAND: {command}" + (f" (target: {target})" if target else ""))
 
         if command == "chat_normally":
-            # Chat normally - exit wizard
+            # Chat normally - exit wizard (legacy, pre-response flow)
             print(f"   ➡️  Exiting wizard, will proceed to normal chat")
+            return ("", WizardState(), False)
+
+        elif command == "send_message_to_user":
+            # Finalize and send the accumulated response
+            print(f"   ➡️  Finalizing message to user")
+            return ("", WizardState(), False)
+
+        elif command == "continue_chatting":
+            # Continue adding to the response
+            print(f"   ➡️  Continuing to chat (will stream more)")
             return ("", WizardState(), False)
 
         elif command == "create_journal_block":
