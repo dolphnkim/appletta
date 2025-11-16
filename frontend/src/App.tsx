@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import LeftPanel from './components/LeftPanel/LeftPanel';
 import ChatPanel from './components/ChatPanel/ChatPanel';
 import DatabasePanel from './components/DatabasePanel/DatabasePanel';
+import { useFreeChoiceTimer } from './hooks/useFreeChoiceTimer';
 import type { Agent } from './types/agent';
 import './App.css';
 
@@ -27,6 +28,21 @@ function App() {
   });
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
+  const [isUserChatting, setIsUserChatting] = useState(false);
+
+  // Get current agent for free choice mode
+  const currentAgent = agentId ? agents.find(a => a.id === agentId) || null : null;
+
+  // Free choice mode timer - checks if agent should have autonomous exploration time
+  useFreeChoiceTimer({
+    agent: currentAgent,
+    isActiveConversation: isUserChatting,
+    onSessionStarted: (conversationId) => {
+      console.log('Free choice session started:', conversationId);
+      // Optionally notify user or navigate to the session
+      // For now, just log it - sessions can be viewed in conversation history
+    },
+  });
 
   // Persist agentId to localStorage
   useEffect(() => {

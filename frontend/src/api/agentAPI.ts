@@ -81,6 +81,18 @@ export const agentAPI = {
   // Get tools description for an agent
   getToolsDescription: (id: string): Promise<{ agent_id: string; enabled_tools: string[]; tools_description: string }> =>
     fetchAPI(`/agents/${id}/tools/description`),
+
+  // Start a free choice session
+  startFreeChoiceSession: (id: string): Promise<{
+    status: 'started' | 'too_soon';
+    conversation_id?: string;
+    message: string;
+    started_at?: string;
+    next_available_at?: string;
+  }> =>
+    fetchAPI(`/agents/${id}/free-choice`, {
+      method: 'POST',
+    }),
 };
 
 export const filesAPI = {
