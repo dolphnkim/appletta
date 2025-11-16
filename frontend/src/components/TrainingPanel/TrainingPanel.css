@@ -298,6 +298,518 @@
   opacity: 0.9;
 }
 
+/* Router Lens Dashboard */
+.router-lens-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-color, #aaa);
+  border: 1px solid var(--border-color, #555);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--hover-bg, #3a3a3a);
+  color: white;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-sm {
+  background: transparent;
+  border: 1px solid var(--border-color, #555);
+  color: var(--text-color, #aaa);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.btn-sm:hover {
+  background: var(--hover-bg, #3a3a3a);
+}
+
+.error-banner {
+  background: rgba(217, 83, 79, 0.2);
+  border: 1px solid #d9534f;
+  color: #ff6b6b;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+
+.router-status-bar {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+  padding: 8px 12px;
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+
+.status-indicator {
+  font-weight: 600;
+}
+
+.status-indicator.active {
+  color: #5cb85c;
+}
+
+.router-lens-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.router-lens-tabs button {
+  background: transparent;
+  border: 1px solid var(--border-color, #444);
+  color: var(--text-color, #aaa);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.router-lens-tabs button.active {
+  background: var(--accent-color, #4a9eff);
+  color: white;
+  border-color: var(--accent-color, #4a9eff);
+}
+
+.router-lens-tabs button:hover:not(.active) {
+  background: var(--hover-bg, #2a2a2a);
+}
+
+.loading-indicator {
+  text-align: center;
+  padding: 20px;
+  color: var(--accent-color, #4a9eff);
+  font-size: 12px;
+}
+
+/* Current Session View */
+.session-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stat-card {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  padding: 10px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-color, #4a9eff);
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  text-transform: uppercase;
+}
+
+.expert-usage-section,
+.co-occurrence-section {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.expert-usage-section h5,
+.co-occurrence-section h5 {
+  margin: 0 0 10px 0;
+  font-size: 12px;
+  color: var(--accent-color, #4a9eff);
+}
+
+.expert-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.expert-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.expert-id {
+  width: 30px;
+  font-weight: 600;
+  color: var(--text-color, #ccc);
+}
+
+.expert-bar-container {
+  flex: 1;
+  height: 12px;
+  background: var(--bar-bg, #333);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.expert-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4a9eff, #6db3ff);
+  transition: width 0.3s ease;
+}
+
+.expert-count {
+  width: 40px;
+  text-align: right;
+  color: var(--text-muted, #888);
+}
+
+.expert-pct {
+  width: 45px;
+  text-align: right;
+  color: var(--accent-color, #4a9eff);
+  font-weight: 600;
+}
+
+.co-occurrence-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.co-occurrence-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  padding: 4px 8px;
+  background: var(--hover-bg, #333);
+  border-radius: 3px;
+}
+
+.expert-pair {
+  font-weight: 600;
+  color: var(--accent-color, #4a9eff);
+}
+
+.occurrence-count {
+  color: var(--text-muted, #888);
+}
+
+.empty-session,
+.empty-sessions,
+.empty-analysis {
+  text-align: center;
+  padding: 30px 20px;
+  color: var(--text-muted, #888);
+  font-size: 12px;
+}
+
+.empty-session button,
+.empty-sessions button {
+  margin-top: 10px;
+}
+
+/* Saved Sessions View */
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-item {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.session-time {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.session-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  flex: 1;
+  margin-left: 12px;
+}
+
+.prompt-preview {
+  font-style: italic;
+  color: var(--text-color, #aaa);
+}
+
+/* Analysis View */
+.analysis-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.analysis-results,
+.entropy-results {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.analysis-results h5,
+.entropy-results h5 {
+  margin: 0 0 10px 0;
+  font-size: 12px;
+  color: var(--accent-color, #4a9eff);
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.analysis-card {
+  background: var(--hover-bg, #333);
+  border-radius: 4px;
+  padding: 10px;
+}
+
+.analysis-card h6 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  color: var(--text-color, #ccc);
+}
+
+.expert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.expert-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+}
+
+.expert-item .expert-id {
+  width: auto;
+  color: var(--accent-color, #4a9eff);
+}
+
+.usage-count {
+  color: var(--text-muted, #888);
+}
+
+.clusters-section {
+  margin-top: 10px;
+}
+
+.clusters-section h6 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  color: var(--text-color, #ccc);
+}
+
+.clusters-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cluster-item {
+  background: var(--hover-bg, #333);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.cluster-label {
+  font-weight: 600;
+  color: var(--accent-color, #4a9eff);
+  margin-right: 8px;
+}
+
+.cluster-experts {
+  color: var(--text-color, #ccc);
+}
+
+.entropy-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.entropy-histogram {
+  margin-bottom: 12px;
+}
+
+.entropy-histogram h6 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  color: var(--text-color, #ccc);
+}
+
+.histogram-bars {
+  display: flex;
+  gap: 2px;
+  height: 80px;
+  align-items: flex-end;
+  background: var(--hover-bg, #333);
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.histogram-bar-wrapper {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.histogram-bar {
+  width: 100%;
+  background: linear-gradient(180deg, #4a9eff, #2d7ed9);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  transition: height 0.3s ease;
+}
+
+.histogram-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-muted, #888);
+  margin-top: 4px;
+}
+
+.per-session-entropy h6 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  color: var(--text-color, #ccc);
+}
+
+.session-entropy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-entropy-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  padding: 4px 8px;
+  background: var(--hover-bg, #333);
+  border-radius: 3px;
+}
+
+.session-name {
+  flex: 1;
+  color: var(--text-color, #aaa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entropy-range {
+  color: var(--text-muted, #888);
+  margin-right: 10px;
+}
+
+.entropy-mean {
+  color: var(--accent-color, #4a9eff);
+  font-weight: 600;
+}
+
+/* Diagnostic Prompts */
+.diagnostic-prompts-section {
+  background: var(--card-bg, #2a2a2a);
+  border: 1px solid var(--border-color, #444);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 16px;
+}
+
+.diagnostic-prompts-section h5 {
+  margin: 0 0 6px 0;
+  font-size: 12px;
+  color: var(--accent-color, #4a9eff);
+}
+
+.diagnostic-prompts-section > p {
+  font-size: 10px;
+  color: var(--text-muted, #888);
+  margin: 0 0 10px 0;
+}
+
+.diagnostic-prompts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diagnostic-prompt-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  padding: 6px 8px;
+  background: var(--hover-bg, #333);
+  border-radius: 4px;
+}
+
+.prompt-category {
+  background: var(--accent-color, #4a9eff);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  min-width: 60px;
+  text-align: center;
+}
+
+.prompt-text {
+  flex: 1;
+  color: var(--text-color, #ccc);
+  font-style: italic;
+}
+
+.diagnostic-prompt-item .btn-sm {
+  flex-shrink: 0;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

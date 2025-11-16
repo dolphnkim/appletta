@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
 import './TrainingPanel.css';
+import {
+  routerLensAPI,
+  RouterLensStatus,
+  SessionSummary,
+  SavedSession,
+  ExpertUsageAnalysis,
+  EntropyAnalysis,
+  DiagnosticPrompt,
+} from '../../api/routerLensAPI';
 
 interface TrainingPanelProps {
   agentId: string;
@@ -54,6 +63,123 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [showNewJobModal, setShowNewJobModal] = useState(false);
+
+  // Router Lens state
+  const [routerStatus, setRouterStatus] = useState<RouterLensStatus | null>(null);
+  const [currentSession, setCurrentSession] = useState<SessionSummary | null>(null);
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+  const [expertAnalysis, setExpertAnalysis] = useState<ExpertUsageAnalysis | null>(null);
+  const [entropyAnalysis, setEntropyAnalysis] = useState<EntropyAnalysis | null>(null);
+  const [diagnosticPrompts, setDiagnosticPrompts] = useState<DiagnosticPrompt[]>([]);
+  const [routerLensLoading, setRouterLensLoading] = useState(false);
+  const [routerLensError, setRouterLensError] = useState<string | null>(null);
+  const [selectedSessionView, setSelectedSessionView] = useState<'current' | 'saved' | 'analysis'>('current');
+
+  // Fetch Router Lens status when MoE Debug tab is active
+  useEffect(() => {
+    if (activeSection === 'moe-debug') {
+      fetchRouterLensStatus();
+      fetchDiagnosticPrompts();
+      fetchSavedSessions();
+    }
+  }, [activeSection]);
+
+  const fetchRouterLensStatus = async () => {
+    try {
+      const status = await routerLensAPI.getStatus();
+      setRouterStatus(status);
+    } catch (err) {
+      console.error('Failed to fetch router lens status:', err);
+      setRouterLensError('Failed to connect to Router Lens service');
+    }
+  };
+
+  const fetchCurrentSession = async () => {
+    try {
+      setRouterLensLoading(true);
+      const summary = await routerLensAPI.getSessionSummary();
+      setCurrentSession(summary);
+    } catch (err) {
+      console.error('Failed to fetch session summary:', err);
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
+  const fetchSavedSessions = async () => {
+    try {
+      const result = await routerLensAPI.listSessions(20);
+      setSavedSessions(result.sessions);
+    } catch (err) {
+      console.error('Failed to fetch saved sessions:', err);
+    }
+  };
+
+  const fetchDiagnosticPrompts = async () => {
+    try {
+      const result = await routerLensAPI.getDiagnosticPrompts();
+      setDiagnosticPrompts(result.prompts);
+    } catch (err) {
+      console.error('Failed to fetch diagnostic prompts:', err);
+    }
+  };
+
+  const analyzeExpertUsage = async () => {
+    try {
+      setRouterLensLoading(true);
+      setRouterLensError(null);
+      const analysis = await routerLensAPI.analyzeExpertUsage();
+      setExpertAnalysis(analysis);
+      setSelectedSessionView('analysis');
+    } catch (err) {
+      console.error('Failed to analyze expert usage:', err);
+      setRouterLensError('Failed to analyze expert usage. Make sure you have saved sessions.');
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
+  const analyzeEntropy = async () => {
+    try {
+      setRouterLensLoading(true);
+      setRouterLensError(null);
+      const analysis = await routerLensAPI.analyzeEntropyDistribution();
+      setEntropyAnalysis(analysis);
+      setSelectedSessionView('analysis');
+    } catch (err) {
+      console.error('Failed to analyze entropy:', err);
+      setRouterLensError('Failed to analyze entropy distribution. Make sure you have saved sessions.');
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
+  const resetInspector = async () => {
+    try {
+      setRouterLensLoading(true);
+      await routerLensAPI.resetInspector(64, 8);
+      await fetchRouterLensStatus();
+      setCurrentSession(null);
+    } catch (err) {
+      console.error('Failed to reset inspector:', err);
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
+  const saveCurrentSession = async () => {
+    try {
+      setRouterLensLoading(true);
+      await routerLensAPI.saveSession('', '');
+      await fetchSavedSessions();
+      alert('Session saved successfully!');
+    } catch (err) {
+      console.error('Failed to save session:', err);
+      alert('Failed to save session');
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
 
   // Placeholder data for now
   useEffect(() => {
@@ -251,40 +377,316 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
           <div className="moe-debug-section">
             <div className="section-header">
               <h4>🔬 Router Lens</h4>
-              <button className="btn-primary" onClick={() => alert('TODO: Run diagnostic')}>
-                Run Diagnostic
+              <div className="router-lens-controls">
+                <button
+                  className="btn-secondary"
+                  onClick={fetchCurrentSession}
+                  disabled={routerLensLoading}
+                >
+                  Refresh Session
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={saveCurrentSession}
+                  disabled={routerLensLoading}
+                >
+                  Save Session
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={resetInspector}
+                  disabled={routerLensLoading}
+                >
+                  Reset Inspector
+                </button>
+              </div>
+            </div>
+
+            {routerLensError && <div className="error-banner">{routerLensError}</div>}
+
+            {routerStatus && (
+              <div className="router-status-bar">
+                <span className="status-indicator active">● Active</span>
+                <span>Experts: {routerStatus.num_experts}</span>
+                <span>Top-K: {routerStatus.top_k}</span>
+                <span>Session Tokens: {routerStatus.current_session_tokens}</span>
+              </div>
+            )}
+
+            <div className="router-lens-tabs">
+              <button
+                className={selectedSessionView === 'current' ? 'active' : ''}
+                onClick={() => {
+                  setSelectedSessionView('current');
+                  fetchCurrentSession();
+                }}
+              >
+                Current Session
+              </button>
+              <button
+                className={selectedSessionView === 'saved' ? 'active' : ''}
+                onClick={() => setSelectedSessionView('saved')}
+              >
+                Saved Sessions ({savedSessions.length})
+              </button>
+              <button
+                className={selectedSessionView === 'analysis' ? 'active' : ''}
+                onClick={() => setSelectedSessionView('analysis')}
+              >
+                Analysis
               </button>
             </div>
 
-            <div className="debug-tools">
-              <div className="debug-card">
-                <h5>Expert Usage Histogram</h5>
-                <p>Run inference on test prompts and visualize which experts are activated.</p>
-                <button onClick={() => alert('TODO: Expert histogram modal')}>View Histogram</button>
-              </div>
+            {routerLensLoading && <div className="loading-indicator">Loading...</div>}
 
-              <div className="debug-card">
-                <h5>Router Logit Inspector</h5>
-                <p>See raw router scores for each token during generation.</p>
-                <button onClick={() => alert('TODO: Logit inspector')}>Open Inspector</button>
-              </div>
+            {selectedSessionView === 'current' && currentSession && (
+              <div className="current-session-view">
+                <div className="session-stats-grid">
+                  <div className="stat-card">
+                    <div className="stat-value">{currentSession.total_tokens}</div>
+                    <div className="stat-label">Total Tokens</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{currentSession.unique_experts_used}</div>
+                    <div className="stat-label">Unique Experts</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{currentSession.usage_entropy.toFixed(3)}</div>
+                    <div className="stat-label">Usage Entropy</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{currentSession.mean_token_entropy.toFixed(3)}</div>
+                    <div className="stat-label">Mean Token Entropy</div>
+                  </div>
+                </div>
 
-              <div className="debug-card">
-                <h5>Expert Masking Tester</h5>
-                <p>Force-disable specific experts and see how responses change.</p>
-                <button onClick={() => alert('TODO: Masking tester')}>Test Masking</button>
-              </div>
+                <div className="expert-usage-section">
+                  <h5>Top Expert Activations</h5>
+                  <div className="expert-bars">
+                    {currentSession.top_experts.slice(0, 10).map((expert) => (
+                      <div key={expert.expert_id} className="expert-bar-row">
+                        <span className="expert-id">E{expert.expert_id}</span>
+                        <div className="expert-bar-container">
+                          <div
+                            className="expert-bar-fill"
+                            style={{ width: `${expert.percentage}%` }}
+                          />
+                        </div>
+                        <span className="expert-count">{expert.count}</span>
+                        <span className="expert-pct">{expert.percentage.toFixed(1)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
-              <div className="debug-card">
-                <h5>Persona Consistency Score</h5>
-                <p>Evaluate responses against persona embedding centroids.</p>
-                <button onClick={() => alert('TODO: Consistency scorer')}>Calculate Score</button>
+                {currentSession.co_occurrence_top_pairs.length > 0 && (
+                  <div className="co-occurrence-section">
+                    <h5>Top Expert Co-occurrences</h5>
+                    <div className="co-occurrence-list">
+                      {currentSession.co_occurrence_top_pairs.slice(0, 8).map(([[e1, e2], count], idx) => (
+                        <div key={idx} className="co-occurrence-item">
+                          <span className="expert-pair">
+                            E{e1} ↔ E{e2}
+                          </span>
+                          <span className="occurrence-count">{count} times</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
+            )}
 
-              <div className="debug-card">
-                <h5>Expert Role Discovery</h5>
-                <p>Cluster expert activations to discover emergent specializations.</p>
-                <button onClick={() => alert('TODO: Role discovery')}>Discover Roles</button>
+            {selectedSessionView === 'current' && !currentSession && !routerLensLoading && (
+              <div className="empty-session">
+                <p>No session data yet. Run inference with Router Lens enabled to capture expert activations.</p>
+                <button className="btn-primary" onClick={fetchCurrentSession}>
+                  Load Current Session
+                </button>
+              </div>
+            )}
+
+            {selectedSessionView === 'saved' && (
+              <div className="saved-sessions-view">
+                {savedSessions.length === 0 ? (
+                  <div className="empty-sessions">
+                    <p>No saved sessions yet. Save sessions during inference to analyze patterns over time.</p>
+                  </div>
+                ) : (
+                  <div className="sessions-list">
+                    {savedSessions.map((session) => (
+                      <div key={session.filename} className="session-item">
+                        <div className="session-time">
+                          {new Date(session.start_time).toLocaleString()}
+                        </div>
+                        <div className="session-meta">
+                          <span>{session.total_tokens} tokens</span>
+                          {session.prompt_preview && (
+                            <span className="prompt-preview">"{session.prompt_preview}..."</span>
+                          )}
+                        </div>
+                        <button
+                          className="btn-sm"
+                          onClick={() => alert(`TODO: Load session ${session.filename}`)}
+                        >
+                          View Details
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selectedSessionView === 'analysis' && (
+              <div className="analysis-view">
+                <div className="analysis-actions">
+                  <button
+                    className="btn-primary"
+                    onClick={analyzeExpertUsage}
+                    disabled={routerLensLoading}
+                  >
+                    Analyze Expert Usage
+                  </button>
+                  <button
+                    className="btn-primary"
+                    onClick={analyzeEntropy}
+                    disabled={routerLensLoading}
+                  >
+                    Analyze Entropy
+                  </button>
+                </div>
+
+                {expertAnalysis && (
+                  <div className="analysis-results">
+                    <h5>Expert Usage Analysis ({expertAnalysis.num_sessions_analyzed} sessions)</h5>
+                    <div className="analysis-grid">
+                      <div className="analysis-card">
+                        <h6>Most Used Experts</h6>
+                        <div className="expert-list">
+                          {expertAnalysis.most_used.slice(0, 10).map(([expertId, count]) => (
+                            <div key={expertId} className="expert-item">
+                              <span className="expert-id">Expert {expertId}</span>
+                              <span className="usage-count">{count} activations</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="analysis-card">
+                        <h6>Least Used Experts</h6>
+                        <div className="expert-list">
+                          {expertAnalysis.least_used.slice(0, 10).map(([expertId, count]) => (
+                            <div key={expertId} className="expert-item">
+                              <span className="expert-id">Expert {expertId}</span>
+                              <span className="usage-count">{count} activations</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    {expertAnalysis.expert_clusters.length > 0 && (
+                      <div className="clusters-section">
+                        <h6>Expert Clusters (Co-activation Patterns)</h6>
+                        <div className="clusters-list">
+                          {expertAnalysis.expert_clusters.map((cluster, idx) => (
+                            <div key={idx} className="cluster-item">
+                              <span className="cluster-label">Cluster {idx + 1}:</span>
+                              <span className="cluster-experts">
+                                {cluster.map((e) => `E${e}`).join(', ')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {entropyAnalysis && (
+                  <div className="entropy-results">
+                    <h5>Entropy Distribution Analysis</h5>
+                    <div className="entropy-stats">
+                      <div className="stat-card">
+                        <div className="stat-value">
+                          {entropyAnalysis.overall_mean_entropy.toFixed(4)}
+                        </div>
+                        <div className="stat-label">Mean Entropy</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="stat-value">
+                          {entropyAnalysis.overall_std_entropy.toFixed(4)}
+                        </div>
+                        <div className="stat-label">Std Entropy</div>
+                      </div>
+                    </div>
+
+                    <div className="entropy-histogram">
+                      <h6>Entropy Distribution</h6>
+                      <div className="histogram-bars">
+                        {entropyAnalysis.entropy_histogram.map((count, idx) => {
+                          const maxCount = Math.max(...entropyAnalysis.entropy_histogram);
+                          const heightPct = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                          return (
+                            <div key={idx} className="histogram-bar-wrapper">
+                              <div
+                                className="histogram-bar"
+                                style={{ height: `${heightPct}%` }}
+                                title={`${entropyAnalysis.entropy_bin_edges[idx].toFixed(2)} - ${entropyAnalysis.entropy_bin_edges[idx + 1].toFixed(2)}: ${count} tokens`}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="histogram-labels">
+                        <span>Low Entropy</span>
+                        <span>High Entropy</span>
+                      </div>
+                    </div>
+
+                    <div className="per-session-entropy">
+                      <h6>Per-Session Entropy</h6>
+                      <div className="session-entropy-list">
+                        {entropyAnalysis.per_session.slice(0, 10).map((sess) => (
+                          <div key={sess.filename} className="session-entropy-item">
+                            <span className="session-name">{sess.filename}</span>
+                            <span className="entropy-range">
+                              {sess.min_entropy.toFixed(3)} - {sess.max_entropy.toFixed(3)}
+                            </span>
+                            <span className="entropy-mean">μ={sess.mean_entropy.toFixed(3)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!expertAnalysis && !entropyAnalysis && (
+                  <div className="empty-analysis">
+                    <p>
+                      Run analysis on saved sessions to discover expert specialization patterns and router
+                      behavior characteristics.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="diagnostic-prompts-section">
+              <h5>Diagnostic Prompts</h5>
+              <p>Use these prompts to test expert routing for different cognitive tasks:</p>
+              <div className="diagnostic-prompts-list">
+                {diagnosticPrompts.map((dp, idx) => (
+                  <div key={idx} className="diagnostic-prompt-item">
+                    <span className="prompt-category">{dp.category}</span>
+                    <span className="prompt-text">{dp.prompt}</span>
+                    <button
+                      className="btn-sm"
+                      onClick={() => alert(`TODO: Run diagnostic with prompt: ${dp.prompt}`)}
+                    >
+                      Test
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
