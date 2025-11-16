@@ -82,6 +82,25 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
     null
   );
 
+  // New job form state
+  const [newJobConfig, setNewJobConfig] = useState<TrainingConfig>({
+    base_model: '',
+    dataset_id: '',
+    training_type: 'lora',
+    lora_rank: 16,
+    lora_alpha: 32,
+    learning_rate: 1e-4,
+    epochs: 10,
+    batch_size: 4,
+    moe_enabled: false,
+    target_experts: [],
+    train_router: false,
+    router_lr: 1e-6,
+    expert_balance_lambda: 0.01,
+  });
+  const [newJobName, setNewJobName] = useState<string>('');
+  const [targetExpertsInput, setTargetExpertsInput] = useState<string>('');
+
   // Fetch Router Lens status when MoE Debug tab is active
   useEffect(() => {
     if (activeSection === 'moe-debug') {
@@ -265,6 +284,63 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
     } finally {
       setRouterLensLoading(false);
     }
+  };
+
+  const resetNewJobForm = () => {
+    setNewJobName('');
+    setNewJobConfig({
+      base_model: '',
+      dataset_id: '',
+      training_type: 'lora',
+      lora_rank: 16,
+      lora_alpha: 32,
+      learning_rate: 1e-4,
+      epochs: 10,
+      batch_size: 4,
+      moe_enabled: false,
+      target_experts: [],
+      train_router: false,
+      router_lr: 1e-6,
+      expert_balance_lambda: 0.01,
+    });
+    setTargetExpertsInput('');
+  };
+
+  const handleCreateJob = () => {
+    if (!newJobName.trim()) {
+      alert('Please enter a job name');
+      return;
+    }
+    if (!newJobConfig.base_model) {
+      alert('Please select a base model');
+      return;
+    }
+    if (!newJobConfig.dataset_id) {
+      alert('Please select a dataset');
+      return;
+    }
+
+    // Parse target experts from comma-separated string
+    const targetExperts = targetExpertsInput
+      .split(',')
+      .map((s) => parseInt(s.trim()))
+      .filter((n) => !isNaN(n) && n >= 0);
+
+    const newJob: TrainingJob = {
+      id: Date.now().toString(),
+      name: newJobName.trim(),
+      status: 'pending',
+      config: {
+        ...newJobConfig,
+        target_experts: targetExperts.length > 0 ? targetExperts : undefined,
+      },
+      created_at: new Date().toISOString(),
+    };
+
+    setJobs([newJob, ...jobs]);
+    setShowNewJobModal(false);
+    resetNewJobForm();
+    alert(`Training job "${newJob.name}" created! (Note: Backend training not yet implemented)`);
   };
 
   // Placeholder data for now
@@ -833,26 +909,255 @@ export default function TrainingPanel({ agentId }: TrainingPanelProps) {
 
       {showNewJobModal && (
         <div className="modal-overlay" onClick={() => setShowNewJobModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content new-job-modal" onClick={(e) => e.stopPropagation()}>
             <h3>New Training Job</h3>
-            <p>TODO: Full training configuration form</p>
-            <ul>
-              <li>Base model selection</li>
-              <li>Dataset selection</li>
-              <li>Training type (LoRA/QLoRA/Full)</li>
-              <li>MoE-specific options:
-                <ul>
-                  <li>Target expert selection</li>
-                  <li>Router training toggle</li>
-                  <li>Balance loss configuration</li>
-                  <li>Expert masking schedule</li>
-                </ul>
-              </li>
-              <li>Tag token configuration</li>
-              <li>Curriculum phases</li>
-              <li>DPO/preference stage setup</li>
-            </ul>
-            <button onClick={() => setShowNewJobModal(false)}>Close</button>
+
+            <div className="job-form">
+              {/* Basic Info */}
+              <div className="form-section">
+                <h4>Basic Configuration</h4>
+                <div className="form-row">
+                  <label>Job Name:</label>
+                  <input
+                    type="text"
+                    value={newJobName}
+                    onChange={(e) => setNewJobName(e.target.value)}
+                    placeholder="e.g., Persona LoRA v2"
+                  />
+                </div>
+
+                <div className="form-row">
+                  <label>Base Model:</label>
+                  <select
+                    value={newJobConfig.base_model}
+                    onChange={(e) => setNewJobConfig({ ...newJobConfig, base_model: e.target.value })}
+                  >
+                    <option value="">Select a model...</option>
+                    <option value="Qwen2-MoE-3B">Qwen2-MoE-3B</option>
+                    <option value="Qwen2-MoE-7B">Qwen2-MoE-7B</option>
+                    <option value="Mixtral-8x7B">Mixtral-8x7B</option>
+                    <option value="custom">Custom Path...</option>
+                  </select>
+                </div>
+
+                <div className="form-row">
+                  <label>Dataset:</label>
+                  <select
+                    value={newJobConfig.dataset_id}
+                    onChange={(e) => setNewJobConfig({ ...newJobConfig, dataset_id: e.target.value })}
+                  >
+                    <option value="">Select a dataset...</option>
+                    {datasets.map((ds) => (
+                      <option key={ds.id} value={ds.id}>
+                        {ds.name} ({ds.num_examples} examples)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Training Type */}
+              <div className="form-section">
+                <h4>Training Method</h4>
+                <div className="form-row">
+                  <label>Training Type:</label>
+                  <div className="radio-group">
+                    <label className="radio-label">
+                      <input
+                        type="radio"
+                        name="training_type"
+                        value="lora"
+                        checked={newJobConfig.training_type === 'lora'}
+                        onChange={(e) =>
+                          setNewJobConfig({
+                            ...newJobConfig,
+                            training_type: e.target.value as 'lora' | 'qlora' | 'full',
+                          })
+                        }
+                      />
+                      LoRA
+                    </label>
+                    <label className="radio-label">
+                      <input
+                        type="radio"
+                        name="training_type"
+                        value="qlora"
+                        checked={newJobConfig.training_type === 'qlora'}
+                        onChange={(e) =>
+                          setNewJobConfig({
+                            ...newJobConfig,
+                            training_type: e.target.value as 'lora' | 'qlora' | 'full',
+                          })
+                        }
+                      />
+                      QLoRA (4-bit)
+                    </label>
+                    <label className="radio-label">
+                      <input
+                        type="radio"
+                        name="training_type"
+                        value="full"
+                        checked={newJobConfig.training_type === 'full'}
+                        onChange={(e) =>
+                          setNewJobConfig({
+                            ...newJobConfig,
+                            training_type: e.target.value as 'lora' | 'qlora' | 'full',
+                          })
+                        }
+                      />
+                      Full Fine-tune
+                    </label>
+                  </div>
+                </div>
+
+                {newJobConfig.training_type !== 'full' && (
+                  <div className="lora-params">
+                    <div className="form-row inline">
+                      <label>LoRA Rank (r):</label>
+                      <input
+                        type="number"
+                        min="4"
+                        max="128"
+                        value={newJobConfig.lora_rank}
+                        onChange={(e) => setNewJobConfig({ ...newJobConfig, lora_rank: parseInt(e.target.value) })}
+                      />
+                    </div>
+                    <div className="form-row inline">
+                      <label>LoRA Alpha:</label>
+                      <input
+                        type="number"
+                        min="8"
+                        max="256"
+                        value={newJobConfig.lora_alpha}
+                        onChange={(e) => setNewJobConfig({ ...newJobConfig, lora_alpha: parseInt(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Hyperparameters */}
+              <div className="form-section">
+                <h4>Hyperparameters</h4>
+                <div className="hyperparam-grid">
+                  <div className="form-row inline">
+                    <label>Learning Rate:</label>
+                    <input
+                      type="number"
+                      step="0.00001"
+                      min="0.000001"
+                      max="0.01"
+                      value={newJobConfig.learning_rate}
+                      onChange={(e) => setNewJobConfig({ ...newJobConfig, learning_rate: parseFloat(e.target.value) })}
+                    />
+                  </div>
+                  <div className="form-row inline">
+                    <label>Epochs:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={newJobConfig.epochs}
+                      onChange={(e) => setNewJobConfig({ ...newJobConfig, epochs: parseInt(e.target.value) })}
+                    />
+                  </div>
+                  <div className="form-row inline">
+                    <label>Batch Size:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="32"
+                      value={newJobConfig.batch_size}
+                      onChange={(e) => setNewJobConfig({ ...newJobConfig, batch_size: parseInt(e.target.value) })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* MoE Options */}
+              <div className="form-section moe-section">
+                <h4>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={newJobConfig.moe_enabled}
+                      onChange={(e) => setNewJobConfig({ ...newJobConfig, moe_enabled: e.target.checked })}
+                    />
+                    MoE-Specific Options
+                  </label>
+                </h4>
+
+                {newJobConfig.moe_enabled && (
+                  <div className="moe-options">
+                    <div className="form-row">
+                      <label>Target Experts (comma-separated IDs, leave empty for all):</label>
+                      <input
+                        type="text"
+                        value={targetExpertsInput}
+                        onChange={(e) => setTargetExpertsInput(e.target.value)}
+                        placeholder="e.g., 2, 7, 14, 23"
+                      />
+                      <small>Specify which experts to train. Empty = train all experts.</small>
+                    </div>
+
+                    <div className="form-row">
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={newJobConfig.train_router}
+                          onChange={(e) => setNewJobConfig({ ...newJobConfig, train_router: e.target.checked })}
+                        />
+                        Train Router (gate) weights
+                      </label>
+                    </div>
+
+                    {newJobConfig.train_router && (
+                      <div className="form-row inline">
+                        <label>Router Learning Rate:</label>
+                        <input
+                          type="number"
+                          step="0.0000001"
+                          min="0.0000001"
+                          max="0.001"
+                          value={newJobConfig.router_lr}
+                          onChange={(e) => setNewJobConfig({ ...newJobConfig, router_lr: parseFloat(e.target.value) })}
+                        />
+                      </div>
+                    )}
+
+                    <div className="form-row inline">
+                      <label>Expert Balance Lambda:</label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        max="1"
+                        value={newJobConfig.expert_balance_lambda}
+                        onChange={(e) =>
+                          setNewJobConfig({ ...newJobConfig, expert_balance_lambda: parseFloat(e.target.value) })
+                        }
+                      />
+                      <small>Loss penalty for uneven expert usage (0 = disabled)</small>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setShowNewJobModal(false);
+                  resetNewJobForm();
+                }}
+              >
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={handleCreateJob}>
+                Create Job
+              </button>
+            </div>
           </div>
         </div>
       )}
