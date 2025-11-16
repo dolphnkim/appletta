@@ -10,6 +10,8 @@ export interface JournalBlock {
   read_only: boolean;
   editable_by_main_agent: boolean;
   editable_by_memory_agent: boolean;
+  attached: boolean;
+  always_in_context: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +23,8 @@ export interface JournalBlockCreate {
   read_only?: boolean;
   editable_by_main_agent?: boolean;
   editable_by_memory_agent?: boolean;
+  attached?: boolean;
+  always_in_context?: boolean;
 }
 
 export interface JournalBlockUpdate {
@@ -30,4 +34,6 @@ export interface JournalBlockUpdate {
   read_only?: boolean;
   editable_by_main_agent?: boolean;
   editable_by_memory_agent?: boolean;
+  attached?: boolean;
+  always_in_context?: boolean;
 }
