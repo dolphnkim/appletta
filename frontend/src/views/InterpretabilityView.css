@@ -759,6 +759,56 @@
   padding: 20px;
 }
 
+.welfare-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #333;
+}
+
+.welfare-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #4a9eff;
+}
+
+.conversation-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.conversation-selector label {
+  font-size: 13px;
+  color: #888;
+  font-weight: 600;
+}
+
+.conversation-select {
+  background: #2a2a2a;
+  border: 1px solid #404040;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 250px;
+  cursor: pointer;
+}
+
+.conversation-select:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.loading-text,
+.no-conversations {
+  font-size: 13px;
+  color: #888;
+  font-style: italic;
+}
+
 /* Modal Overlay */
 .modal-overlay {
   position: fixed;
