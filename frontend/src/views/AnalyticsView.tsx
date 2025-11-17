@@ -35,6 +35,12 @@ export default function AnalyticsView() {
     null
   );
 
+  // Model browser state
+  const [availableModels, setAvailableModels] = useState<Array<{ name: string; path: string; type: string }>>([]);
+  const [availableAdapters, setAvailableAdapters] = useState<Array<{ name: string; path: string }>>([]);
+  const [showModelBrowser, setShowModelBrowser] = useState(false);
+  const [showAdapterBrowser, setShowAdapterBrowser] = useState(false);
+
   // Fetch data when Expert Analytics tab is active
   useEffect(() => {
     if (activeTab === 'expert') {
@@ -42,8 +48,28 @@ export default function AnalyticsView() {
       fetchDiagnosticPrompts();
       fetchSavedSessions();
       fetchModelStatus();
+      fetchAvailableModels();
+      fetchAvailableAdapters();
     }
   }, [activeTab]);
+
+  const fetchAvailableModels = async () => {
+    try {
+      const result = await routerLensAPI.browseModels();
+      setAvailableModels(result.models);
+    } catch (err) {
+      console.error('Failed to browse models:', err);
+    }
+  };
+
+  const fetchAvailableAdapters = async () => {
+    try {
+      const result = await routerLensAPI.browseAdapters();
+      setAvailableAdapters(result.adapters);
+    } catch (err) {
+      console.error('Failed to browse adapters:', err);
+    }
+  };
 
   const fetchModelStatus = async () => {
     try {
@@ -233,7 +259,7 @@ export default function AnalyticsView() {
           className={activeTab === 'expert' ? 'active' : ''}
           onClick={() => setActiveTab('expert')}
         >
-          Expert Analytics
+          MoE Expert Analytics
         </button>
         <button
           className={activeTab === 'welfare' ? 'active' : ''}
@@ -297,21 +323,80 @@ export default function AnalyticsView() {
                 <div className="model-loader-form">
                   <div className="form-row">
                     <label>Model Path:</label>
-                    <input
-                      type="text"
-                      value={modelPath}
-                      onChange={(e) => setModelPath(e.target.value)}
-                      placeholder="e.g., ~/.cache/huggingface/Qwen2-MoE-3B"
-                    />
+                    <div className="input-with-browse">
+                      <input
+                        type="text"
+                        value={modelPath}
+                        onChange={(e) => setModelPath(e.target.value)}
+                        placeholder="Select from available models or enter path..."
+                      />
+                      <button
+                        className="btn-browse"
+                        onClick={() => setShowModelBrowser(!showModelBrowser)}
+                        title="Browse available models"
+                      >
+                        📂
+                      </button>
+                    </div>
+                    {showModelBrowser && (
+                      <div className="browser-dropdown">
+                        {availableModels.length === 0 ? (
+                          <div className="browser-empty">No models found in configured directory</div>
+                        ) : (
+                          availableModels.map((model) => (
+                            <div
+                              key={model.path}
+                              className="browser-item"
+                              onClick={() => {
+                                setModelPath(model.path);
+                                setShowModelBrowser(false);
+                              }}
+                            >
+                              <span className="browser-item-name">{model.name}</span>
+                              <span className="browser-item-type">{model.type}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="form-row">
                     <label>Adapter Path (optional):</label>
-                    <input
-                      type="text"
-                      value={adapterPath}
-                      onChange={(e) => setAdapterPath(e.target.value)}
-                      placeholder="e.g., ./adapters/my-lora"
-                    />
+                    <div className="input-with-browse">
+                      <input
+                        type="text"
+                        value={adapterPath}
+                        onChange={(e) => setAdapterPath(e.target.value)}
+                        placeholder="Select adapter or leave empty..."
+                      />
+                      <button
+                        className="btn-browse"
+                        onClick={() => setShowAdapterBrowser(!showAdapterBrowser)}
+                        title="Browse available adapters"
+                      >
+                        📂
+                      </button>
+                    </div>
+                    {showAdapterBrowser && (
+                      <div className="browser-dropdown">
+                        {availableAdapters.length === 0 ? (
+                          <div className="browser-empty">No adapters found in configured directory</div>
+                        ) : (
+                          availableAdapters.map((adapter) => (
+                            <div
+                              key={adapter.path}
+                              className="browser-item"
+                              onClick={() => {
+                                setAdapterPath(adapter.path);
+                                setShowAdapterBrowser(false);
+                              }}
+                            >
+                              <span className="browser-item-name">{adapter.name}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                   <button
                     className="btn-primary"

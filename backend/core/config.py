@@ -1,6 +1,7 @@
 """Application configuration"""
 
 import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
@@ -22,6 +23,16 @@ class Settings(BaseSettings):
 
     # CORS
     BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+
+    # Model paths
+    MODELS_DIR: str = os.getenv(
+        "MODELS_DIR",
+        str(Path.home() / ".cache" / "huggingface" / "hub")
+    )
+    ADAPTERS_DIR: str = os.getenv(
+        "ADAPTERS_DIR",
+        str(Path.home() / "appletta" / "adapters")
+    )
 
     class Config:
         case_sensitive = True

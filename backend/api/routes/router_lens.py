@@ -13,6 +13,7 @@ from backend.db.models.agent import Agent
 from backend.services.router_lens import get_router_inspector, reset_router_inspector
 from backend.services.moe_model_wrapper import create_diagnostic_prompt_set
 from backend.services.diagnostic_inference import get_diagnostic_service
+from backend.core.config import settings
 
 router = APIRouter(prefix="/api/v1/router-lens", tags=["router-lens"])
 
@@ -394,3 +395,83 @@ async def quick_diagnostic_test():
         return result
     except Exception as e:
         raise HTTPException(500, f"Inference failed: {str(e)}")
+
+
+@router.get("/config/paths")
+async def get_model_paths():
+    """Get configured model and adapter directories"""
+    return {
+        "models_dir": settings.MODELS_DIR,
+        "adapters_dir": settings.ADAPTERS_DIR
+    }
+
+
+@router.get("/browse/models")
+async def browse_models():
+    """List available models in the configured models directory"""
+    models_dir = Path(settings.MODELS_DIR).expanduser()
+
+    if not models_dir.exists():
+        return {"models": [], "base_path": str(models_dir), "exists": False}
+
+    models = []
+
+    # Look for directories that look like model repos (have config.json)
+    for item in models_dir.iterdir():
+        if item.is_dir():
+            # Check if it's a HuggingFace cache structure (models--org--name)
+            if item.name.startswith("models--"):
+                # Parse the model name from cache structure
+                parts = item.name.replace("models--", "").split("--")
+                model_name = "/".join(parts)
+
+                # Find the actual snapshot directory
+                snapshots_dir = item / "snapshots"
+                if snapshots_dir.exists():
+                    for snapshot in snapshots_dir.iterdir():
+                        if snapshot.is_dir() and (snapshot / "config.json").exists():
+                            models.append({
+                                "name": model_name,
+                                "path": str(snapshot),
+                                "type": "huggingface_cache"
+                            })
+                            break  # Just use the first valid snapshot
+            elif (item / "config.json").exists():
+                # Direct model directory
+                models.append({
+                    "name": item.name,
+                    "path": str(item),
+                    "type": "local"
+                })
+
+    return {
+        "models": models,
+        "base_path": str(models_dir),
+        "exists": True
+    }
+
+
+@router.get("/browse/adapters")
+async def browse_adapters():
+    """List available adapters in the configured adapters directory"""
+    adapters_dir = Path(settings.ADAPTERS_DIR).expanduser()
+
+    if not adapters_dir.exists():
+        return {"adapters": [], "base_path": str(adapters_dir), "exists": False}
+
+    adapters = []
+
+    # Look for directories that contain adapter_config.json or adapter_model.bin
+    for item in adapters_dir.iterdir():
+        if item.is_dir():
+            if (item / "adapter_config.json").exists() or (item / "adapter_model.safetensors").exists():
+                adapters.append({
+                    "name": item.name,
+                    "path": str(item)
+                })
+
+    return {
+        "adapters": adapters,
+        "base_path": str(adapters_dir),
+        "exists": True
+    }

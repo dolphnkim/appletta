@@ -175,4 +175,22 @@ export const routerLensAPI = {
     is_moe_model: boolean;
     inspector_status: RouterLensStatus;
   }> => fetchAPI('/diagnostic/model-status'),
+
+  // Model browsing
+  getConfigPaths: (): Promise<{
+    models_dir: string;
+    adapters_dir: string;
+  }> => fetchAPI('/config/paths'),
+
+  browseModels: (): Promise<{
+    models: Array<{ name: string; path: string; type: string }>;
+    base_path: string;
+    exists: boolean;
+  }> => fetchAPI('/browse/models'),
+
+  browseAdapters: (): Promise<{
+    adapters: Array<{ name: string; path: string }>;
+    base_path: string;
+    exists: boolean;
+  }> => fetchAPI('/browse/adapters'),
 };
