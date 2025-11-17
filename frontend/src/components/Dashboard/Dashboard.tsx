@@ -154,6 +154,21 @@ export default function Dashboard() {
             <span>Export data</span>
           </div>
         </div>
+
+        {/* VS Code Integration Module */}
+        <div
+          className="dashboard-card vscode-card"
+          onClick={() => navigate('/vscode')}
+        >
+          <div className="card-icon">⚡</div>
+          <h3>VS Code Integration</h3>
+          <p>Serve local MLX models as an OpenAI-compatible API for VS Code extensions.</p>
+          <div className="card-stats">
+            <span>OpenAI API compatible</span>
+            <span>Local inference</span>
+            <span>Continue.dev ready</span>
+          </div>
+        </div>
       </div>
 
       <footer className="dashboard-footer">
