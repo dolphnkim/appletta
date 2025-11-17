@@ -193,4 +193,19 @@ export const routerLensAPI = {
     base_path: string;
     exists: boolean;
   }> => fetchAPI('/browse/adapters'),
+
+  browseDirectory: (
+    path: string = '~'
+  ): Promise<{
+    path: string;
+    exists: boolean;
+    items: Array<{
+      name: string;
+      path: string;
+      is_dir: boolean;
+      is_model?: boolean;
+      is_adapter?: boolean;
+    }>;
+    parent: string | null;
+  }> => fetchAPI(`/browse/directory?path=${encodeURIComponent(path)}`),
 };

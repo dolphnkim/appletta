@@ -475,3 +475,61 @@ async def browse_adapters():
         "base_path": str(adapters_dir),
         "exists": True
     }
+
+
+@router.get("/browse/directory")
+async def browse_directory(path: str = "~"):
+    """Browse any directory on the filesystem
+
+    Args:
+        path: Directory path to browse (default: home directory)
+
+    Returns:
+        List of items (files and directories) in the specified path
+    """
+    browse_path = Path(path).expanduser().resolve()
+
+    if not browse_path.exists():
+        return {
+            "path": str(browse_path),
+            "exists": False,
+            "items": [],
+            "parent": str(browse_path.parent)
+        }
+
+    if not browse_path.is_dir():
+        # If it's a file, return the parent directory
+        browse_path = browse_path.parent
+
+    items = []
+    try:
+        for item in sorted(browse_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            # Skip hidden files/dirs unless they're important ones
+            if item.name.startswith('.') and item.name not in ['.cache']:
+                continue
+
+            item_info = {
+                "name": item.name,
+                "path": str(item),
+                "is_dir": item.is_dir(),
+            }
+
+            # Check if it's a model directory (has config.json)
+            if item.is_dir() and (item / "config.json").exists():
+                item_info["is_model"] = True
+
+            # Check if it's an adapter directory
+            if item.is_dir() and ((item / "adapter_config.json").exists() or
+                                   (item / "adapter_model.safetensors").exists()):
+                item_info["is_adapter"] = True
+
+            items.append(item_info)
+    except PermissionError:
+        pass  # Skip items we can't access
+
+    return {
+        "path": str(browse_path),
+        "exists": True,
+        "items": items,
+        "parent": str(browse_path.parent) if browse_path.parent != browse_path else None
+    }
