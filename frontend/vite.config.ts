@@ -9,6 +9,12 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        timeout: 600000, // 10 minutes for model loading
+      },
+      '/v1': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        timeout: 600000, // 10 minutes for inference
       },
     },
   },
