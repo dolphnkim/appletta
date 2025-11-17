@@ -21,6 +21,7 @@ class RouterInspector:
     def __init__(self, num_experts: int = 64, top_k: int = 8):
         self.num_experts = num_experts
         self.top_k = top_k
+        self.enable_logging = False
 
         # Session data
         self.current_session: Dict[str, Any] = {}
@@ -35,6 +36,7 @@ class RouterInspector:
         self.current_session = {
             "start_time": datetime.utcnow().isoformat() + "Z",
             "tokens": [],  # Per-token expert selections
+            "total_tokens": 0,  # Counter for token indexing
             "expert_usage_count": {i: 0 for i in range(self.num_experts)},
             "gate_logits_history": [],  # Raw gate logits for analysis
             "entropy_history": [],  # Router entropy per token
@@ -80,6 +82,9 @@ class RouterInspector:
 
         # Store entropy
         self.current_session["entropy_history"].append(entropy)
+
+        # Increment token counter
+        self.current_session["total_tokens"] += 1
 
         # Optionally store full gate logits (expensive, for deep analysis)
         if len(self.current_session["gate_logits_history"]) < 100:  # Limit storage
@@ -150,6 +155,16 @@ class RouterInspector:
             json.dump(self.current_session, f, indent=2, default=str)
 
         return str(filepath)
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get current inspector status"""
+        return {
+            "num_experts": self.num_experts,
+            "top_k": self.top_k,
+            "session_tokens": len(self.current_session.get("tokens", [])),
+            "log_directory": str(self.log_dir),
+            "enable_logging": getattr(self, "enable_logging", False),
+        }
 
     def analyze_expert_specialization(self, sessions: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Analyze expert specialization across multiple sessions
