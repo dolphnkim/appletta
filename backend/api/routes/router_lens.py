@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from backend.db.session import get_db
@@ -38,6 +38,8 @@ class DiagnosticInferenceRequest(BaseModel):
 
 
 class LoadModelRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     model_path: str
     adapter_path: Optional[str] = None
 
