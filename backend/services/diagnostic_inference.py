@@ -18,7 +18,7 @@ try:
 except ImportError:
     MLX_AVAILABLE = False
 
-from services.router_lens import RouterInspector
+from backend.services.router_lens import RouterInspector
 
 
 class DiagnosticInferenceService:
