@@ -233,12 +233,12 @@ class DiagnosticInferenceService:
         print(f"[Diagnostic] Running inference: {prompt[:50]}...")
 
         # Generate text
+        # Note: mlx_lm API may vary by version, using minimal args for compatibility
         response = generate(
             self.model,
             self.tokenizer,
             prompt=prompt,
-            max_tokens=max_tokens,
-            temperature=temperature
+            max_tokens=max_tokens
         )
 
         # Disable logging
