@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AffectDashboard from '../components/AffectDashboard/AffectDashboard';
 import { routerLensAPI } from '../api/routerLensAPI';
+import { conversationAPI } from '../api/conversationAPI';
 import type {
   RouterLensStatus,
   SessionSummary,
@@ -10,6 +11,7 @@ import type {
   EntropyAnalysis,
   DiagnosticPrompt,
 } from '../api/routerLensAPI';
+import type { Conversation } from '../types/conversation';
 import './InterpretabilityView.css';
 
 export default function InterpretabilityView() {
@@ -44,6 +46,11 @@ export default function InterpretabilityView() {
   >([]);
   const [browseParent, setBrowseParent] = useState<string | null>(null);
 
+  // Welfare tracking state
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
+
   // Fetch data when Expert Analytics tab is active
   useEffect(() => {
     if (activeTab === 'expert') {
@@ -53,6 +60,13 @@ export default function InterpretabilityView() {
       fetchModelStatus();
     }
   }, [activeTab]);
+
+  // Fetch conversations when Welfare tab is active or agent changes
+  useEffect(() => {
+    if (activeTab === 'welfare' && agentId) {
+      fetchConversations();
+    }
+  }, [activeTab, agentId]);
 
   const openFileBrowser = (mode: 'model' | 'adapter') => {
     setFileBrowserMode(mode);
@@ -166,6 +180,29 @@ export default function InterpretabilityView() {
       setDiagnosticPrompts(result.prompts);
     } catch (err) {
       console.error('Failed to fetch diagnostic prompts:', err);
+    }
+  };
+
+  const fetchConversations = async () => {
+    if (!agentId) return;
+
+    try {
+      setConversationsLoading(true);
+      const convos = await conversationAPI.list(agentId);
+      setConversations(convos);
+
+      // Auto-select the most recent conversation if none selected
+      if (convos.length > 0 && !selectedConversationId) {
+        // Sort by updated_at to get the most recent
+        const sorted = [...convos].sort((a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        );
+        setSelectedConversationId(sorted[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err);
+    } finally {
+      setConversationsLoading(false);
     }
   };
 
@@ -676,8 +713,30 @@ export default function InterpretabilityView() {
 
         {activeTab === 'welfare' && (
           <div className="welfare-section">
-            <h3>Welfare Tracking</h3>
-            <AffectDashboard conversationId={undefined} agentId={agentId} />
+            <div className="welfare-header">
+              <h3>Welfare Tracking</h3>
+              <div className="conversation-selector">
+                <label>Select Conversation:</label>
+                {conversationsLoading ? (
+                  <span className="loading-text">Loading conversations...</span>
+                ) : conversations.length === 0 ? (
+                  <span className="no-conversations">No conversations found for this agent</span>
+                ) : (
+                  <select
+                    value={selectedConversationId || ''}
+                    onChange={(e) => setSelectedConversationId(e.target.value)}
+                    className="conversation-select"
+                  >
+                    {conversations.map((convo) => (
+                      <option key={convo.id} value={convo.id}>
+                        {convo.title || `Conversation ${new Date(convo.created_at).toLocaleDateString()}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+            <AffectDashboard conversationId={selectedConversationId || undefined} agentId={agentId} />
           </div>
         )}
       </div>
