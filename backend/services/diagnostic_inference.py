@@ -13,10 +13,10 @@ from datetime import datetime
 try:
     import mlx.core as mx
     from mlx_lm import load, generate
-    from mlx_lm.models.base import KVCache
     MLX_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     MLX_AVAILABLE = False
+    print(f"[Diagnostic] MLX import failed: {e}")
 
 from backend.services.router_lens import RouterInspector
 
