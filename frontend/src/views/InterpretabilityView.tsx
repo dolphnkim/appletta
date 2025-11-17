@@ -10,9 +10,9 @@ import type {
   EntropyAnalysis,
   DiagnosticPrompt,
 } from '../api/routerLensAPI';
-import './AnalyticsView.css';
+import './InterpretabilityView.css';
 
-export default function AnalyticsView() {
+export default function InterpretabilityView() {
   const navigate = useNavigate();
   const agentId = localStorage.getItem('selectedAgentId') || '';
   const [activeTab, setActiveTab] = useState<'expert' | 'welfare'>('expert');
@@ -255,15 +255,15 @@ export default function AnalyticsView() {
   };
 
   return (
-    <div className="analytics-view">
-      <header className="analytics-view-header">
+    <div className="interpretability-view">
+      <header className="interpretability-view-header">
         <button className="back-button" onClick={() => navigate('/')}>
           ← Back to Dashboard
         </button>
-        <h2>📊 Analytics</h2>
+        <h2>🔬 Interpretability</h2>
       </header>
 
-      <div className="analytics-tabs">
+      <div className="interpretability-tabs">
         <button
           className={activeTab === 'expert' ? 'active' : ''}
           onClick={() => setActiveTab('expert')}
@@ -278,7 +278,7 @@ export default function AnalyticsView() {
         </button>
       </div>
 
-      <div className="analytics-view-content">
+      <div className="interpretability-view-content">
         {activeTab === 'expert' && (
           <div className="expert-analytics-section">
             <div className="section-header">
@@ -417,7 +417,17 @@ export default function AnalyticsView() {
                 <div className="session-stats-grid">
                   <div className="stat-card">
                     <div className="stat-value">{currentSession.total_tokens || 0}</div>
-                    <div className="stat-label">Total Tokens</div>
+                    <div className="stat-label" title="Total number of layer activations logged (layers × tokens)">
+                      Layer Activations
+                    </div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">
+                      {(currentSession as any).actual_tokens_generated || 0}
+                    </div>
+                    <div className="stat-label" title="Actual tokens generated in the response">
+                      Generated Tokens
+                    </div>
                   </div>
                   <div className="stat-card">
                     <div className="stat-value">{currentSession.unique_experts_used || 0}</div>
@@ -425,11 +435,15 @@ export default function AnalyticsView() {
                   </div>
                   <div className="stat-card">
                     <div className="stat-value">{(currentSession.usage_entropy || 0).toFixed(3)}</div>
-                    <div className="stat-label">Usage Entropy</div>
+                    <div className="stat-label" title="Higher values = more balanced expert usage">
+                      Usage Entropy
+                    </div>
                   </div>
                   <div className="stat-card">
                     <div className="stat-value">{(currentSession.mean_token_entropy || 0).toFixed(3)}</div>
-                    <div className="stat-label">Mean Token Entropy</div>
+                    <div className="stat-label" title="Average entropy of router decisions per token">
+                      Mean Token Entropy
+                    </div>
                   </div>
                 </div>
 
