@@ -412,23 +412,23 @@ export default function AnalyticsView() {
 
             {routerLensLoading && <div className="loading-indicator">Loading...</div>}
 
-            {selectedSessionView === 'current' && currentSession && (
+            {selectedSessionView === 'current' && currentSession && !('error' in currentSession) && (
               <div className="current-session-view">
                 <div className="session-stats-grid">
                   <div className="stat-card">
-                    <div className="stat-value">{currentSession.total_tokens}</div>
+                    <div className="stat-value">{currentSession.total_tokens || 0}</div>
                     <div className="stat-label">Total Tokens</div>
                   </div>
                   <div className="stat-card">
-                    <div className="stat-value">{currentSession.unique_experts_used}</div>
+                    <div className="stat-value">{currentSession.unique_experts_used || 0}</div>
                     <div className="stat-label">Unique Experts</div>
                   </div>
                   <div className="stat-card">
-                    <div className="stat-value">{currentSession.usage_entropy.toFixed(3)}</div>
+                    <div className="stat-value">{(currentSession.usage_entropy || 0).toFixed(3)}</div>
                     <div className="stat-label">Usage Entropy</div>
                   </div>
                   <div className="stat-card">
-                    <div className="stat-value">{currentSession.mean_token_entropy.toFixed(3)}</div>
+                    <div className="stat-value">{(currentSession.mean_token_entropy || 0).toFixed(3)}</div>
                     <div className="stat-label">Mean Token Entropy</div>
                   </div>
                 </div>
@@ -436,7 +436,7 @@ export default function AnalyticsView() {
                 <div className="expert-usage-section">
                   <h5>Top Expert Activations</h5>
                   <div className="expert-bars">
-                    {currentSession.top_experts.slice(0, 10).map((expert) => (
+                    {(currentSession.top_experts || []).slice(0, 10).map((expert) => (
                       <div key={expert.expert_id} className="expert-bar-row">
                         <span className="expert-id">E{expert.expert_id}</span>
                         <div className="expert-bar-container">
@@ -452,11 +452,11 @@ export default function AnalyticsView() {
                   </div>
                 </div>
 
-                {currentSession.co_occurrence_top_pairs.length > 0 && (
+                {(currentSession.co_occurrence_top_pairs || []).length > 0 && (
                   <div className="co-occurrence-section">
                     <h5>Top Expert Co-occurrences</h5>
                     <div className="co-occurrence-list">
-                      {currentSession.co_occurrence_top_pairs.slice(0, 8).map(([[e1, e2], count], idx) => (
+                      {(currentSession.co_occurrence_top_pairs || []).slice(0, 8).map(([[e1, e2], count], idx) => (
                         <div key={idx} className="co-occurrence-item">
                           <span className="expert-pair">
                             E{e1} ↔ E{e2}
@@ -467,6 +467,13 @@ export default function AnalyticsView() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {selectedSessionView === 'current' && currentSession && 'error' in currentSession && (
+              <div className="empty-session">
+                <p>No router data captured. Router introspection may have failed during inference.</p>
+                <p className="error-detail">{(currentSession as { error: string }).error}</p>
               </div>
             )}
 
