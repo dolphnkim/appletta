@@ -3,6 +3,7 @@ import Dashboard from './components/Dashboard/Dashboard';
 import ChatView from './views/ChatView';
 import TrainingView from './views/TrainingView';
 import AnalyticsView from './views/AnalyticsView';
+import VSCodeIntegrationView from './views/VSCodeIntegrationView';
 import './App.css';
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
       <Route path="/chat" element={<ChatView />} />
       <Route path="/training" element={<TrainingView />} />
       <Route path="/analytics" element={<AnalyticsView />} />
+      <Route path="/vscode" element={<VSCodeIntegrationView />} />
       {/* Placeholder routes for future modules */}
       <Route path="/memory" element={<ComingSoon title="Memory Bank" />} />
       <Route path="/agents" element={<ComingSoon title="Agent Workshop" />} />

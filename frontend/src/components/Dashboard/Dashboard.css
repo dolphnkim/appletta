@@ -125,6 +125,10 @@
   --card-color: #84cc16;
 }
 
+.vscode-card {
+  --card-color: #fbbf24;
+}
+
 .card-icon {
   font-size: 48px;
   margin-bottom: 16px;
