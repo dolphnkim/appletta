@@ -362,6 +362,9 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
             onChange={(e) => onAgentChange(e.target.value)}
             title="Select agent"
           >
+            {agents.length === 0 && (
+              <option value={agentId}>Loading agents...</option>
+            )}
             {agents.map(agent => (
               <option key={agent.id} value={agent.id}>
                 {agent.name}
