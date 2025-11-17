@@ -1,6 +1,7 @@
 """API routes for Router Lens - MoE introspection tools"""
 
 import json
+import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -278,6 +279,8 @@ async def load_model_for_diagnostics(request: LoadModelRequest):
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     except Exception as e:
+        print(f"[Diagnostic] Load model error: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(500, f"Failed to load model: {str(e)}")
 
 
@@ -394,6 +397,8 @@ async def quick_diagnostic_test():
 
         return result
     except Exception as e:
+        print(f"[Diagnostic] Inference error: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(500, f"Inference failed: {str(e)}")
 
 
