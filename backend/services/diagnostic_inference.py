@@ -137,10 +137,15 @@ class DiagnosticInferenceService:
             print(f"[Diagnostic] MoE Config: {num_experts} experts, top-{top_k} selection")
 
             # Patch each MoE layer to log router decisions
+            patched_count = 0
             if hasattr(self.model, 'model') and hasattr(self.model.model, 'layers'):
                 for layer_idx, layer in enumerate(self.model.model.layers):
                     if hasattr(layer, 'mlp') and hasattr(layer.mlp, 'gate'):
                         self._wrap_gate(layer.mlp, layer_idx)
+                        patched_count += 1
+                print(f"[Diagnostic] Patched {patched_count} MoE layers")
+            else:
+                print(f"[Diagnostic] Could not find model.model.layers structure")
 
         except Exception as e:
             print(f"[Diagnostic] Failed to patch MoE model: {e}")
@@ -155,6 +160,11 @@ class DiagnosticInferenceService:
         def wrapped_gate_call(x):
             # Call original gate to get logits
             gate_logits = original_gate_call(x)
+
+            # Debug: print first time to confirm hook is called
+            if not hasattr(inspector, '_debug_printed'):
+                print(f"[Diagnostic] Gate hook called! Layer {layer_idx}, logits shape: {gate_logits.shape}")
+                inspector._debug_printed = True
 
             # Only log if enabled - observe without modifying
             if inspector.enable_logging:
