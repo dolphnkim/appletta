@@ -66,8 +66,16 @@ class DiagnosticInferenceService:
         self.is_moe_model = self._detect_moe_architecture()
 
         if self.is_moe_model:
-            print(f"[Diagnostic] Detected MoE model, patching for router introspection...")
-            self._patch_moe_model()
+            print(f"[Diagnostic] Detected MoE model")
+            # TODO: Router patching is currently disabled as it corrupts the forward pass
+            # The wrapper intercepts mlp.__call__ but causes double gate computation
+            # Need to implement proper hooks that observe without modifying
+            print(f"[Diagnostic] Router introspection temporarily disabled (patching causes inference issues)")
+            # try:
+            #     self._patch_moe_model()
+            # except Exception as e:
+            #     print(f"[Diagnostic] Warning: Router patching failed, continuing without introspection: {e}")
+            #     self.is_moe_model = False
         else:
             print(f"[Diagnostic] Not an MoE model, router logging disabled")
 
