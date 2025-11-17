@@ -128,44 +128,28 @@ export default function VSCodeIntegrationView() {
     setShowFileBrowser(false);
   };
 
-  const generateRouterConfig = () => {
-    if (!status?.provider_config) return '';
+  const generateContinueConfig = () => {
+    const modelName = status?.model_path
+      ? status.model_path.split('/').pop() || 'mlx-model'
+      : 'mlx-model';
 
     const config = {
-      name: "appletta",
-      api_base_url: "http://localhost:8000/v1/chat/completions",
-      api_key: "appletta",
-      models: status.model_path ? [status.model_path] : ["mlx-model"]
+      models: [
+        {
+          title: `Appletta - ${modelName}`,
+          provider: "openai",
+          model: modelName,
+          apiBase: "http://localhost:8000/v1",
+          apiKey: "appletta"
+        }
+      ]
     };
 
     return JSON.stringify(config, null, 2);
   };
 
-  const generateFullConfig = () => {
-    const providerConfig = {
-      name: "appletta",
-      api_base_url: "http://localhost:8000/v1/chat/completions",
-      api_key: "appletta",
-      models: status?.model_path ? [status.model_path] : ["mlx-model"]
-    };
-
-    const routerConfig = {
-      default: `appletta,${status?.model_path || 'mlx-model'}`,
-      background: `appletta,${status?.model_path || 'mlx-model'}`,
-      think: `appletta,${status?.model_path || 'mlx-model'}`,
-      longContext: `appletta,${status?.model_path || 'mlx-model'}`,
-      webSearch: `appletta,${status?.model_path || 'mlx-model'}`
-    };
-
-    return `// Add to Providers array in ~/.claude-code-router/config.json:
-${JSON.stringify(providerConfig, null, 2)}
-
-// Update Router config to use Appletta:
-${JSON.stringify(routerConfig, null, 2)}`;
-  };
-
   const copyConfig = async () => {
-    await navigator.clipboard.writeText(generateFullConfig());
+    await navigator.clipboard.writeText(generateContinueConfig());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -185,7 +169,7 @@ ${JSON.stringify(routerConfig, null, 2)}`;
           ← Dashboard
         </button>
         <h1>VS Code Integration</h1>
-        <p>Use local MLX models with Claude Code via claude-code-router</p>
+        <p>Serve your local MLX models as an OpenAI-compatible API for VS Code extensions</p>
       </header>
 
       {error && (
@@ -280,10 +264,10 @@ ${JSON.stringify(routerConfig, null, 2)}`;
 
         {/* Configuration Section */}
         <section className="config-section">
-          <h2>Claude Code Router Configuration</h2>
+          <h2>Continue.dev Configuration</h2>
           <p className="section-description">
-            Add this provider configuration to your <code>~/.claude-code-router/config.json</code> file
-            to route Claude Code requests to your local MLX model.
+            Add this to your Continue.dev config file at <code>~/.continue/config.json</code> to use
+            your local MLX model in VS Code.
           </p>
 
           <div className="config-display">
@@ -293,18 +277,28 @@ ${JSON.stringify(routerConfig, null, 2)}`;
                 {copied ? 'Copied!' : 'Copy'}
               </button>
             </div>
-            <pre>{generateFullConfig()}</pre>
+            <pre>{generateContinueConfig()}</pre>
           </div>
 
           <div className="setup-steps">
             <h3>Setup Steps</h3>
             <ol>
-              <li>Install claude-code-router: <code>npm install -g @musistudio/claude-code-router</code></li>
-              <li>Initialize config: <code>ccr init</code></li>
-              <li>Add the Appletta provider config above to your <code>config.json</code></li>
-              <li>Start the router: <code>ccr start</code></li>
-              <li>Launch Claude Code with the router proxy</li>
+              <li>Install <a href="https://marketplace.visualstudio.com/items?itemName=Continue.continue" target="_blank" rel="noopener noreferrer">Continue extension</a> in VS Code</li>
+              <li>Load your MLX model in Appletta (above)</li>
+              <li>Open Continue config: <code>Cmd+Shift+P</code> → "Continue: Open Config"</li>
+              <li>Add the model config above to the <code>models</code> array</li>
+              <li>Save and reload - your local model will appear in Continue's model selector</li>
             </ol>
+          </div>
+
+          <div className="setup-steps">
+            <h3>How It Works</h3>
+            <p style={{color: '#888', lineHeight: '1.6'}}>
+              Appletta serves your MLX model through an OpenAI-compatible API. Continue.dev (and other
+              VS Code extensions) can connect to any OpenAI-compatible endpoint. When you select your
+              Appletta model in Continue, requests go directly from VS Code → Appletta → Your local MLX model.
+              No cloud services, no third-party proxies - just direct local inference.
+            </p>
           </div>
         </section>
 

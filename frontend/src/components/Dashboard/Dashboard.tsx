@@ -162,11 +162,11 @@ export default function Dashboard() {
         >
           <div className="card-icon">⚡</div>
           <h3>VS Code Integration</h3>
-          <p>Use local MLX models with Claude Code via claude-code-router.</p>
+          <p>Serve local MLX models as an OpenAI-compatible API for VS Code extensions.</p>
           <div className="card-stats">
             <span>OpenAI API compatible</span>
             <span>Local inference</span>
-            <span>MoE routing</span>
+            <span>Continue.dev ready</span>
           </div>
         </div>
       </div>
