@@ -169,7 +169,16 @@ class DiagnosticInferenceService:
 
                 # Debug: print first time to confirm hook is called
                 if not hasattr(self._inspector, '_debug_printed'):
-                    print(f"[Diagnostic] Gate hook called! Layer {self._layer_idx}, logits shape: {gate_logits.shape}")
+                    # Auto-detect actual number of experts from gate output
+                    actual_num_experts = gate_logits.shape[-1]
+                    if actual_num_experts != self._inspector.num_experts:
+                        print(f"[Diagnostic] Gate hook called! Layer {self._layer_idx}, logits shape: {gate_logits.shape}")
+                        print(f"[Diagnostic] Updating num_experts: {self._inspector.num_experts} -> {actual_num_experts}")
+                        self._inspector.num_experts = actual_num_experts
+                        # Reinitialize expert usage count with correct size
+                        self._inspector.current_session["expert_usage_count"] = {i: 0 for i in range(actual_num_experts)}
+                    else:
+                        print(f"[Diagnostic] Gate hook called! Layer {self._layer_idx}, logits shape: {gate_logits.shape}")
                     self._inspector._debug_printed = True
 
                 # Only log if enabled - observe without modifying
