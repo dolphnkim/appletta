@@ -286,8 +286,21 @@ class DiagnosticInferenceService:
         # Disable logging
         self.router_inspector.enable_logging = False
 
+        # Count actual tokens generated (encode the response)
+        actual_tokens_generated = 0
+        if self.tokenizer and response:
+            try:
+                # Tokenize the generated response to get actual token count
+                response_tokens = self.tokenizer.encode(response)
+                actual_tokens_generated = len(response_tokens)
+            except Exception as e:
+                print(f"[Diagnostic] Warning: Failed to count tokens: {e}")
+
         # Get session summary
         session_summary = self.router_inspector.get_session_summary()
+
+        # Add actual token count to summary
+        session_summary["actual_tokens_generated"] = actual_tokens_generated
 
         return {
             "prompt": prompt,

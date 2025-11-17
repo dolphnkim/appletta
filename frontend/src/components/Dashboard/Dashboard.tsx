@@ -125,13 +125,13 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Analytics Module */}
+        {/* Interpretability Module */}
         <div
           className="dashboard-card analytics-card"
           onClick={() => navigate('/analytics')}
         >
-          <div className="card-icon">📊</div>
-          <h3>Analytics</h3>
+          <div className="card-icon">🔬</div>
+          <h3>Interpretability</h3>
           <p>Track usage patterns, expert activations, and persona consistency.</p>
           <div className="card-stats">
             <span>Expert histograms</span>
