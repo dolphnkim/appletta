@@ -66,16 +66,13 @@ class DiagnosticInferenceService:
         self.is_moe_model = self._detect_moe_architecture()
 
         if self.is_moe_model:
-            print(f"[Diagnostic] Detected MoE model")
-            # TODO: Router patching is currently disabled as it corrupts the forward pass
-            # The wrapper intercepts mlp.__call__ but causes double gate computation
-            # Need to implement proper hooks that observe without modifying
-            print(f"[Diagnostic] Router introspection temporarily disabled (patching causes inference issues)")
-            # try:
-            #     self._patch_moe_model()
-            # except Exception as e:
-            #     print(f"[Diagnostic] Warning: Router patching failed, continuing without introspection: {e}")
-            #     self.is_moe_model = False
+            print(f"[Diagnostic] Detected MoE model, patching for router introspection...")
+            try:
+                self._patch_moe_model()
+            except Exception as e:
+                print(f"[Diagnostic] Warning: Router patching failed, continuing without introspection: {e}")
+                import traceback
+                traceback.print_exc()
         else:
             print(f"[Diagnostic] Not an MoE model, router logging disabled")
 
@@ -150,46 +147,60 @@ class DiagnosticInferenceService:
             raise RuntimeError(f"Failed to patch MoE model for router logging: {e}")
 
     def _wrap_gate(self, mlp_module, layer_idx: int):
-        """Wrap the gate computation to log router decisions"""
-        original_call = mlp_module.__call__
+        """Wrap the gate layer to observe router decisions without modifying forward pass"""
+        gate_layer = mlp_module.gate
+        original_gate_call = gate_layer.__call__
         inspector = self.router_inspector
 
-        def wrapped_call(x):
-            # Compute gate logits
-            gate_logits = mlp_module.gate(x)
+        def wrapped_gate_call(x):
+            # Call original gate to get logits
+            gate_logits = original_gate_call(x)
 
-            # Softmax and top-k selection (standard MoE)
-            gates = mx.softmax(gate_logits, axis=-1)
-            k = inspector.top_k
-
-            # Get top-k experts
-            inds = mx.argpartition(-gates, kth=k - 1, axis=-1)[..., :k]
-            scores = mx.take_along_axis(gates, inds, axis=-1)
-
-            # Log the router decisions for each token
-            # Note: x shape is typically (batch, seq_len, dim)
-            batch_size = x.shape[0] if len(x.shape) > 2 else 1
-            seq_len = x.shape[-2] if len(x.shape) > 1 else 1
-
-            # Log decisions (simplified - just log first token of batch for now)
+            # Only log if enabled - observe without modifying
             if inspector.enable_logging:
-                # Convert to numpy for logging
-                gate_logits_np = gate_logits[0, 0, :].tolist() if len(gate_logits.shape) > 2 else gate_logits[0, :].tolist()
-                selected_np = inds[0, 0, :].tolist() if len(inds.shape) > 2 else inds[0, :].tolist()
-                weights_np = scores[0, 0, :].tolist() if len(scores.shape) > 2 else scores[0, :].tolist()
+                try:
+                    # Compute softmax and top-k for analysis
+                    gates = mx.softmax(gate_logits, axis=-1)
+                    k = inspector.top_k
 
-                inspector.log_router_decision(
-                    token_idx=inspector.current_session["total_tokens"],
-                    gate_logits=gate_logits_np,
-                    selected_experts=selected_np,
-                    expert_weights=weights_np,
-                    input_token="<tok>"  # Token text would require tokenizer decode
-                )
+                    # Get top-k experts
+                    inds = mx.argpartition(-gates, kth=k - 1, axis=-1)[..., :k]
+                    scores = mx.take_along_axis(gates, inds, axis=-1)
 
-            # Call original MLP forward
-            return original_call(x)
+                    # Log only the last token's decisions (most relevant for generation)
+                    # Handle different tensor shapes
+                    if len(gate_logits.shape) == 3:
+                        # Shape: (batch, seq_len, num_experts)
+                        gate_logits_np = gate_logits[0, -1, :].tolist()
+                        selected_np = inds[0, -1, :].tolist()
+                        weights_np = scores[0, -1, :].tolist()
+                    elif len(gate_logits.shape) == 2:
+                        # Shape: (batch_or_seq, num_experts)
+                        gate_logits_np = gate_logits[-1, :].tolist()
+                        selected_np = inds[-1, :].tolist()
+                        weights_np = scores[-1, :].tolist()
+                    else:
+                        # Fallback
+                        gate_logits_np = gate_logits.flatten().tolist()[:inspector.num_experts]
+                        selected_np = inds.flatten().tolist()[:k]
+                        weights_np = scores.flatten().tolist()[:k]
 
-        mlp_module.__call__ = wrapped_call
+                    inspector.log_router_decision(
+                        token_idx=inspector.current_session["total_tokens"],
+                        gate_logits=gate_logits_np,
+                        selected_experts=selected_np,
+                        expert_weights=weights_np,
+                        input_token=f"layer_{layer_idx}"
+                    )
+                except Exception as e:
+                    # Don't break inference if logging fails
+                    print(f"[Diagnostic] Warning: Failed to log router decision: {e}")
+
+            # Return original gate output unchanged
+            return gate_logits
+
+        # Replace gate's __call__ method
+        gate_layer.__call__ = wrapped_gate_call
 
     def _get_model_config(self) -> Dict[str, Any]:
         """Extract model configuration info"""
