@@ -6,7 +6,7 @@ This module provides an OpenAI API-compatible endpoint that allows Claude Code
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 import json
@@ -18,6 +18,8 @@ router = APIRouter(prefix="/v1", tags=["vscode-integration"])
 
 # OpenAI-compatible request/response models
 class ChatMessage(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     role: str  # "system", "user", "assistant", "tool"
     content: Union[str, List[Dict[str, Any]]]
     name: Optional[str] = None
@@ -26,6 +28,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     model: str
     messages: List[ChatMessage]
     temperature: Optional[float] = 0.7
@@ -40,6 +44,8 @@ class ChatCompletionRequest(BaseModel):
 
 
 class ChatCompletionChoice(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     index: int
     message: ChatMessage
     finish_reason: str
@@ -52,6 +58,8 @@ class ChatCompletionUsage(BaseModel):
 
 
 class ChatCompletionResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     id: str
     object: str = "chat.completion"
     created: int
@@ -66,12 +74,16 @@ class StreamDelta(BaseModel):
 
 
 class StreamChoice(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     index: int
     delta: StreamDelta
     finish_reason: Optional[str] = None
 
 
 class StreamChunk(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     id: str
     object: str = "chat.completion.chunk"
     created: int
