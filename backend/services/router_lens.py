@@ -206,9 +206,15 @@ class RouterInspector:
         if not co_occurrence:
             return []
 
+        # Collect all unique expert IDs from co-occurrence data
+        all_expert_ids = set()
+        for (e1, e2) in co_occurrence.keys():
+            all_expert_ids.add(e1)
+            all_expert_ids.add(e2)
+
         # Build adjacency based on high co-occurrence
         max_cooccur = max(co_occurrence.values()) if co_occurrence else 1
-        adjacency: Dict[int, List[int]] = {i: [] for i in range(self.num_experts)}
+        adjacency: Dict[int, List[int]] = {expert_id: [] for expert_id in all_expert_ids}
 
         for (e1, e2), count in co_occurrence.items():
             if count / max_cooccur > threshold:
@@ -219,7 +225,7 @@ class RouterInspector:
         visited = set()
         clusters = []
 
-        for expert in range(self.num_experts):
+        for expert in all_expert_ids:
             if expert not in visited and adjacency[expert]:
                 cluster = [expert]
                 visited.add(expert)
