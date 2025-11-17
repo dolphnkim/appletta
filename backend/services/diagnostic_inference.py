@@ -153,64 +153,76 @@ class DiagnosticInferenceService:
 
     def _wrap_gate(self, mlp_module, layer_idx: int):
         """Wrap the gate layer to observe router decisions without modifying forward pass"""
-        gate_layer = mlp_module.gate
-        original_gate_call = gate_layer.__call__
+        original_gate = mlp_module.gate
         inspector = self.router_inspector
 
-        def wrapped_gate_call(x):
-            # Call original gate to get logits
-            gate_logits = original_gate_call(x)
+        # Create a wrapper class that intercepts __call__
+        class GateWrapper:
+            def __init__(self, gate, layer_idx, inspector):
+                self._original_gate = gate
+                self._layer_idx = layer_idx
+                self._inspector = inspector
 
-            # Debug: print first time to confirm hook is called
-            if not hasattr(inspector, '_debug_printed'):
-                print(f"[Diagnostic] Gate hook called! Layer {layer_idx}, logits shape: {gate_logits.shape}")
-                inspector._debug_printed = True
+            def __call__(self, x):
+                # Call original gate to get logits
+                gate_logits = self._original_gate(x)
 
-            # Only log if enabled - observe without modifying
-            if inspector.enable_logging:
-                try:
-                    # Compute softmax and top-k for analysis
-                    gates = mx.softmax(gate_logits, axis=-1)
-                    k = inspector.top_k
+                # Debug: print first time to confirm hook is called
+                if not hasattr(self._inspector, '_debug_printed'):
+                    print(f"[Diagnostic] Gate hook called! Layer {self._layer_idx}, logits shape: {gate_logits.shape}")
+                    self._inspector._debug_printed = True
 
-                    # Get top-k experts
-                    inds = mx.argpartition(-gates, kth=k - 1, axis=-1)[..., :k]
-                    scores = mx.take_along_axis(gates, inds, axis=-1)
+                # Only log if enabled - observe without modifying
+                if self._inspector.enable_logging:
+                    try:
+                        # Compute softmax and top-k for analysis
+                        gates = mx.softmax(gate_logits, axis=-1)
+                        k = self._inspector.top_k
 
-                    # Log only the last token's decisions (most relevant for generation)
-                    # Handle different tensor shapes
-                    if len(gate_logits.shape) == 3:
-                        # Shape: (batch, seq_len, num_experts)
-                        gate_logits_np = gate_logits[0, -1, :].tolist()
-                        selected_np = inds[0, -1, :].tolist()
-                        weights_np = scores[0, -1, :].tolist()
-                    elif len(gate_logits.shape) == 2:
-                        # Shape: (batch_or_seq, num_experts)
-                        gate_logits_np = gate_logits[-1, :].tolist()
-                        selected_np = inds[-1, :].tolist()
-                        weights_np = scores[-1, :].tolist()
-                    else:
-                        # Fallback
-                        gate_logits_np = gate_logits.flatten().tolist()[:inspector.num_experts]
-                        selected_np = inds.flatten().tolist()[:k]
-                        weights_np = scores.flatten().tolist()[:k]
+                        # Get top-k experts
+                        inds = mx.argpartition(-gates, kth=k - 1, axis=-1)[..., :k]
+                        scores = mx.take_along_axis(gates, inds, axis=-1)
 
-                    inspector.log_router_decision(
-                        token_idx=inspector.current_session["total_tokens"],
-                        gate_logits=gate_logits_np,
-                        selected_experts=selected_np,
-                        expert_weights=weights_np,
-                        input_token=f"layer_{layer_idx}"
-                    )
-                except Exception as e:
-                    # Don't break inference if logging fails
-                    print(f"[Diagnostic] Warning: Failed to log router decision: {e}")
+                        # Log only the last token's decisions (most relevant for generation)
+                        # Handle different tensor shapes
+                        if len(gate_logits.shape) == 3:
+                            # Shape: (batch, seq_len, num_experts)
+                            gate_logits_np = gate_logits[0, -1, :].tolist()
+                            selected_np = inds[0, -1, :].tolist()
+                            weights_np = scores[0, -1, :].tolist()
+                        elif len(gate_logits.shape) == 2:
+                            # Shape: (batch_or_seq, num_experts)
+                            gate_logits_np = gate_logits[-1, :].tolist()
+                            selected_np = inds[-1, :].tolist()
+                            weights_np = scores[-1, :].tolist()
+                        else:
+                            # Fallback
+                            gate_logits_np = gate_logits.flatten().tolist()[:self._inspector.num_experts]
+                            selected_np = inds.flatten().tolist()[:k]
+                            weights_np = scores.flatten().tolist()[:k]
 
-            # Return original gate output unchanged
-            return gate_logits
+                        self._inspector.log_router_decision(
+                            token_idx=self._inspector.current_session["total_tokens"],
+                            gate_logits=gate_logits_np,
+                            selected_experts=selected_np,
+                            expert_weights=weights_np,
+                            input_token=f"layer_{self._layer_idx}"
+                        )
+                    except Exception as e:
+                        # Don't break inference if logging fails
+                        if not hasattr(self._inspector, '_error_printed'):
+                            print(f"[Diagnostic] Warning: Failed to log router decision: {e}")
+                            self._inspector._error_printed = True
 
-        # Replace gate's __call__ method
-        gate_layer.__call__ = wrapped_gate_call
+                # Return original gate output unchanged
+                return gate_logits
+
+            def __getattr__(self, name):
+                # Forward all other attributes to original gate
+                return getattr(self._original_gate, name)
+
+        # Replace the gate with our wrapper
+        mlp_module.gate = GateWrapper(original_gate, layer_idx, inspector)
 
     def _get_model_config(self) -> Dict[str, Any]:
         """Extract model configuration info"""
