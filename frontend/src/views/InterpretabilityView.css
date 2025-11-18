@@ -964,3 +964,125 @@
   background: #2a2a2a;
   border-radius: 0 0 12px 12px;
 }
+
+/* Diagnostic Result Modal */
+.diagnostic-result-modal {
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 12px;
+  width: 800px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.diagnostic-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #333;
+}
+
+.diagnostic-result-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #4a9eff;
+}
+
+.diagnostic-result-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.diagnostic-result-section {
+  margin-bottom: 20px;
+}
+
+.diagnostic-result-section:last-child {
+  margin-bottom: 0;
+}
+
+.diagnostic-result-section h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.diagnostic-result-section h5 {
+  margin: 16px 0 10px 0;
+  font-size: 13px;
+  color: #4a9eff;
+}
+
+.diagnostic-prompt-display,
+.diagnostic-response-display {
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e0e0e0;
+}
+
+.diagnostic-prompt-display {
+  font-style: italic;
+  color: #ccc;
+}
+
+.diagnostic-response-display {
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.diagnostic-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.diagnostic-stat {
+  background: #2a2a2a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diagnostic-stat .stat-label {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.diagnostic-stat .stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #4a9eff;
+}
+
+.diagnostic-top-experts {
+  background: #2a2a2a;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.diagnostic-result-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid #333;
+  background: #2a2a2a;
+  border-radius: 0 0 12px 12px;
+}

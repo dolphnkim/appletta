@@ -51,6 +51,15 @@ export default function InterpretabilityView() {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [conversationsLoading, setConversationsLoading] = useState(false);
 
+  // Diagnostic test state
+  const [diagnosticTestResult, setDiagnosticTestResult] = useState<{
+    prompt: string;
+    response: string;
+    category: string;
+    router_analysis: SessionSummary;
+  } | null>(null);
+  const [showDiagnosticResult, setShowDiagnosticResult] = useState(false);
+
   // Fetch data when Expert Analytics tab is active
   useEffect(() => {
     if (activeTab === 'expert') {
@@ -285,6 +294,43 @@ export default function InterpretabilityView() {
         );
       } else {
         setRouterLensError('Failed to run quick test. Check backend logs.');
+      }
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
+  const runDiagnosticTest = async (prompt: string, category: string) => {
+    try {
+      setRouterLensLoading(true);
+      setRouterLensError(null);
+      const result = await routerLensAPI.runDiagnosticInference(prompt, 100, 0.7);
+
+      // Update current session with the diagnostic results
+      setCurrentSession(result.router_analysis);
+      setSelectedSessionView('current');
+
+      // Store the diagnostic result for display
+      setDiagnosticTestResult({
+        prompt,
+        response: result.response,
+        category,
+        router_analysis: result.router_analysis,
+      });
+      setShowDiagnosticResult(true);
+    } catch (err: unknown) {
+      console.error('Failed to run diagnostic test:', err);
+      const error = err as { message?: string };
+      if (error.message?.includes('No model loaded') || error.message?.includes('400')) {
+        setRouterLensError(
+          'No model loaded. Load an MoE model first using the model loader above.'
+        );
+      } else if (error.message?.includes('MLX not installed') || error.message?.includes('500')) {
+        setRouterLensError(
+          'MLX is not installed on the backend. Please install: pip install mlx mlx-lm'
+        );
+      } else {
+        setRouterLensError(`Failed to run diagnostic test: ${error.message || 'Unknown error'}`);
       }
     } finally {
       setRouterLensLoading(false);
@@ -700,7 +746,8 @@ export default function InterpretabilityView() {
                     <span className="prompt-text">{dp.prompt}</span>
                     <button
                       className="btn-sm"
-                      onClick={() => alert(`TODO: Run diagnostic with prompt: ${dp.prompt}`)}
+                      onClick={() => runDiagnosticTest(dp.prompt, dp.category)}
+                      disabled={routerLensLoading}
                     >
                       Test
                     </button>
@@ -822,6 +869,88 @@ export default function InterpretabilityView() {
                 onClick={() => selectPath(currentBrowsePath)}
               >
                 Select Current Directory
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Diagnostic Test Result Modal */}
+      {showDiagnosticResult && diagnosticTestResult && (
+        <div className="modal-overlay" onClick={() => setShowDiagnosticResult(false)}>
+          <div className="diagnostic-result-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="diagnostic-result-header">
+              <h3>Diagnostic Test Results: {diagnosticTestResult.category}</h3>
+              <button className="close-btn" onClick={() => setShowDiagnosticResult(false)}>
+                ×
+              </button>
+            </div>
+
+            <div className="diagnostic-result-content">
+              <div className="diagnostic-result-section">
+                <h4>Prompt</h4>
+                <div className="diagnostic-prompt-display">{diagnosticTestResult.prompt}</div>
+              </div>
+
+              <div className="diagnostic-result-section">
+                <h4>Model Response</h4>
+                <div className="diagnostic-response-display">{diagnosticTestResult.response}</div>
+              </div>
+
+              <div className="diagnostic-result-section">
+                <h4>Expert Routing Analysis</h4>
+                <div className="diagnostic-stats-grid">
+                  <div className="diagnostic-stat">
+                    <span className="stat-label">Layer Activations</span>
+                    <span className="stat-value">{diagnosticTestResult.router_analysis.total_tokens || 0}</span>
+                  </div>
+                  <div className="diagnostic-stat">
+                    <span className="stat-label">Unique Experts Used</span>
+                    <span className="stat-value">{diagnosticTestResult.router_analysis.unique_experts_used || 0}</span>
+                  </div>
+                  <div className="diagnostic-stat">
+                    <span className="stat-label">Usage Entropy</span>
+                    <span className="stat-value">{(diagnosticTestResult.router_analysis.usage_entropy || 0).toFixed(3)}</span>
+                  </div>
+                  <div className="diagnostic-stat">
+                    <span className="stat-label">Mean Token Entropy</span>
+                    <span className="stat-value">{(diagnosticTestResult.router_analysis.mean_token_entropy || 0).toFixed(3)}</span>
+                  </div>
+                </div>
+
+                <div className="diagnostic-top-experts">
+                  <h5>Top Activated Experts</h5>
+                  <div className="expert-bars">
+                    {diagnosticTestResult.router_analysis.top_experts.slice(0, 8).map((expert) => (
+                      <div key={expert.expert_id} className="expert-bar-row">
+                        <span className="expert-id">E{expert.expert_id}</span>
+                        <div className="expert-bar-container">
+                          <div
+                            className="expert-bar-fill"
+                            style={{ width: `${expert.percentage}%` }}
+                          />
+                        </div>
+                        <span className="expert-count">{expert.count}</span>
+                        <span className="expert-pct">{expert.percentage.toFixed(1)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="diagnostic-result-footer">
+              <button className="btn-secondary" onClick={() => setShowDiagnosticResult(false)}>
+                Close
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  saveCurrentSession();
+                  setShowDiagnosticResult(false);
+                }}
+              >
+                Save Session
               </button>
             </div>
           </div>
