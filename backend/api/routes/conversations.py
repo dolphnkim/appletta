@@ -930,6 +930,9 @@ async def _chat_stream_internal(
     if not conversation:
         raise HTTPException(404, f"Conversation {conversation_id} not found")
 
+    # Capture conversation title early (before session might detach object)
+    conversation_title = conversation.title or "Untitled"
+
     # Get agent
     agent = db.query(Agent).filter(Agent.id == conversation.agent_id).first()
     if not agent:
@@ -966,11 +969,8 @@ async def _chat_stream_internal(
     )
 
     # === GET MLX SERVER ===
-
     # Always start MLX server - needed for wizard menu choices even when router logging is enabled
-
     # (Router logging will be used only for main streaming responses, not wizard decisions)
-
     mlx_manager = get_mlx_manager()
     mlx_process = mlx_manager.get_agent_server(agent.id)
 
@@ -981,7 +981,9 @@ async def _chat_stream_internal(
         except Exception as e:
             raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
     else:
-        logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")    # === BUILD CONTEXT WINDOW FIRST ===
+        logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
+
+    # === BUILD CONTEXT WINDOW FIRST ===
     # We need to build the full context BEFORE wizard check so LLM sees everything
 
     # Get conversation history BEFORE the current user message (needed for context calculation)
@@ -1095,35 +1097,9 @@ async def _chat_stream_internal(
     print(f"  Total messages: {len(base_messages)}")
     print(f"  Memory narrative: {'Yes' if memory_narrative else 'No'}")
 
-# === ROUTER LOGGING CHECK ===
-
+    # === ROUTER LOGGING CHECK ===
     use_router_logging = getattr(agent, 'router_logging_enabled', False)
-    diagnostic_service = None
 
-    if use_router_logging:
-        print(f"🔬 ROUTER LOGGING ENABLED for agent {agent.name}")
-        from backend.services.diagnostic_inference import get_diagnostic_service
-
-        try:
-            diagnostic_service = get_diagnostic_service()
- 
-            # Load agent's model if not already loaded
-            model_status = diagnostic_service.get_inspector_status()
-            current_agent_id = getattr(diagnostic_service, 'agent_id', None)
-
-            if current_agent_id != str(agent.id):
-                print(f"[Router Logging] Loading agent model: {agent.name}")
-                diagnostic_service.load_model(
-                    agent.model_path,
-                    agent.adapter_path,
-                    agent_id=str(agent.id),
-                    agent_name=agent.name
-                )
-
-        except Exception as e:
-            print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
-            use_router_logging = False
-            diagnostic_service = None
     # === TOOL WIZARD CHECK ===
     # If tools are enabled, use the NEW wizard system: stream response first, then wizard
     from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu, show_main_menu_with_resources, WizardState, clean_llm_response, parse_command
@@ -1156,6 +1132,38 @@ async def _chat_stream_internal(
             if memory_narrative:
                 yield f"data: {json.dumps({'type': 'memory_narrative', 'content': memory_narrative})}\n\n"
 
+            # Initialize router logging if enabled
+            diagnostic_service = None
+            if use_router_logging:
+                print(f"🔬 ROUTER LOGGING ENABLED for agent {agent.name}")
+                from backend.services.diagnostic_inference import get_diagnostic_service
+
+                try:
+                    diagnostic_service = get_diagnostic_service()
+
+                    # Load agent's model if not already loaded
+                    model_status = diagnostic_service.get_inspector_status()
+                    current_agent_id = getattr(diagnostic_service, 'agent_id', None)
+
+                    if current_agent_id != str(agent.id):
+                        # Show loading status to user
+                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Loading model for router logging... This may take up to 30 seconds for large models.'})}\n\n"
+
+                        print(f"[Router Logging] Loading agent model: {agent.name}")
+                        diagnostic_service.load_model(
+                            agent.model_path,
+                            agent.adapter_path,
+                            agent_id=str(agent.id),
+                            agent_name=agent.name
+                        )
+
+                        yield f"data: {json.dumps({'type': 'status', 'content': '✅ Model loaded successfully!'})}\n\n"
+                        print(f"[Router Logging] Model loaded successfully")
+                except Exception as e:
+                    print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
+                    yield f"data: {json.dumps({'type': 'status', 'content': f'⚠️ Router logging failed to initialize: {str(e)}'})}\n\n"
+                    diagnostic_service = None
+
             wizard_loop_active = True
             wizard_state = WizardState()
 
@@ -1181,7 +1189,7 @@ async def _chat_stream_internal(
                 if use_router_logging:
                     print(f"Mode: Router Logging (Diagnostic Service)")
                 else:
-                    print(f"Port: {mlx_process.port}")                
+                    print(f"Port: {mlx_process.port}")
                 print(f"Temperature: {agent.temperature}")
                 print(f"Messages: {len(current_messages)}")
 
@@ -1190,7 +1198,6 @@ async def _chat_stream_internal(
 
                 try:
                     if use_router_logging and diagnostic_service:
-
                         # Use diagnostic inference with router logging (non-streaming)
                         print(f"🔬 Using router logging for this response")
 
@@ -1211,7 +1218,6 @@ async def _chat_stream_internal(
                         # Run diagnostic inference
                         max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
                         result_dict = diagnostic_service.run_inference(
-
                             prompt=conversation_prompt,
                             max_tokens=max_tokens,
                             temperature=agent.temperature,
@@ -1221,7 +1227,6 @@ async def _chat_stream_internal(
                         streamed_content = result_dict["response"]
                         router_analysis_data = result_dict["router_analysis"]
 
-
                         # "Fake stream" the response by yielding it in chunks
                         import asyncio
                         chunk_size = 20  # characters per chunk
@@ -1229,6 +1234,7 @@ async def _chat_stream_internal(
                             content_chunk = streamed_content[i:i+chunk_size]
                             yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
                             await asyncio.sleep(0.01)  # Small delay to simulate streaming
+
                         print(f"🔬 Router logging captured: {router_analysis_data.get('unique_experts_used', 0)} experts used")
 
                     else:
@@ -1255,7 +1261,7 @@ async def _chat_stream_internal(
                                                 yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
                                         except json.JSONDecodeError:
                                             continue
- 
+
                     # Clean the streamed content (remove thinking tags)
                     cleaned_content = clean_llm_response(streamed_content)
                     accumulated_response += cleaned_content
@@ -1274,6 +1280,7 @@ async def _chat_stream_internal(
                     # Store router analysis for later (will be saved with message)
                     if router_analysis_data:
                         wizard_state.context["router_analysis"] = router_analysis_data
+
                 except Exception as e:
                     import traceback
                     print(f"🧙 WIZARD STREAMING ERROR: {traceback.format_exc()}")
@@ -1477,7 +1484,6 @@ async def _chat_stream_internal(
                 assistant_metadata["memory_narrative"] = memory_narrative
 
             # Include router analysis if present
-
             router_analysis = wizard_state.context.get("router_analysis")
             if router_analysis:
                 assistant_metadata["router_logging"] = {
@@ -1486,7 +1492,6 @@ async def _chat_stream_internal(
                     "usage_entropy": router_analysis.get("usage_entropy", 0),
                     "mean_token_entropy": router_analysis.get("mean_token_entropy", 0)
                 }
-
                 print(f"🔬 Router analysis added to metadata: {router_analysis.get('unique_experts_used', 0)} experts")
 
                 # Save router session to file for analytics
@@ -1495,14 +1500,11 @@ async def _chat_stream_internal(
                         prompt_preview = f"[Conversation] {message[:100]}"
                         diagnostic_service.router_inspector.current_session["metadata"]["conversation_id"] = str(conversation_id)
                         diagnostic_service.router_inspector.current_session["metadata"]["category"] = "conversation"
-                        filepath = diagnostic_service.save_session(prompt_preview, f"Turn in conversation {conversation.title}")
-
+                        filepath = diagnostic_service.save_session(prompt_preview, f"Turn in conversation {conversation_title}")
                         print(f"🔬 Router session saved to: {filepath}")
-
                     except Exception as e:
                         print(f"🔬 Warning: Failed to save router session: {e}")
 
- 
             assistant_message = Message(
                 conversation_id=conversation_id,
                 role="assistant",
