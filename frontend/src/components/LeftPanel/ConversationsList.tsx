@@ -19,6 +19,8 @@ export default function ConversationsList({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
 
   useEffect(() => {
     loadConversations();
@@ -68,6 +70,38 @@ export default function ConversationsList({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete conversation');
     }
+  };
+
+  const handleStartEdit = (conversation: Conversation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(conversation.id);
+    setEditTitle(conversation.title || '');
+  };
+
+  const handleSaveEdit = async (conversationId: string, e: React.FormEvent | React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!editTitle.trim()) {
+      setError('Title cannot be empty');
+      return;
+    }
+
+    try {
+      await conversationAPI.update(conversationId, { title: editTitle });
+      setConversations(conversations.map((c) =>
+        c.id === conversationId ? { ...c, title: editTitle } : c
+      ));
+      setEditingId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update conversation');
+    }
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(null);
+    setEditTitle('');
   };
 
   const formatDate = (dateStr: string) => {
@@ -128,7 +162,36 @@ export default function ConversationsList({
               onClick={() => onSelect?.(conversation.id)}
             >
               <div className="conversation-item-header">
-                <div className="conversation-title">{conversation.title || 'Untitled'}</div>
+                {editingId === conversation.id ? (
+                  <form onSubmit={(e) => handleSaveEdit(conversation.id, e)} className="conversation-title-edit">
+                    <input
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => handleSaveEdit(conversation.id, e)}
+                      autoFocus
+                      className="conversation-title-input"
+                    />
+                  </form>
+                ) : (
+                  <>
+                    <div
+                      className="conversation-title"
+                      onDoubleClick={(e) => handleStartEdit(conversation, e)}
+                      title="Double-click to edit"
+                    >
+                      {conversation.title || 'Untitled'}
+                    </div>
+                    <button
+                      onClick={(e) => handleStartEdit(conversation, e)}
+                      className="conversation-edit"
+                      title="Edit title"
+                    >
+                      ✏️
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={(e) => handleDelete(conversation.id, e)}
                   className="conversation-delete"
