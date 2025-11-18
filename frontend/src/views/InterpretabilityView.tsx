@@ -85,30 +85,20 @@ export default function InterpretabilityView() {
     }
   }, [activeTab, agentId]);
 
-  const openFileBrowser = (mode: 'model' | 'adapter') => {
-    setFileBrowserMode(mode);
-    setShowFileBrowser(true);
-    browseDirectory('~');
-  };
-
-  const browseDirectory = async (path: string) => {
+  const fetchAgents = async () => {
     try {
-      const result = await routerLensAPI.browseDirectory(path);
-      setCurrentBrowsePath(result.path);
-      setBrowseItems(result.items);
-      setBrowseParent(result.parent);
-    } catch (err) {
-      console.error('Failed to browse directory:', err);
-    }
-  };
+      const fetchedAgents = await agentAPI.list();
+      setAgents(fetchedAgents);
 
-  const selectPath = (path: string) => {
-    if (fileBrowserMode === 'model') {
-      setModelPath(path);
-    } else {
-      setAdapterPath(path);
+      // Auto-select the locally stored agent or first agent
+      if (agentId && fetchedAgents.some((a) => a.id === agentId)) {
+        setSelectedAgentForExpert(agentId);
+      } else if (fetchedAgents.length > 0) {
+        setSelectedAgentForExpert(fetchedAgents[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to fetch agents:', err);
     }
-    setShowFileBrowser(false);
   };
 
   const fetchModelStatus = async () => {
@@ -127,58 +117,6 @@ export default function InterpretabilityView() {
       }
     } catch {
       setModelStatus(null);
-    }
-  };
-
-  const loadModel = async () => {
-    if (!modelPath.trim()) {
-      setRouterLensError('Please enter a model path');
-      return;
-    }
-
-    try {
-      setRouterLensLoading(true);
-      setRouterLensError(null);
-      const result = await routerLensAPI.loadDiagnosticModel(
-        modelPath.trim(),
-        adapterPath.trim() || undefined
-      );
-      setModelStatus({
-        loaded: true,
-        path: result.model_path,
-        isMoE: result.is_moe,
-      });
-      alert(
-        `Model loaded successfully!\n\nPath: ${result.model_path}\nMoE Model: ${result.is_moe ? 'Yes' : 'No'}\n\n${result.is_moe ? 'Router introspection enabled.' : 'Warning: Not an MoE model, router logging disabled.'}`
-      );
-    } catch (err: unknown) {
-      console.error('Failed to load model:', err);
-      const error = err as { message?: string };
-      if (error.message?.includes('MLX not installed')) {
-        setRouterLensError('MLX is not installed. Please install: pip install mlx mlx-lm');
-      } else if (error.message?.includes('404')) {
-        setRouterLensError('Model not found at the specified path');
-      } else {
-        setRouterLensError(`Failed to load model: ${error.message || 'Unknown error'}`);
-      }
-    } finally {
-      setRouterLensLoading(false);
-    }
-  };
-
-  const fetchAgents = async () => {
-    try {
-      const fetchedAgents = await agentAPI.list();
-      setAgents(fetchedAgents);
-
-      // Auto-select the locally stored agent or first agent
-      if (agentId && fetchedAgents.some((a) => a.id === agentId)) {
-        setSelectedAgentForExpert(agentId);
-      } else if (fetchedAgents.length > 0) {
-        setSelectedAgentForExpert(fetchedAgents[0].id);
-      }
-    } catch (err) {
-      console.error('Failed to fetch agents:', err);
     }
   };
 
@@ -835,93 +773,6 @@ export default function InterpretabilityView() {
           </div>
         )}
       </div>
-
-      {/* File Browser Modal */}
-      {showFileBrowser && (
-        <div className="modal-overlay" onClick={() => setShowFileBrowser(false)}>
-          <div className="file-browser-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="file-browser-header">
-              <h3>
-                {fileBrowserMode === 'model' ? 'Select Model Directory' : 'Select Adapter Directory'}
-              </h3>
-              <button className="close-btn" onClick={() => setShowFileBrowser(false)}>
-                ×
-              </button>
-            </div>
-
-            <div className="file-browser-path">
-              <span className="path-label">Current Path:</span>
-              <span className="path-value">{currentBrowsePath}</span>
-            </div>
-
-            <div className="file-browser-content">
-              {browseParent && (
-                <div className="browser-item parent-dir" onClick={() => browseDirectory(browseParent)}>
-                  <span className="item-icon">📁</span>
-                  <span className="item-name">..</span>
-                  <span className="item-type">Parent Directory</span>
-                </div>
-              )}
-
-              {browseItems.map((item) => (
-                <div
-                  key={item.path}
-                  className={`browser-item ${item.is_model ? 'is-model' : ''} ${item.is_adapter ? 'is-adapter' : ''}`}
-                  onClick={() => {
-                    if (item.is_dir && !item.is_model && !item.is_adapter) {
-                      browseDirectory(item.path);
-                    }
-                  }}
-                >
-                  <span className="item-icon">{item.is_dir ? '📁' : '📄'}</span>
-                  <span className="item-name">{item.name}</span>
-                  {item.is_model && (
-                    <button
-                      className="select-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        selectPath(item.path);
-                      }}
-                    >
-                      Select Model
-                    </button>
-                  )}
-                  {item.is_adapter && (
-                    <button
-                      className="select-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        selectPath(item.path);
-                      }}
-                    >
-                      Select Adapter
-                    </button>
-                  )}
-                  {item.is_dir && !item.is_model && !item.is_adapter && (
-                    <span className="item-type">Directory</span>
-                  )}
-                </div>
-              ))}
-
-              {browseItems.length === 0 && (
-                <div className="browser-empty">No items in this directory</div>
-              )}
-            </div>
-
-            <div className="file-browser-footer">
-              <button className="btn-secondary" onClick={() => setShowFileBrowser(false)}>
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => selectPath(currentBrowsePath)}
-              >
-                Select Current Directory
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Diagnostic Test Result Modal */}
       {showDiagnosticResult && diagnosticTestResult && (
