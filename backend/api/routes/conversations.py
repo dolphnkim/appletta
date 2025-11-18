@@ -44,15 +44,11 @@ async def get_context_window(
     conversation_id: UUID,
     db: Session = Depends(get_db)
 ):
-    """Get context window breakdown showing token usage for modal
+    """Get context window breakdown matching actual inference calculation
 
-    Returns:
-        - System instructions tokens + percentage
-        - Tools descriptions tokens + percentage
-        - External summary (surfaced memories) tokens + percentage
-        - Messages tokens + percentage
-        - Total tokens
+    This MUST match the exact logic in the chat endpoint's shifting window calculation.
     """
+    from backend.services.token_counter import count_message_tokens, count_tokens
 
     # Verify conversation exists
     conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
@@ -64,136 +60,112 @@ async def get_context_window(
     if not agent:
         raise HTTPException(404, "Agent not found for this conversation")
 
-    # Get the last user message for memory retrieval (simulate current turn)
-    last_user_message = db.query(Message).filter(
-        Message.conversation_id == conversation_id,
-        Message.role == "user"
-    ).order_by(Message.created_at.desc()).first()
+    # Get ALL messages in conversation
+    history = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
 
-    if not last_user_message:
+    if not history:
         # No messages yet, return empty breakdown
         return {
             "sections": [],
             "total_tokens": 0,
             "max_context_tokens": agent.max_context_tokens,
-            "percentage_used": 0
+            "percentage_used": 0,
+            "messages_in_context": 0,
+            "messages_dropped": 0
         }
 
-    # For context window display, we estimate memory tokens without actually
-    # running the memory coordinator (which launches the slow 4B model).
-    # We'll search for candidates and estimate based on the top results.
-    memory_candidates = search_memories(
-        query_text=last_user_message.content,
-        agent_id=agent.id,
-        db=db,
-        limit=7  # Just top 7 for estimation
-    )
+    # === REPLICATE EXACT SHIFTING WINDOW LOGIC FROM INFERENCE ===
 
-    # Estimate memory narrative length (approximate format)
-    memory_narrative = ""
-    if memory_candidates:
-        # Simulate the narrative format without actually running the 4B model
-        memory_narrative = "I'm remembering:\n\n"
-        for candidate in memory_candidates[:7]:
-            memory_narrative += f"- {candidate.content[:150]}...\n"
+    # Step 1: Calculate preliminary system content (project instructions only)
+    preliminary_system_content = agent.project_instructions or ""
+    preliminary_system_message = {"role": "system", "content": preliminary_system_content}
+    sticky_tokens = count_message_tokens(preliminary_system_message)
+    sticky_tokens += 1000  # Buffer for memories and journal blocks (matches inference code)
 
-    # Build system content sections
-    project_instructions = agent.project_instructions or ""
-    project_instructions_tokens = count_tokens(project_instructions)
-
-    # Build external summary (RAG files, journal blocks, datetime)
-    from datetime import datetime
-    external_summary_parts = []
-
-    # Add current datetime
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
-    external_summary_parts.append(f"Current time: {current_time}")
-
-    # Add RAG folders/files
-    from backend.db.models.rag import RagFolder, RagFile
-    rag_folders = db.query(RagFolder).filter(RagFolder.agent_id == agent.id).all()
-    if rag_folders:
-        external_summary_parts.append("\n=== RAG Folders/Files ===")
-        for folder in rag_folders:
-            external_summary_parts.append(f"Folder: {folder.name}")
-            rag_files = db.query(RagFile).filter(RagFile.folder_id == folder.id).all()
-            for file in rag_files:
-                external_summary_parts.append(f"  - {file.name}")
-
-    # Add journal blocks
-    journal_blocks_info = list_journal_blocks(agent.id, db)
-    journal_blocks_list = journal_blocks_info.get("blocks", [])
-    if journal_blocks_list:
-        external_summary_parts.append("\n=== Journal Blocks ===")
-        for block in journal_blocks_list:
-            external_summary_parts.append(f"- {block['label']}")
-
-    external_summary_text = "\n".join(external_summary_parts) if external_summary_parts else "No external resources"
-    external_summary_tokens = count_tokens(external_summary_text)
-
-    # System instructions tokens (journal blocks are now in External Summary, not here)
-    project_instructions_tokens = count_tokens(project_instructions)
-
-    # Messages tokens
-    history = db.query(Message).filter(
-        Message.conversation_id == conversation_id
-    ).order_by(Message.created_at.asc()).all()
-
-    messages_for_count = [
-        {"role": msg.role, "content": msg.content}
-        for msg in history
-    ]
-    messages_tokens = count_messages_tokens(messages_for_count)
-
-    # Count actual tool execution overhead from stored token counts
-    total_tool_calls = 0
-    tool_overhead_tokens = 0
-    for msg in history:
-        if msg.role == "assistant" and msg.metadata_:
-            wizard_tools = msg.metadata_.get("wizard_tools_used", 0)
-            total_tool_calls += wizard_tools
-            # Use actual counted tokens if available, otherwise estimate
-            tool_overhead_tokens += msg.metadata_.get("wizard_overhead_tokens", wizard_tools * 800)
-
-    # Calculate totals and percentages
-    total_tokens = project_instructions_tokens + external_summary_tokens + messages_tokens + tool_overhead_tokens
     max_context = agent.max_context_tokens
+    remaining_budget = max_context - sticky_tokens
+
+    # Step 2: Calculate which messages will fit (shifting window)
+    messages_in_context = []
+    current_tokens = 0
+
+    for msg in reversed(history):
+        msg_dict = {"role": msg.role, "content": msg.content}
+        msg_tokens = count_message_tokens(msg_dict)
+
+        if current_tokens + msg_tokens <= remaining_budget:
+            messages_in_context.insert(0, msg)
+            current_tokens += msg_tokens
+        else:
+            break  # Stop when we hit the limit
+
+    messages_dropped = len(history) - len(messages_in_context)
+
+    # Step 3: Build actual system content (what will be sent to LLM)
+    system_content = agent.project_instructions or ""
+
+    # Add pinned journal blocks
+    pinned_blocks = db.query(JournalBlock).filter(
+        JournalBlock.agent_id == agent.id,
+        JournalBlock.always_in_context == True
+    ).order_by(JournalBlock.updated_at.desc()).all()
+
+    if pinned_blocks:
+        system_content += "\n\n=== Pinned Information ==="
+        for block in pinned_blocks:
+            system_content += f"\n\n[{block.label}]\n{block.value}"
+
+    # Add estimated memory narrative (without actually running memory agent)
+    # This is an approximation for display purposes
+    memory_estimate = ""
+    if messages_dropped > 0:
+        memory_estimate = "\n\n=== Memories Surfacing ===\n[Estimated: memories from dropped messages would go here]\n"
+        system_content += memory_estimate
+
+    system_tokens = count_tokens(system_content)
+
+    # Count tool overhead from messages in context (not all history)
+    tool_overhead_tokens = 0
+    for msg in messages_in_context:
+        if msg.role == "assistant" and msg.metadata_:
+            tool_overhead_tokens += msg.metadata_.get("wizard_overhead_tokens", 0)
+
+    # Calculate totals
+    messages_tokens = current_tokens
+    total_tokens = system_tokens + messages_tokens + tool_overhead_tokens
 
     sections = [
         {
-            "name": "Project Instructions",
-            "tokens": project_instructions_tokens,
-            "percentage": round((project_instructions_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": project_instructions
+            "name": "System Content",
+            "tokens": system_tokens,
+            "percentage": round((system_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": f"Project instructions + {len(pinned_blocks)} pinned blocks" + (" + memory estimate" if memory_estimate else "")
         },
         {
-            "name": "External summary",
-            "tokens": external_summary_tokens,
-            "percentage": round((external_summary_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": external_summary_text
-        },
-        {
-            "name": "Messages",
+            "name": "Messages in Context",
             "tokens": messages_tokens,
             "percentage": round((messages_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": f"{len(history)} messages"
+            "content": f"{len(messages_in_context)} messages ({messages_dropped} dropped by shifting window)"
         }
     ]
 
-    # Add tool overhead section if any tools were used
-    if total_tool_calls > 0:
+    if tool_overhead_tokens > 0:
         sections.append({
             "name": "Tool Execution Overhead",
             "tokens": tool_overhead_tokens,
             "percentage": round((tool_overhead_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": f"{total_tool_calls} tool calls (wizard menus + results)"
+            "content": "Wizard menus + results from messages in context"
         })
 
     return {
         "sections": sections,
         "total_tokens": total_tokens,
         "max_context_tokens": max_context,
-        "percentage_used": round((total_tokens / max_context) * 100, 1) if max_context > 0 else 0
+        "percentage_used": round((total_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+        "messages_in_context": len(messages_in_context),
+        "messages_dropped": messages_dropped
     }
 
 
