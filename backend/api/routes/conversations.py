@@ -1257,7 +1257,7 @@ async def _chat_stream_internal(
                     continue
 
                 # STEP 4: Process the choice
-                if command == "send_message_to_user":
+                if command == "send_message_to_user" or command == "chat_normally":
                     # Finalize - exit loop
                     print(f"   ➡️  LLM chose to finalize message")
                     wizard_loop_active = False
