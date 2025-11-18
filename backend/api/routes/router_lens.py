@@ -639,3 +639,159 @@ async def browse_directory(path: str = "~"):
         "items": items,
         "parent": str(browse_path.parent) if browse_path.parent != browse_path else None
     }
+
+@router.post("/analyze-conversation/{conversation_id}")
+async def analyze_conversation(
+    conversation_id: UUID,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Analyze expert routing patterns across an entire conversation
+    
+    Replays all assistant responses through diagnostic inference with router logging
+    to capture expert activation patterns throughout the conversation.
+    
+    Args:
+        conversation_id: ID of the conversation to analyze
+        
+    Returns:
+        Per-turn analysis and aggregate statistics
+    """
+    from backend.db.models.conversation import Conversation
+    from backend.db.models.message import Message
+    import asyncio
+    
+    # Load conversation
+    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+    if not conversation:
+        raise HTTPException(404, "Conversation not found")
+    
+    # Load agent
+    agent = db.query(Agent).filter(Agent.id == conversation.agent_id).first()
+    if not agent:
+        raise HTTPException(404, "Agent not found")
+    
+    # Get diagnostic service
+    try:
+        diagnostic_service = get_diagnostic_service()
+        
+        # Load model if not already loaded for this agent
+        current_agent_id = getattr(diagnostic_service, 'agent_id', None)
+        if current_agent_id != str(agent.id):
+            print(f"[Conversation Analysis] Loading model for agent {agent.name}")
+            await asyncio.to_thread(
+                diagnostic_service.load_model,
+                agent.model_path,
+                agent.adapter_path,
+                agent_id=str(agent.id),
+                agent_name=agent.name
+            )
+    except Exception as e:
+        raise HTTPException(500, f"Failed to initialize diagnostic service: {str(e)}")
+    
+    # Load all messages in conversation
+    messages = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.asc()).all()
+    
+    if not messages:
+        raise HTTPException(404, "No messages found in conversation")
+    
+    # Process messages turn by turn
+    turn_analyses = []
+    conversation_context = []
+    
+    for msg in messages:
+        # Build context for this turn
+        if msg.role == "system":
+            conversation_context.insert(0, {"role": "system", "content": msg.content})
+        elif msg.role == "user":
+            conversation_context.append({"role": "user", "content": msg.content})
+        elif msg.role == "assistant":
+            # This is an assistant message - replay it with router logging
+            conversation_context.append({"role": "assistant", "content": msg.content})
+            
+            # Build prompt from context up to the user message
+            prompt_parts = []
+            for ctx_msg in conversation_context[:-1]:  # Exclude the assistant response
+                role = ctx_msg["role"]
+                content = ctx_msg["content"]
+                if role == "system":
+                    prompt_parts.append(f"System: {content}")
+                elif role == "user":
+                    prompt_parts.append(f"User: {content}")
+                elif role == "assistant":
+                    prompt_parts.append(f"Assistant: {content}")
+            
+            conversation_prompt = "\n\n".join(prompt_parts)
+            
+            # Run diagnostic inference
+            print(f"[Conversation Analysis] Analyzing turn {len(turn_analyses) + 1}")
+            
+            try:
+                result_dict = await asyncio.to_thread(
+                    diagnostic_service.run_inference,
+                    prompt=conversation_prompt,
+                    max_tokens=len(msg.content.split()),  # Approximate
+                    temperature=agent.temperature,
+                    log_routing=True
+                )
+                
+                turn_analyses.append({
+                    "turn_number": len(turn_analyses) + 1,
+                    "message_id": str(msg.id),
+                    "user_message": conversation_context[-2]["content"] if len(conversation_context) >= 2 else "",
+                    "assistant_response": msg.content,
+                    "router_analysis": result_dict["router_analysis"]
+                })
+            except Exception as e:
+                print(f"[Conversation Analysis] Failed to analyze turn: {e}")
+                continue
+    
+    # Compute aggregate statistics
+    all_expert_usage = {}
+    total_tokens_analyzed = 0
+    all_entropy_values = []
+    
+    for turn in turn_analyses:
+        router_data = turn["router_analysis"]
+        total_tokens_analyzed += router_data.get("total_tokens", 0)
+        
+        # Aggregate expert usage
+        for expert_id, count in router_data.get("expert_usage_count", {}).items():
+            expert_id_str = str(expert_id)
+            if expert_id_str not in all_expert_usage:
+                all_expert_usage[expert_id_str] = 0
+            all_expert_usage[expert_id_str] += count
+        
+        # Collect entropy values
+        if "mean_token_entropy" in router_data:
+            all_entropy_values.append(router_data["mean_token_entropy"])
+    
+    # Calculate aggregate metrics
+    mean_entropy = sum(all_entropy_values) / len(all_entropy_values) if all_entropy_values else 0
+    variance = sum((x - mean_entropy) ** 2 for x in all_entropy_values) / len(all_entropy_values) if all_entropy_values else 0
+    
+    aggregate_analysis = {
+        "total_turns": len(turn_analyses),
+        "total_tokens_analyzed": total_tokens_analyzed,
+        "overall_expert_usage": all_expert_usage,
+        "mean_entropy_across_turns": mean_entropy,
+        "entropy_variance": variance,
+        "most_used_experts": sorted(
+            all_expert_usage.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10],
+        "least_used_experts": sorted(
+            all_expert_usage.items(),
+            key=lambda x: x[1]
+        )[:10]
+    }
+    
+    return {
+        "conversation_id": str(conversation_id),
+        "conversation_title": conversation.title or "Untitled",
+        "agent_name": agent.name,
+        "turn_analyses": turn_analyses,
+        "aggregate_analysis": aggregate_analysis
+    }

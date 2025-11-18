@@ -242,4 +242,29 @@ export const routerLensAPI = {
     }>;
     parent: string | null;
   }> => fetchAPI(`/browse/directory?path=${encodeURIComponent(path)}`),
+
+  // Conversation analysis
+  analyzeConversation: (
+    conversationId: string
+  ): Promise<{
+    conversation_id: string;
+    conversation_title: string;
+    agent_name: string;
+    turn_analyses: Array<{
+      turn_number: number;
+      message_id: string;
+      user_message: string;
+      assistant_response: string;
+      router_analysis: any;
+    }>;
+    aggregate_analysis: {
+      total_turns: number;
+      total_tokens_analyzed: number;
+      overall_expert_usage: Record<string, number>;
+      mean_entropy_across_turns: number;
+      entropy_variance: number;
+      most_used_experts: Array<[string, number]>;
+      least_used_experts: Array<[string, number]>;
+    };
+  }> => fetchAPI(`/analyze-conversation/${conversationId}`, { method: 'POST' }),
 };
