@@ -58,6 +58,9 @@ export default function InterpretabilityView() {
   const [showDiagnosticResult, setShowDiagnosticResult] = useState(false);
   const [editedPrompts, setEditedPrompts] = useState<Record<number, string>>({});
 
+  // Analysis filters
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+
   // Fetch agents on mount
   useEffect(() => {
     fetchAgents();
@@ -223,7 +226,11 @@ export default function InterpretabilityView() {
     try {
       setRouterLensLoading(true);
       setRouterLensError(null);
-      const analysis = await routerLensAPI.analyzeExpertUsage();
+      const categoryFilter = selectedCategoryFilter === 'all' ? undefined : selectedCategoryFilter;
+      const analysis = await routerLensAPI.analyzeExpertUsage(
+        selectedAgentForExpert || undefined,
+        categoryFilter
+      );
       setExpertAnalysis(analysis);
       setSelectedSessionView('analysis');
     } catch (err) {
@@ -238,7 +245,11 @@ export default function InterpretabilityView() {
     try {
       setRouterLensLoading(true);
       setRouterLensError(null);
-      const analysis = await routerLensAPI.analyzeEntropyDistribution();
+      const categoryFilter = selectedCategoryFilter === 'all' ? undefined : selectedCategoryFilter;
+      const analysis = await routerLensAPI.analyzeEntropyDistribution(
+        selectedAgentForExpert || undefined,
+        categoryFilter
+      );
       setEntropyAnalysis(analysis);
       setSelectedSessionView('analysis');
     } catch (err) {
@@ -632,6 +643,25 @@ export default function InterpretabilityView() {
 
             {selectedSessionView === 'analysis' && (
               <div className="analysis-view">
+                <div className="analysis-filters">
+                  <label>Filter by Category:</label>
+                  <select
+                    value={selectedCategoryFilter}
+                    onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                    className="category-filter-select"
+                  >
+                    <option value="all">All Categories</option>
+                    {diagnosticPrompts.map((dp) => dp.category).filter((cat, idx, arr) => arr.indexOf(cat) === idx).map((category) => (
+                      <option key={category} value={category}>
+                        {category.charAt(0).toUpperCase() + category.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedCategoryFilter !== 'all' && (
+                    <span className="filter-indicator">Filtering by: {selectedCategoryFilter}</span>
+                  )}
+                </div>
+
                 <div className="analysis-actions">
                   <button
                     className="btn-primary"
@@ -651,7 +681,12 @@ export default function InterpretabilityView() {
 
                 {expertAnalysis && (
                   <div className="analysis-results">
-                    <h5>Expert Usage Analysis ({expertAnalysis.num_sessions_analyzed} sessions)</h5>
+                    <h5>
+                      Expert Usage Analysis ({expertAnalysis.num_sessions_analyzed} sessions)
+                      {selectedCategoryFilter !== 'all' && (
+                        <span className="analysis-category-tag"> - {selectedCategoryFilter} category</span>
+                      )}
+                    </h5>
                     <div className="analysis-grid">
                       <div className="analysis-card">
                         <h6>Most Used Experts</h6>
@@ -696,7 +731,12 @@ export default function InterpretabilityView() {
 
                 {entropyAnalysis && (
                   <div className="entropy-results">
-                    <h5>Entropy Distribution Analysis</h5>
+                    <h5>
+                      Entropy Distribution Analysis
+                      {selectedCategoryFilter !== 'all' && (
+                        <span className="analysis-category-tag"> - {selectedCategoryFilter} category</span>
+                      )}
+                    </h5>
                     <div className="entropy-stats">
                       <div className="stat-card">
                         <div className="stat-value">

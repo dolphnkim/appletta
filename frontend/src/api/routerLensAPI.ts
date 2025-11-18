@@ -105,11 +105,19 @@ export const routerLensAPI = {
   getSessionDetails: (filename: string): Promise<any> => fetchAPI(`/sessions/${filename}`),
 
   // Analysis
-  analyzeExpertUsage: (): Promise<ExpertUsageAnalysis> =>
-    fetchAPI('/analyze/expert-usage', { method: 'POST' }),
+  analyzeExpertUsage: (agentId?: string, category?: string): Promise<ExpertUsageAnalysis> => {
+    const params = new URLSearchParams();
+    if (agentId) params.append('agent_id', agentId);
+    if (category) params.append('category', category);
+    return fetchAPI(`/analyze/expert-usage?${params.toString()}`, { method: 'POST' });
+  },
 
-  analyzeEntropyDistribution: (): Promise<EntropyAnalysis> =>
-    fetchAPI('/analyze/entropy-distribution', { method: 'POST' }),
+  analyzeEntropyDistribution: (agentId?: string, category?: string): Promise<EntropyAnalysis> => {
+    const params = new URLSearchParams();
+    if (agentId) params.append('agent_id', agentId);
+    if (category) params.append('category', category);
+    return fetchAPI(`/analyze/entropy-distribution?${params.toString()}`, { method: 'POST' });
+  },
 
   getExpertClusters: (): Promise<{ clusters: number[][]; most_used: Array<[number, number]>; least_used: Array<[number, number]> }> =>
     fetchAPI('/expert-clusters'),
