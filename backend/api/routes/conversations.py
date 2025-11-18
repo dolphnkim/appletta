@@ -840,7 +840,8 @@ async def chat(
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
             print(f"\n  Message {i+1} [{role}]:")
-            print(f"  {content[:500]}{'...' if len(content) > 500 else ''}")
+            # Show full content without truncation
+            print(f"  {content}")
         print(f"{'='*80}\n")
 
         try:
@@ -857,7 +858,8 @@ async def chat(
             assistant_msg = result.get("choices", [{}])[0].get("message", {})
             print(f"Role: {assistant_msg.get('role', 'unknown')}")
             content = assistant_msg.get("content", "")
-            print(f"Content: {content[:500]}{'...' if len(content) > 500 else ''}")
+            # Show full content without truncation
+            print(f"Content:\n{content}")
             print(f"{'='*80}\n")
 
         except httpx.HTTPError as e:
