@@ -1257,14 +1257,15 @@ async def _chat_stream_internal(
                     continue
 
                 # STEP 4: Process the choice
-                if command == "send_message_to_user" or command == "chat_normally":
+                if command == "send_message_to_user":
                     # Finalize - exit loop
                     print(f"   ➡️  LLM chose to finalize message")
                     wizard_loop_active = False
 
-                elif command == "continue_chatting":
+                elif command == "continue_chatting" or command == "chat_normally":
                     # Continue - loop back to stream more
-                    print(f"   ➡️  LLM chose to continue chatting (will stream more)")
+                    action = "continue chatting" if command == "continue_chatting" else "chat normally"
+                    print(f"   ➡️  LLM chose to {action} (will stream more)")
                     # Add a space/newline between chunks if needed
                     if accumulated_response and not accumulated_response.endswith("\n"):
                         accumulated_response += "\n\n"
