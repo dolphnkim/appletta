@@ -156,8 +156,8 @@ def show_main_menu_with_resources(agent_id: str, db: Session, post_response: boo
 
     # Post-response menu (after streaming response to user)
     if post_response:
-        menu += "send_message_to_user\n"
-        menu += "continue_chatting\n"
+        menu += "finalize_message (I'm all done, send this to user)\n"
+        menu += "add_more_to_response (I want to keep chatting)\n"
     else:
         # Legacy pre-response menu
         menu += "chat_normally\n"
@@ -189,13 +189,13 @@ def parse_command(response: str) -> Tuple[str, Optional[str]]:
     """
     response = response.strip()
 
-    # Handle simple commands
+    # Handle simple commands - match both new clear names and old names
+    if "finalize" in response.lower() or response == "send_message_to_user":
+        return ("send_message_to_user", None)
+    if "add_more" in response.lower() or response == "continue_chatting":
+        return ("continue_chatting", None)
     if response == "chat_normally":
         return ("chat_normally", None)
-    if response == "send_message_to_user":
-        return ("send_message_to_user", None)
-    if response == "continue_chatting":
-        return ("continue_chatting", None)
     if response == "create_journal_block":
         return ("create_journal_block", None)
     if response == "search_memories":
