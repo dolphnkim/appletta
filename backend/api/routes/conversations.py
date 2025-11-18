@@ -1052,6 +1052,11 @@ async def _chat_stream_internal(
     # Build system content with memories
     system_content = agent.project_instructions or ""
 
+    # Add current date and time
+    from datetime import datetime
+    current_datetime = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+    system_content += f"\n\nCurrent date and time: {current_datetime}"
+
     # Add pinned journal blocks
     pinned_blocks = db.query(JournalBlock).filter(
         JournalBlock.agent_id == agent.id,
