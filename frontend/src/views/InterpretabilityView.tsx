@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import AffectDashboard from '../components/AffectDashboard/AffectDashboard';
 import { routerLensAPI } from '../api/routerLensAPI';
 import { conversationAPI } from '../api/conversationAPI';
+import { agentAPI } from '../api/agentAPI';
 import type {
   RouterLensStatus,
   SessionSummary,
@@ -12,6 +13,7 @@ import type {
   DiagnosticPrompt,
 } from '../api/routerLensAPI';
 import type { Conversation } from '../types/conversation';
+import type { Agent } from '../types/agent';
 import './InterpretabilityView.css';
 
 export default function InterpretabilityView() {
@@ -30,21 +32,16 @@ export default function InterpretabilityView() {
   const [routerLensError, setRouterLensError] = useState<string | null>(null);
   const [selectedSessionView, setSelectedSessionView] = useState<'current' | 'saved' | 'analysis'>('current');
 
-  // Model loader state
-  const [modelPath, setModelPath] = useState<string>('');
-  const [adapterPath, setAdapterPath] = useState<string>('');
-  const [modelStatus, setModelStatus] = useState<{ loaded: boolean; path: string | null; isMoE: boolean } | null>(
-    null
-  );
-
-  // File browser state
-  const [showFileBrowser, setShowFileBrowser] = useState(false);
-  const [fileBrowserMode, setFileBrowserMode] = useState<'model' | 'adapter'>('model');
-  const [currentBrowsePath, setCurrentBrowsePath] = useState<string>('~');
-  const [browseItems, setBrowseItems] = useState<
-    Array<{ name: string; path: string; is_dir: boolean; is_model?: boolean; is_adapter?: boolean }>
-  >([]);
-  const [browseParent, setBrowseParent] = useState<string | null>(null);
+  // Agent selection state
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgentForExpert, setSelectedAgentForExpert] = useState<string>('');
+  const [modelStatus, setModelStatus] = useState<{
+    loaded: boolean;
+    path: string | null;
+    isMoE: boolean;
+    agentId: string | null;
+    agentName: string | null;
+  } | null>(null);
 
   // Welfare tracking state
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -60,15 +57,26 @@ export default function InterpretabilityView() {
   } | null>(null);
   const [showDiagnosticResult, setShowDiagnosticResult] = useState(false);
 
+  // Fetch agents on mount
+  useEffect(() => {
+    fetchAgents();
+  }, []);
+
   // Fetch data when Expert Analytics tab is active
   useEffect(() => {
     if (activeTab === 'expert') {
       fetchRouterLensStatus();
       fetchDiagnosticPrompts();
-      fetchSavedSessions();
       fetchModelStatus();
     }
   }, [activeTab]);
+
+  // Fetch sessions when agent changes
+  useEffect(() => {
+    if (selectedAgentForExpert) {
+      fetchSavedSessions();
+    }
+  }, [selectedAgentForExpert]);
 
   // Fetch conversations when Welfare tab is active or agent changes
   useEffect(() => {
@@ -110,7 +118,13 @@ export default function InterpretabilityView() {
         loaded: status.model_loaded,
         path: status.model_path,
         isMoE: status.is_moe_model,
+        agentId: status.agent_id,
+        agentName: status.agent_name,
       });
+      // If an agent is already loaded, select it
+      if (status.agent_id && !selectedAgentForExpert) {
+        setSelectedAgentForExpert(status.agent_id);
+      }
     } catch {
       setModelStatus(null);
     }
@@ -152,6 +166,56 @@ export default function InterpretabilityView() {
     }
   };
 
+  const fetchAgents = async () => {
+    try {
+      const fetchedAgents = await agentAPI.list();
+      setAgents(fetchedAgents);
+
+      // Auto-select the locally stored agent or first agent
+      if (agentId && fetchedAgents.some((a) => a.id === agentId)) {
+        setSelectedAgentForExpert(agentId);
+      } else if (fetchedAgents.length > 0) {
+        setSelectedAgentForExpert(fetchedAgents[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to fetch agents:', err);
+    }
+  };
+
+  const loadAgentModel = async () => {
+    if (!selectedAgentForExpert) {
+      setRouterLensError('Please select an agent');
+      return;
+    }
+
+    try {
+      setRouterLensLoading(true);
+      setRouterLensError(null);
+      const result = await routerLensAPI.loadAgentModel(selectedAgentForExpert);
+      setModelStatus({
+        loaded: true,
+        path: result.model_path,
+        isMoE: result.is_moe,
+        agentId: result.agent_id,
+        agentName: result.agent_name,
+      });
+      // Reload sessions for this agent
+      fetchSavedSessions();
+    } catch (err: unknown) {
+      console.error('Failed to load agent model:', err);
+      const error = err as { message?: string };
+      if (error.message?.includes('MLX not installed')) {
+        setRouterLensError('MLX is not installed. Please install: pip install mlx mlx-lm');
+      } else if (error.message?.includes('404')) {
+        setRouterLensError('Agent or model not found');
+      } else {
+        setRouterLensError(`Failed to load agent model: ${error.message || 'Unknown error'}`);
+      }
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
   const fetchRouterLensStatus = async () => {
     try {
       const status = await routerLensAPI.getStatus();
@@ -176,7 +240,8 @@ export default function InterpretabilityView() {
 
   const fetchSavedSessions = async () => {
     try {
-      const result = await routerLensAPI.listSessions(20);
+      // Pass agent ID if one is selected to get agent-specific sessions
+      const result = await routerLensAPI.listSessions(20, selectedAgentForExpert || undefined);
       setSavedSessions(result.sessions);
     } catch (err) {
       console.error('Failed to fetch saved sessions:', err);
@@ -400,63 +465,46 @@ export default function InterpretabilityView() {
 
             {routerLensError && <div className="error-banner">{routerLensError}</div>}
 
-            {/* Model Loader Section */}
+            {/* Agent Selection Section */}
             <div className="model-loader-section">
-              <h4>Model Status</h4>
-              {modelStatus?.loaded ? (
+              <h4>Agent Selection</h4>
+              <div className="agent-selector-row">
+                <label>Select Agent:</label>
+                {agents.length === 0 ? (
+                  <span className="no-agents">No agents found</span>
+                ) : (
+                  <select
+                    value={selectedAgentForExpert}
+                    onChange={(e) => setSelectedAgentForExpert(e.target.value)}
+                    className="agent-select"
+                  >
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {modelStatus?.loaded && modelStatus?.agentId === selectedAgentForExpert ? (
                 <div className="model-loaded-info">
                   <span className="status-indicator active">● Model Loaded</span>
+                  <span className="agent-name">{modelStatus.agentName}</span>
                   <span className="model-path">{modelStatus.path}</span>
                   <span className={`moe-badge ${modelStatus.isMoE ? 'is-moe' : 'not-moe'}`}>
                     {modelStatus.isMoE ? 'MoE Model' : 'Not MoE'}
                   </span>
                 </div>
               ) : (
-                <div className="model-loader-form">
-                  <div className="form-row">
-                    <label>Model Path:</label>
-                    <div className="input-with-browse">
-                      <input
-                        type="text"
-                        value={modelPath}
-                        onChange={(e) => setModelPath(e.target.value)}
-                        placeholder="Enter path or click Browse..."
-                      />
-                      <button
-                        className="btn-browse"
-                        onClick={() => openFileBrowser('model')}
-                        title="Browse filesystem"
-                      >
-                        📂 Browse
-                      </button>
-                    </div>
-                  </div>
-                  <div className="form-row">
-                    <label>Adapter Path (optional):</label>
-                    <div className="input-with-browse">
-                      <input
-                        type="text"
-                        value={adapterPath}
-                        onChange={(e) => setAdapterPath(e.target.value)}
-                        placeholder="Leave empty or click Browse..."
-                      />
-                      <button
-                        className="btn-browse"
-                        onClick={() => openFileBrowser('adapter')}
-                        title="Browse filesystem"
-                      >
-                        📂 Browse
-                      </button>
-                    </div>
-                  </div>
-                  <button
-                    className="btn-primary"
-                    onClick={loadModel}
-                    disabled={routerLensLoading || !modelPath.trim()}
-                  >
-                    Load Model for Analytics
-                  </button>
-                </div>
+                <button
+                  className="btn-primary"
+                  onClick={loadAgentModel}
+                  disabled={routerLensLoading || !selectedAgentForExpert}
+                  style={{ marginTop: '12px' }}
+                >
+                  Load Agent Model for Analytics
+                </button>
               )}
             </div>
 

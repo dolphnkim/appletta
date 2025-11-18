@@ -93,8 +93,13 @@ export const routerLensAPI = {
     fetchAPI(`/session/save?prompt=${encodeURIComponent(prompt)}&response=${encodeURIComponent(response)}`, { method: 'POST' }),
 
   // Saved sessions
-  listSessions: (limit: number = 20): Promise<{ sessions: SavedSession[]; total: number }> =>
-    fetchAPI(`/sessions?limit=${limit}`),
+  listSessions: (limit: number = 20, agentId?: string): Promise<{ sessions: SavedSession[]; total: number }> => {
+    const params = new URLSearchParams({ limit: limit.toString() });
+    if (agentId) {
+      params.append('agent_id', agentId);
+    }
+    return fetchAPI(`/sessions?${params.toString()}`);
+  },
 
   getSessionDetails: (filename: string): Promise<any> => fetchAPI(`/sessions/${filename}`),
 
@@ -143,6 +148,21 @@ export const routerLensAPI = {
       }),
     }),
 
+  // Load agent's model for diagnostics
+  loadAgentModel: (
+    agentId: string
+  ): Promise<{
+    status: string;
+    model_path: string;
+    is_moe: boolean;
+    agent_id: string;
+    agent_name: string;
+    config: Record<string, unknown>;
+  }> =>
+    fetchAPI(`/diagnostic/load-agent-model/${agentId}`, {
+      method: 'POST',
+    }),
+
   runQuickTest: (): Promise<{
     prompt: string;
     response: string;
@@ -173,6 +193,8 @@ export const routerLensAPI = {
     model_loaded: boolean;
     model_path: string | null;
     is_moe_model: boolean;
+    agent_id: string | null;
+    agent_name: string | null;
     inspector_status: RouterLensStatus;
   }> => fetchAPI('/diagnostic/model-status'),
 

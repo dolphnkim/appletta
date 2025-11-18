@@ -15,6 +15,7 @@ from backend.services.router_lens import get_router_inspector, reset_router_insp
 from backend.services.moe_model_wrapper import create_diagnostic_prompt_set
 from backend.services.diagnostic_inference import get_diagnostic_service
 from backend.core.config import settings
+from sqlalchemy import select
 
 router = APIRouter(prefix="/api/v1/router-lens", tags=["router-lens"])
 
@@ -87,10 +88,21 @@ async def save_current_session(prompt: str = "", response: str = ""):
 
 
 @router.get("/sessions")
-async def list_saved_sessions(limit: int = 20):
-    """List saved router lens sessions"""
-    inspector = get_router_inspector()
-    log_dir = inspector.log_dir
+async def list_saved_sessions(limit: int = 20, agent_id: Optional[str] = None):
+    """List saved router lens sessions
+
+    Args:
+        limit: Maximum number of sessions to return
+        agent_id: Optional agent ID to filter sessions (returns sessions for specific agent)
+    """
+    # Determine log directory based on agent_id
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    if not log_dir.exists():
+        return {"sessions": [], "total": 0}
 
     sessions = []
     for filepath in sorted(log_dir.glob("router_session_*.json"), reverse=True)[:limit]:
@@ -104,6 +116,7 @@ async def list_saved_sessions(limit: int = 20):
                     "end_time": data.get("end_time"),
                     "total_tokens": data.get("summary", {}).get("total_tokens", 0),
                     "prompt_preview": data.get("metadata", {}).get("prompt", "")[:100],
+                    "agent_id": data.get("metadata", {}).get("agent_id"),
                 })
         except Exception as e:
             continue
@@ -286,6 +299,49 @@ async def load_model_for_diagnostics(request: LoadModelRequest):
         raise HTTPException(500, f"Failed to load model: {str(e)}")
 
 
+@router.post("/diagnostic/load-agent-model/{agent_id}")
+async def load_agent_model_for_diagnostics(agent_id: str, db: Session = Depends(get_db)):
+    """Load an agent's model for diagnostic inference with router logging
+
+    This uses the agent's configured model and adapter paths.
+    Sessions will be saved to this agent's profile.
+    """
+    try:
+        service = get_diagnostic_service()
+    except ImportError as e:
+        raise HTTPException(500, f"MLX not installed: {str(e)}")
+
+    # Get agent from database
+    try:
+        agent_uuid = UUID(agent_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid agent ID format")
+
+    agent = db.query(Agent).filter(Agent.id == agent_uuid).first()
+    if not agent:
+        raise HTTPException(404, f"Agent not found: {agent_id}")
+
+    # Load the agent's model
+    try:
+        result = service.load_model(
+            agent.model_path,
+            agent.adapter_path,
+            agent_id=str(agent.id),
+            agent_name=agent.name
+        )
+        return {
+            **result,
+            "agent_id": str(agent.id),
+            "agent_name": agent.name
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"Model not found for agent '{agent.name}': {str(e)}")
+    except Exception as e:
+        print(f"[Diagnostic] Load agent model error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to load agent model: {str(e)}")
+
+
 @router.get("/diagnostic/model-status")
 async def get_diagnostic_model_status():
     """Get status of the diagnostic inference model"""
@@ -298,6 +354,8 @@ async def get_diagnostic_model_status():
         "model_loaded": service.model is not None,
         "model_path": service.model_path,
         "is_moe_model": service.is_moe_model,
+        "agent_id": service.agent_id,
+        "agent_name": service.agent_name,
         "inspector_status": service.get_inspector_status()
     }
 
