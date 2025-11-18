@@ -51,6 +51,7 @@ export interface SavedSession {
   end_time?: string;
   total_tokens: number;
   prompt_preview: string;
+  category?: string;
 }
 
 export interface ExpertUsageAnalysis {
@@ -198,8 +199,8 @@ export const routerLensAPI = {
     inspector_status: RouterLensStatus;
   }> => fetchAPI('/diagnostic/model-status'),
 
-  saveDiagnosticSession: (promptPreview: string = '', notes: string = ''): Promise<{ saved: boolean; filepath: string }> =>
-    fetchAPI(`/diagnostic/save-session?prompt_preview=${encodeURIComponent(promptPreview)}&notes=${encodeURIComponent(notes)}`, { method: 'POST' }),
+  saveDiagnosticSession: (promptPreview: string = '', notes: string = '', category: string = ''): Promise<{ saved: boolean; filepath: string }> =>
+    fetchAPI(`/diagnostic/save-session?prompt_preview=${encodeURIComponent(promptPreview)}&notes=${encodeURIComponent(notes)}&category=${encodeURIComponent(category)}`, { method: 'POST' }),
 
   // Model browsing
   getConfigPaths: (): Promise<{

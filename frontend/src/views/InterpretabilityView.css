@@ -595,6 +595,18 @@
   margin-left: 16px;
 }
 
+.session-category-badge {
+  background: #4a9eff;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  display: inline-block;
+  margin-right: 8px;
+}
+
 .prompt-preview {
   font-style: italic;
   color: #aaa;
@@ -785,11 +797,38 @@
   text-transform: uppercase;
   min-width: 80px;
   text-align: center;
+  align-self: flex-start;
+  margin-top: 8px;
 }
 
 .prompt-text {
   flex: 1;
   color: #ccc;
+  font-style: italic;
+}
+
+.prompt-text-input {
+  flex: 1;
+  background: #1e1e1e;
+  border: 1px solid #404040;
+  color: #e0e0e0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 40px;
+  line-height: 1.4;
+}
+
+.prompt-text-input:focus {
+  outline: none;
+  border-color: #4a9eff;
+  background: #252525;
+}
+
+.prompt-text-input::placeholder {
+  color: #666;
   font-style: italic;
 }
 

@@ -56,6 +56,7 @@ export default function InterpretabilityView() {
     router_analysis: SessionSummary;
   } | null>(null);
   const [showDiagnosticResult, setShowDiagnosticResult] = useState(false);
+  const [editedPrompts, setEditedPrompts] = useState<Record<number, string>>({});
 
   // Fetch agents on mount
   useEffect(() => {
@@ -281,7 +282,11 @@ export default function InterpretabilityView() {
     try {
       setRouterLensLoading(true);
       const promptPreview = `[${diagnosticTestResult.category}] ${diagnosticTestResult.prompt}`;
-      await routerLensAPI.saveDiagnosticSession(promptPreview, '');
+      await routerLensAPI.saveDiagnosticSession(
+        promptPreview,
+        '',
+        diagnosticTestResult.category
+      );
       await fetchSavedSessions();
       setShowDiagnosticResult(false);
       alert('Diagnostic session saved successfully!');
@@ -604,6 +609,9 @@ export default function InterpretabilityView() {
                           {new Date(session.start_time).toLocaleString()}
                         </div>
                         <div className="session-meta">
+                          {session.category && (
+                            <span className="session-category-badge">{session.category}</span>
+                          )}
                           <span>{session.total_tokens} tokens</span>
                           {session.prompt_preview && (
                             <span className="prompt-preview">"{session.prompt_preview}..."</span>
@@ -742,15 +750,24 @@ export default function InterpretabilityView() {
 
             <div className="diagnostic-prompts-section">
               <h5>Diagnostic Prompts</h5>
-              <p>Use these prompts to test expert routing for different cognitive tasks:</p>
+              <p>Edit prompts to test variations within each category. Expert routing patterns will be tracked by category:</p>
               <div className="diagnostic-prompts-list">
                 {diagnosticPrompts.map((dp, idx) => (
                   <div key={idx} className="diagnostic-prompt-item">
                     <span className="prompt-category">{dp.category}</span>
-                    <span className="prompt-text">{dp.prompt}</span>
+                    <textarea
+                      className="prompt-text-input"
+                      value={editedPrompts[idx] !== undefined ? editedPrompts[idx] : dp.prompt}
+                      onChange={(e) => setEditedPrompts({ ...editedPrompts, [idx]: e.target.value })}
+                      placeholder={dp.prompt}
+                      rows={2}
+                    />
                     <button
                       className="btn-sm"
-                      onClick={() => runDiagnosticTest(dp.prompt, dp.category)}
+                      onClick={() => {
+                        const promptToUse = editedPrompts[idx] !== undefined ? editedPrompts[idx] : dp.prompt;
+                        runDiagnosticTest(promptToUse, dp.category);
+                      }}
                       disabled={routerLensLoading}
                     >
                       Test
