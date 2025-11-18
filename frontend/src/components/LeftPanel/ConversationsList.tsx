@@ -78,9 +78,11 @@ export default function ConversationsList({
     setEditTitle(conversation.title || '');
   };
 
-  const handleSaveEdit = async (conversationId: string, e: React.FormEvent | React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleSaveEdit = async (conversationId: string, e?: React.FormEvent | React.FocusEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
     if (!editTitle.trim()) {
       setError('Title cannot be empty');
@@ -95,6 +97,7 @@ export default function ConversationsList({
       setEditingId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update conversation');
+      console.error('Conversation update error:', err);
     }
   };
 
