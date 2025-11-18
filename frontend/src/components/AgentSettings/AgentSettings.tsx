@@ -259,6 +259,26 @@ export default function AgentSettings({ agentId, onDelete, onClone }: AgentSetti
           config={agent.free_choice_config}
           onUpdate={handleFreeChoiceConfigUpdate}
         />
+
+        {/* Router Logging Toggle */}
+        <div className="settings-section">
+          <div className="settings-section-title">Router Logging</div>
+          <div className="settings-field">
+            <label className="settings-label">
+              Track Expert Activations
+              <span className="help-text">Enable MoE expert tracking during conversations for analysis</span>
+            </label>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={agent.router_logging_enabled || false}
+                onChange={(e) => handleTemplateUpdate({ router_logging_enabled: e.target.checked })}
+              />
+              <span className="toggle-slider"></span>
+              <span className="toggle-label">{agent.router_logging_enabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       {showProjectInstructionsModal && (

@@ -38,6 +38,7 @@ export interface Agent {
   llm_config: LLMConfig;
   embedding_config: EmbeddingConfig;
   free_choice_config: FreeChoiceConfig;
+  router_logging_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +68,7 @@ export interface AgentUpdate {
   llm_config?: Partial<LLMConfig>;
   embedding_config?: Partial<EmbeddingConfig>;
   free_choice_config?: Partial<FreeChoiceConfig>;
+  router_logging_enabled?: boolean;
 }
 
 export interface AgentFile {

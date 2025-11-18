@@ -739,78 +739,167 @@ async def chat(
     current_user_msg = {"role": "user", "content": request.message}
     messages = [system_message] + messages_to_include + [current_user_msg]
 
-    # Get or start MLX server
-    mlx_manager = get_mlx_manager()
-    mlx_process = mlx_manager.get_agent_server(agent.id)
+    # Check if router logging is enabled for this agent
+    use_router_logging = getattr(agent, 'router_logging_enabled', False)
 
-    if not mlx_process:
-        try:
-            mlx_process = await mlx_manager.start_agent_server(agent)
-        except Exception as e:
-            raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
+    # Get or start MLX server (unless using router logging mode)
+    mlx_manager = get_mlx_manager()
+    mlx_process = None
+
+    if not use_router_logging:
+        mlx_process = mlx_manager.get_agent_server(agent.id)
+
+        if not mlx_process:
+            try:
+                mlx_process = await mlx_manager.start_agent_server(agent)
+            except Exception as e:
+                raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
 
     # Simple LLM call - no tool calling loop, wizard handles all tools
     print(f"\n{'='*80}")
     print(f"🤖 MAIN AGENT LLM CALL - Agent: {agent.name}")
+    if use_router_logging:
+        print(f"🔬 ROUTER LOGGING ENABLED - Using diagnostic inference")
     print(f"{'='*80}")
 
-    # VERBOSE: Show exactly what we're sending to the LLM
-    request_payload = {
-        "messages": messages,
-        "temperature": agent.temperature,
-        "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-        "seed": 42,
-    }
+    final_response = ""
+    router_analysis = None
 
-    print(f"\n📤 REQUEST TO MAIN LLM:")
-    print(f"Port: {mlx_process.port}")
-    print(f"Temperature: {agent.temperature}")
-    print(f"Max Tokens: {agent.max_output_tokens if agent.max_output_tokens_enabled else 4096}")
-    print(f"\n📨 MESSAGES ARRAY ({len(messages)} messages):")
-    for i, msg in enumerate(messages):
-        role = msg.get("role", "unknown")
-        content = msg.get("content", "")
-        print(f"\n  Message {i+1} [{role}]:")
-        print(f"  {content[:500]}{'...' if len(content) > 500 else ''}")
-    print(f"{'='*80}\n")
+    if use_router_logging:
+        # Use diagnostic inference service with router logging
+        from backend.services.diagnostic_inference import get_diagnostic_service
 
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                json=request_payload
+        try:
+            diagnostic_service = get_diagnostic_service()
+
+            # Load agent's model if not already loaded
+            model_status = diagnostic_service.get_inspector_status()
+            current_agent_id = getattr(diagnostic_service, 'agent_id', None)
+
+            if current_agent_id != str(agent.id):
+                print(f"[Router Logging] Loading agent model: {agent.name}")
+                diagnostic_service.load_model(
+                    agent.model_path,
+                    agent.adapter_path,
+                    agent_id=str(agent.id),
+                    agent_name=agent.name
+                )
+
+            # Build prompt from messages (combine all into single text for now)
+            # For better results, we should format as a conversation
+            prompt_parts = []
+            for msg in messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "system":
+                    prompt_parts.append(f"System: {content}")
+                elif role == "user":
+                    prompt_parts.append(f"User: {content}")
+                elif role == "assistant":
+                    prompt_parts.append(f"Assistant: {content}")
+
+            conversation_prompt = "\n\n".join(prompt_parts)
+
+            # Run inference with router logging
+            max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
+            result_dict = diagnostic_service.run_inference(
+                prompt=conversation_prompt,
+                max_tokens=max_tokens,
+                temperature=agent.temperature,
+                log_routing=True
             )
-            response.raise_for_status()
-            result = response.json()
 
-        # VERBOSE: Show exactly what the LLM responded with
-        print(f"\n📥 RESPONSE FROM MAIN LLM:")
-        assistant_msg = result.get("choices", [{}])[0].get("message", {})
-        print(f"Role: {assistant_msg.get('role', 'unknown')}")
-        content = assistant_msg.get("content", "")
-        print(f"Content: {content[:500]}{'...' if len(content) > 500 else ''}")
+            final_response = result_dict["response"]
+            router_analysis = result_dict["router_analysis"]
+
+            # Save router session with conversation context
+            prompt_preview = f"[Conversation] {request.message[:100]}"
+            diagnostic_service.router_inspector.current_session["metadata"]["conversation_id"] = str(conversation_id)
+            diagnostic_service.router_inspector.current_session["metadata"]["category"] = "conversation"
+            filepath = diagnostic_service.save_session(prompt_preview, f"Turn in conversation {conversation.title}")
+
+            print(f"[Router Logging] Session saved to: {filepath}")
+            print(f"[Router Logging] Experts used: {router_analysis.get('unique_experts_used', 0)}")
+
+        except Exception as e:
+            print(f"[Router Logging] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(500, f"Router logging inference failed: {str(e)}")
+    else:
+        # Standard MLX server inference
+        # VERBOSE: Show exactly what we're sending to the LLM
+        request_payload = {
+            "messages": messages,
+            "temperature": agent.temperature,
+            "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+            "seed": 42,
+        }
+
+        print(f"\n📤 REQUEST TO MAIN LLM:")
+        print(f"Port: {mlx_process.port}")
+        print(f"Temperature: {agent.temperature}")
+        print(f"Max Tokens: {agent.max_output_tokens if agent.max_output_tokens_enabled else 4096}")
+        print(f"\n📨 MESSAGES ARRAY ({len(messages)} messages):")
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            print(f"\n  Message {i+1} [{role}]:")
+            print(f"  {content[:500]}{'...' if len(content) > 500 else ''}")
         print(f"{'='*80}\n")
 
-    except httpx.HTTPError as e:
-        print(f"\n❌ MLX SERVER ERROR: {str(e)}\n")
-        raise HTTPException(500, f"MLX server request failed: {str(e)}")
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"http://localhost:{mlx_process.port}/v1/chat/completions",
+                    json=request_payload
+                )
+                response.raise_for_status()
+                result = response.json()
 
-    final_response = result["choices"][0]["message"].get("content", "")
+            # VERBOSE: Show exactly what the LLM responded with
+            print(f"\n📥 RESPONSE FROM MAIN LLM:")
+            assistant_msg = result.get("choices", [{}])[0].get("message", {})
+            print(f"Role: {assistant_msg.get('role', 'unknown')}")
+            content = assistant_msg.get("content", "")
+            print(f"Content: {content[:500]}{'...' if len(content) > 500 else ''}")
+            print(f"{'='*80}\n")
+
+        except httpx.HTTPError as e:
+            print(f"\n❌ MLX SERVER ERROR: {str(e)}\n")
+            raise HTTPException(500, f"MLX server request failed: {str(e)}")
+
+        final_response = result["choices"][0]["message"].get("content", "")
 
     # Save assistant message and embed it
     # Extract initial thematic tags for assistant message
     assistant_tags = extract_keywords(final_response, max_keywords=5)
 
+    # Build metadata
+    message_metadata = {
+        "model": agent.model_path,
+        "surfaced_memories_count": 0,  # Will be updated after memory coordination
+        "tags": assistant_tags
+    }
+
+    # Add usage info if available (from standard MLX server)
+    if not use_router_logging and 'result' in locals():
+        message_metadata["usage"] = result.get("usage", {})
+
+    # Add router analysis if available
+    if router_analysis:
+        message_metadata["router_logging"] = {
+            "total_tokens": router_analysis.get("total_tokens", 0),
+            "unique_experts_used": router_analysis.get("unique_experts_used", 0),
+            "usage_entropy": router_analysis.get("usage_entropy", 0),
+            "mean_token_entropy": router_analysis.get("mean_token_entropy", 0)
+        }
+
     assistant_message = Message(
         conversation_id=conversation_id,
         role="assistant",
         content=final_response,
-        metadata_={
-            "model": agent.model_path,
-            "usage": result.get("usage", {}),
-            "surfaced_memories_count": 0,  # Will be updated after memory coordination
-            "tags": assistant_tags
-        }
+        metadata_=message_metadata
     )
 
     # Generate embedding with tags for assistant message
