@@ -1229,9 +1229,14 @@ async def _chat_stream_internal(
 
                         conversation_prompt = "\n\n".join(prompt_parts)
 
-                        # Run diagnostic inference
+                        # Show status that inference is running
+                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Running inference with router logging... (this may take a while for long contexts)'})}\n\n"
+
+                        # Run diagnostic inference in thread to not block event loop
+                        # This is critical for large models where generation can take minutes
                         max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
-                        result_dict = diagnostic_service.run_inference(
+                        result_dict = await asyncio.to_thread(
+                            diagnostic_service.run_inference,
                             prompt=conversation_prompt,
                             max_tokens=max_tokens,
                             temperature=agent.temperature,
