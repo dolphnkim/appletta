@@ -31,6 +31,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const receivedContentRef = useRef<boolean>(false);
 
   // Get current agent name
   const currentAgent = agents.find(a => a.id === agentId);
@@ -166,13 +167,25 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     const eventSource = new EventSource(`${url}?message=${encodeURIComponent(content)}&_t=${timestamp}`);
     eventSourceRef.current = eventSource;
 
+    // Reset content flag for new stream
+    receivedContentRef.current = false;
+
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
       if (data.type === 'memory_narrative') {
         setMemoryNarrative(data.content);
+      } else if (data.type === 'status') {
+        // Show status messages as streaming content (e.g., "Loading model...")
+        setStreamingContent((prev) => prev + (prev ? '\n\n' : '') + data.content);
       } else if (data.type === 'content') {
-        setStreamingContent((prev) => prev + data.content);
+        // Clear status messages when real content starts
+        if (!receivedContentRef.current) {
+          receivedContentRef.current = true;
+          setStreamingContent(data.content);
+        } else {
+          setStreamingContent((prev) => prev + data.content);
+        }
       } else if (data.type === 'done') {
         // Save memory narrative if we have one
         if (memoryNarrative) {

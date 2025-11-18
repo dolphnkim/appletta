@@ -1099,31 +1099,6 @@ async def _chat_stream_internal(
 
     # === ROUTER LOGGING CHECK ===
     use_router_logging = getattr(agent, 'router_logging_enabled', False)
-    diagnostic_service = None
-
-    if use_router_logging:
-        print(f"🔬 ROUTER LOGGING ENABLED for agent {agent.name}")
-        from backend.services.diagnostic_inference import get_diagnostic_service
-
-        try:
-            diagnostic_service = get_diagnostic_service()
-
-            # Load agent's model if not already loaded
-            model_status = diagnostic_service.get_inspector_status()
-            current_agent_id = getattr(diagnostic_service, 'agent_id', None)
-
-            if current_agent_id != str(agent.id):
-                print(f"[Router Logging] Loading agent model: {agent.name}")
-                diagnostic_service.load_model(
-                    agent.model_path,
-                    agent.adapter_path,
-                    agent_id=str(agent.id),
-                    agent_name=agent.name
-                )
-        except Exception as e:
-            print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
-            use_router_logging = False
-            diagnostic_service = None
 
     # === TOOL WIZARD CHECK ===
     # If tools are enabled, use the NEW wizard system: stream response first, then wizard
@@ -1156,6 +1131,38 @@ async def _chat_stream_internal(
             # Send raw memory narrative first so user can see what the memory agent said
             if memory_narrative:
                 yield f"data: {json.dumps({'type': 'memory_narrative', 'content': memory_narrative})}\n\n"
+
+            # Initialize router logging if enabled
+            diagnostic_service = None
+            if use_router_logging:
+                print(f"🔬 ROUTER LOGGING ENABLED for agent {agent.name}")
+                from backend.services.diagnostic_inference import get_diagnostic_service
+
+                try:
+                    diagnostic_service = get_diagnostic_service()
+
+                    # Load agent's model if not already loaded
+                    model_status = diagnostic_service.get_inspector_status()
+                    current_agent_id = getattr(diagnostic_service, 'agent_id', None)
+
+                    if current_agent_id != str(agent.id):
+                        # Show loading status to user
+                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Loading model for router logging... This may take up to 30 seconds for large models.'})}\n\n"
+
+                        print(f"[Router Logging] Loading agent model: {agent.name}")
+                        diagnostic_service.load_model(
+                            agent.model_path,
+                            agent.adapter_path,
+                            agent_id=str(agent.id),
+                            agent_name=agent.name
+                        )
+
+                        yield f"data: {json.dumps({'type': 'status', 'content': '✅ Model loaded successfully!'})}\n\n"
+                        print(f"[Router Logging] Model loaded successfully")
+                except Exception as e:
+                    print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
+                    yield f"data: {json.dumps({'type': 'status', 'content': f'⚠️ Router logging failed to initialize: {str(e)}'})}\n\n"
+                    diagnostic_service = None
 
             wizard_loop_active = True
             wizard_state = WizardState()
