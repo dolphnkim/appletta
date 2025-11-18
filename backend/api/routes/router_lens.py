@@ -117,6 +117,7 @@ async def list_saved_sessions(limit: int = 20, agent_id: Optional[str] = None):
                     "total_tokens": data.get("summary", {}).get("total_tokens", 0),
                     "prompt_preview": data.get("metadata", {}).get("prompt", "")[:100],
                     "agent_id": data.get("metadata", {}).get("agent_id"),
+                    "category": data.get("metadata", {}).get("category"),
                 })
         except Exception as e:
             continue
@@ -396,12 +397,16 @@ async def run_diagnostic_inference(request: DiagnosticInferenceRequest):
 
 
 @router.post("/diagnostic/save-session")
-async def save_diagnostic_session(prompt_preview: str = "", notes: str = ""):
-    """Save the current diagnostic session"""
+async def save_diagnostic_session(prompt_preview: str = "", notes: str = "", category: str = ""):
+    """Save the current diagnostic session with category tracking"""
     try:
         service = get_diagnostic_service()
     except ImportError as e:
         raise HTTPException(500, f"MLX not installed: {str(e)}")
+
+    # Add category to session metadata if provided
+    if category:
+        service.router_inspector.current_session["metadata"]["category"] = category
 
     filepath = service.save_session(prompt_preview, notes)
 
