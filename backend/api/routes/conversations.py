@@ -1042,12 +1042,10 @@ async def _chat_stream_internal(
 
         if memory_agent and memory_candidates:
             memory_narrative, tag_updates = await coordinate_memories(
-                current_message=message,
-                memory_candidates=memory_candidates,
+                candidates=memory_candidates,
+                query_context=message,
                 memory_agent=memory_agent,
-                db=db,
-                mlx_manager=mlx_manager,
-                main_model_path=agent.model_path
+                target_count=7
             )
 
             if tag_updates:
