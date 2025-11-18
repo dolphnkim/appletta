@@ -145,8 +145,20 @@ async def get_context_window(
     ]
     messages_tokens = count_messages_tokens(messages_for_count)
 
+    # Estimate tool execution overhead
+    # Count tool calls from assistant message metadata
+    total_tool_calls = 0
+    for msg in history:
+        if msg.role == "assistant" and msg.metadata_:
+            wizard_tools = msg.metadata_.get("wizard_tools_used", 0)
+            total_tool_calls += wizard_tools
+
+    # Estimate 800 tokens per tool call (menu + result)
+    # This is a rough average for journal reads, RAG queries, web fetches
+    tool_overhead_tokens = total_tool_calls * 800
+
     # Calculate totals and percentages
-    total_tokens = project_instructions_tokens + external_summary_tokens + messages_tokens
+    total_tokens = project_instructions_tokens + external_summary_tokens + messages_tokens + tool_overhead_tokens
     max_context = agent.max_context_tokens
 
     sections = [
@@ -169,6 +181,15 @@ async def get_context_window(
             "content": f"{len(history)} messages"
         }
     ]
+
+    # Add tool overhead section if any tools were used
+    if total_tool_calls > 0:
+        sections.append({
+            "name": "Tool Execution Overhead (estimated)",
+            "tokens": tool_overhead_tokens,
+            "percentage": round((tool_overhead_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": f"{total_tool_calls} tool calls × ~800 tokens each (wizard menus + results)"
+        })
 
     return {
         "sections": sections,
@@ -1220,11 +1241,11 @@ async def _chat_stream_internal(
                 })
 
                 # STEP 3: Get LLM's choice (non-streaming, short response)
-                # Use a SHORT timeout (15s) - if LLM takes too long, auto-finalize
+                # Use reasonable timeout (60s) - if LLM takes too long, auto-finalize
                 choice_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages]
 
                 try:
-                    async with httpx.AsyncClient(timeout=15.0) as client:  # 15 second timeout for wizard choice
+                    async with httpx.AsyncClient(timeout=60.0) as client:  # 60 second timeout for wizard choice
                         response = await client.post(
                             f"http://localhost:{mlx_process.port}/v1/chat/completions",
                             json={
