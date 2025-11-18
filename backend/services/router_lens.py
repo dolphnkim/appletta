@@ -18,21 +18,29 @@ import numpy as np
 class RouterInspector:
     """Captures and analyzes MoE router decisions during inference"""
 
-    def __init__(self, num_experts: int = 64, top_k: int = 8):
+    def __init__(self, num_experts: int = 64, top_k: int = 8, agent_id: Optional[str] = None):
         self.num_experts = num_experts
         self.top_k = top_k
         self.enable_logging = False
+        self.agent_id = agent_id
 
         # Session data
         self.current_session: Dict[str, Any] = {}
         self.reset_session()
 
-        # Log storage
-        self.log_dir = Path.home() / ".appletta" / "router_lens"
+        # Log storage - agent-specific if agent_id provided
+        if agent_id:
+            self.log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+        else:
+            self.log_dir = Path.home() / ".appletta" / "router_lens" / "general"
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
     def reset_session(self):
         """Reset session data for a new inference run"""
+        metadata = {}
+        if self.agent_id:
+            metadata["agent_id"] = self.agent_id
+
         self.current_session = {
             "start_time": datetime.utcnow().isoformat() + "Z",
             "tokens": [],  # Per-token expert selections
@@ -40,7 +48,7 @@ class RouterInspector:
             "expert_usage_count": {i: 0 for i in range(self.num_experts)},
             "gate_logits_history": [],  # Raw gate logits for analysis
             "entropy_history": [],  # Router entropy per token
-            "metadata": {}
+            "metadata": metadata
         }
 
     def log_router_decision(

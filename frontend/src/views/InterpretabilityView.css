@@ -183,11 +183,53 @@
   color: #4a9eff;
 }
 
+.agent-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.agent-selector-row label {
+  font-size: 12px;
+  color: #888;
+  font-weight: 600;
+  min-width: 90px;
+}
+
+.agent-select {
+  background: #2a2a2a;
+  border: 1px solid #404040;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  flex: 1;
+  cursor: pointer;
+}
+
+.agent-select:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.no-agents {
+  font-size: 13px;
+  color: #888;
+  font-style: italic;
+}
+
 .model-loaded-info {
   display: flex;
   align-items: center;
   gap: 16px;
   font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.agent-name {
+  font-weight: 600;
+  color: #4a9eff;
 }
 
 .model-path {

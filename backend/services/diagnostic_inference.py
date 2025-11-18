@@ -36,13 +36,23 @@ class DiagnosticInferenceService:
         self.model_path = None
         self.router_inspector = RouterInspector(num_experts=64, top_k=8)
         self.is_moe_model = False
+        self.agent_id = None
+        self.agent_name = None
 
-    def load_model(self, model_path: str, adapter_path: Optional[str] = None) -> Dict[str, Any]:
+    def load_model(
+        self,
+        model_path: str,
+        adapter_path: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        agent_name: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Load a model for diagnostic inference
 
         Args:
             model_path: Path to the model
             adapter_path: Optional adapter path
+            agent_id: Optional agent ID to associate sessions with
+            agent_name: Optional agent name for display
 
         Returns:
             Status dict with model info
@@ -52,6 +62,8 @@ class DiagnosticInferenceService:
             raise FileNotFoundError(f"Model not found: {model_path}")
 
         print(f"[Diagnostic] Loading model from {model_path}...")
+        if agent_id:
+            print(f"[Diagnostic] Agent: {agent_name} ({agent_id})")
 
         # Load model and tokenizer
         if adapter_path:
@@ -61,6 +73,8 @@ class DiagnosticInferenceService:
             self.model, self.tokenizer = load(str(model_path))
 
         self.model_path = str(model_path)
+        self.agent_id = agent_id
+        self.agent_name = agent_name
 
         # Check if it's an MoE model by looking for gate/router layers
         self.is_moe_model = self._detect_moe_architecture()
@@ -131,8 +145,12 @@ class DiagnosticInferenceService:
                 if hasattr(self.model.config, 'num_experts_per_tok'):
                     top_k = self.model.config.num_experts_per_tok
 
-            # Reinitialize inspector with correct values
-            self.router_inspector = RouterInspector(num_experts=num_experts, top_k=top_k)
+            # Reinitialize inspector with correct values and agent_id
+            self.router_inspector = RouterInspector(
+                num_experts=num_experts,
+                top_k=top_k,
+                agent_id=self.agent_id
+            )
 
             print(f"[Diagnostic] MoE Config: {num_experts} experts, top-{top_k} selection")
 
