@@ -109,6 +109,9 @@ Write your first-person reflection and provide tag updates:"""
         {"role": "user", "content": user_prompt}
     ]
 
+    # Use agent's max_output_tokens if enabled, otherwise default to 2048
+    max_tokens = memory_agent.max_output_tokens if memory_agent.max_output_tokens_enabled else 2048
+
     # VERBOSE: Show exactly what we're sending to the memory agent
     print(f"\n{'='*80}")
     print(f"💭 MEMORY AGENT LLM CALL - Agent: {memory_agent.name}")
@@ -116,7 +119,7 @@ Write your first-person reflection and provide tag updates:"""
     print(f"\n📤 REQUEST TO MEMORY LLM:")
     print(f"Port: {mlx_process.port}")
     print(f"Temperature: {memory_agent.temperature}")
-    print(f"Max Tokens: 2048")
+    print(f"Max Tokens: {max_tokens}")
     print(f"Candidates: {len(candidates)} memories")
     print(f"\n📨 SYSTEM PROMPT:")
     print(f"  {system_prompt[:300]}...")
@@ -133,7 +136,7 @@ Write your first-person reflection and provide tag updates:"""
                 json={
                     "messages": messages,
                     "temperature": memory_agent.temperature,
-                    "max_tokens": 2048,  # More tokens for narrative
+                    "max_tokens": max_tokens,  # Use agent's configured max_output_tokens
                 }
             )
             response.raise_for_status()

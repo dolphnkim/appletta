@@ -1105,6 +1105,8 @@ async def _chat_stream_internal(
         tool_call_count = 0
         accumulated_response = ""  # All streamed content so far
         wizard_messages = []  # Track wizard conversation (not saved to DB)
+        invalid_command_count = 0  # Track invalid wizard commands
+        max_invalid_commands = 2  # Auto-finalize after 2 invalid commands
 
         print(f"\n🧙 WIZARD: NEW FLOW - Stream first, then wizard menu\n")
         print(f"   User's message: {message[:100]}...")
@@ -1277,9 +1279,20 @@ async def _chat_stream_internal(
                         db=db
                     )
 
+                    # Check if this was an invalid command
+                    if continue_wizard and "didn't understand that command" in wizard_prompt_result:
+                        invalid_command_count += 1
+                        print(f"   ⚠️  Invalid command #{invalid_command_count}/{max_invalid_commands}")
+
+                        if invalid_command_count >= max_invalid_commands:
+                            print(f"   🛑 Too many invalid commands - auto-finalizing")
+                            wizard_loop_active = False
+                            continue
+
                     if wizard_state.iteration > 0:
-                        # Tool was executed
+                        # Tool was executed - reset invalid counter
                         tool_call_count = wizard_state.iteration
+                        invalid_command_count = 0
                         print(f"   ➡️  Tool executed (total: {tool_call_count}/{max_tool_calls})")
 
                     if continue_wizard and wizard_prompt_result:
