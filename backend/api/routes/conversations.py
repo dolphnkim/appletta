@@ -767,17 +767,15 @@ async def chat(
         try:
             diagnostic_service = get_diagnostic_service()
 
-            # Load agent's model if not already loaded
-            model_status = diagnostic_service.get_inspector_status()
+            # Check if model is already loaded for this agent
             current_agent_id = getattr(diagnostic_service, 'agent_id', None)
+            is_model_loaded = diagnostic_service.model is not None
 
-            if current_agent_id != str(agent.id):
-                print(f"[Router Logging] Loading agent model: {agent.name}")
-                diagnostic_service.load_model(
-                    agent.model_path,
-                    agent.adapter_path,
-                    agent_id=str(agent.id),
-                    agent_name=agent.name
+            if not is_model_loaded or current_agent_id != str(agent.id):
+                print(f"[Router Logging] Model not loaded for this agent")
+                raise HTTPException(
+                    400,
+                    "Router logging enabled but model not loaded. Visit Analytics/Interpretability page to load the model for this agent first."
                 )
 
             # Build prompt from messages (combine all into single text for now)
@@ -969,19 +967,35 @@ async def _chat_stream_internal(
     )
 
     # === GET MLX SERVER ===
-    # Always start MLX server - needed for wizard menu choices even when router logging is enabled
-    # (Router logging will be used only for main streaming responses, not wizard decisions)
+    # Start MLX server for wizard menu choices (unless using pure router logging mode)
+    # When router logging is enabled with loaded model, we skip MLX server to avoid loading model twice
     mlx_manager = get_mlx_manager()
-    mlx_process = mlx_manager.get_agent_server(agent.id)
+    mlx_process = None
 
-    if not mlx_process:
+    # Check if we should skip MLX server (router logging with loaded diagnostic model)
+    skip_mlx_server = False
+    router_logging_enabled = getattr(agent, 'router_logging_enabled', False)
+    if router_logging_enabled:
         try:
-            mlx_process = await mlx_manager.start_agent_server(agent)
-            logger.info(f"MLX server started on port {mlx_process.port}")
-        except Exception as e:
-            raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
-    else:
-        logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
+            from backend.services.diagnostic_inference import get_diagnostic_service
+            diag_service = get_diagnostic_service()
+            if diag_service.model is not None and diag_service.agent_id == str(agent.id):
+                skip_mlx_server = True
+                logger.info(f"Skipping MLX server - using diagnostic service model for router logging")
+        except:
+            pass
+
+    if not skip_mlx_server:
+        mlx_process = mlx_manager.get_agent_server(agent.id)
+
+        if not mlx_process:
+            try:
+                mlx_process = await mlx_manager.start_agent_server(agent)
+                logger.info(f"MLX server started on port {mlx_process.port}")
+            except Exception as e:
+                raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
+        else:
+            logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
 
     # === BUILD CONTEXT WINDOW FIRST ===
     # We need to build the full context BEFORE wizard check so LLM sees everything
@@ -1137,7 +1151,6 @@ async def _chat_stream_internal(
             if use_router_logging:
                 print(f"🔬 ROUTER LOGGING ENABLED for agent {agent.name}")
                 from backend.services.diagnostic_inference import get_diagnostic_service
-                import asyncio
 
                 try:
                     diagnostic_service = get_diagnostic_service()
@@ -1145,30 +1158,19 @@ async def _chat_stream_internal(
                     # Check if model is already loaded for this agent
                     current_agent_id = getattr(diagnostic_service, 'agent_id', None)
                     current_model_path = getattr(diagnostic_service, 'model_path', None)
+                    is_model_loaded = diagnostic_service.model is not None
 
-                    print(f"[Router Logging] Current state: agent_id={current_agent_id}, model_path={current_model_path}")
-                    print(f"[Router Logging] Target: agent_id={agent.id}, model_path={agent.model_path}")
+                    print(f"[Router Logging] Current state: agent_id={current_agent_id}, model_loaded={is_model_loaded}")
+                    print(f"[Router Logging] Target: agent_id={agent.id}")
 
-                    if current_agent_id != str(agent.id) or current_model_path is None:
-                        # Show loading status to user
-                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Loading model for router logging... This may take several minutes for large models.'})}\n\n"
-
-                        print(f"[Router Logging] Loading agent model: {agent.name}")
-
-                        # Run blocking model load in thread to not block event loop
-                        await asyncio.to_thread(
-                            diagnostic_service.load_model,
-                            agent.model_path,
-                            agent.adapter_path,
-                            agent_id=str(agent.id),
-                            agent_name=agent.name
-                        )
-
-                        yield f"data: {json.dumps({'type': 'status', 'content': '✅ Model loaded successfully!'})}\n\n"
-                        print(f"[Router Logging] Model loaded successfully")
+                    if not is_model_loaded or current_agent_id != str(agent.id):
+                        # Model not loaded or wrong agent - show helpful message but don't block
+                        print(f"[Router Logging] Model not loaded for this agent")
+                        yield f"data: {json.dumps({'type': 'status', 'content': '⚠️ Router logging enabled but model not loaded. Visit Analytics/Interpretability page to load the model for this agent first.'})}\n\n"
+                        diagnostic_service = None  # Disable for this request
                     else:
-                        print(f"[Router Logging] Model already loaded for this agent, skipping load")
-                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Using already-loaded model from diagnostic service'})}\n\n"
+                        print(f"[Router Logging] Model already loaded, will use for routing analysis")
+                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Router logging active'})}\n\n"
                 except Exception as e:
                     print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
                     import traceback
