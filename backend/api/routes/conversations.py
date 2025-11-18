@@ -1114,7 +1114,7 @@ async def _chat_stream_internal(
 
         # Streaming generator that implements the new flow
         async def generate_stream_with_wizard():
-            nonlocal tool_call_count, accumulated_response, wizard_messages
+            nonlocal tool_call_count, accumulated_response, wizard_messages, invalid_command_count
 
             # Send raw memory narrative first so user can see what the memory agent said
             if memory_narrative:
