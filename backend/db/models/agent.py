@@ -134,6 +134,9 @@ class Agent(Base):
     free_choice_interval_minutes = Column(Integer, default=10)  # How often to trigger
     last_free_choice_at = Column(DateTime, nullable=True)  # When last session occurred
 
+    # Router Logging - MoE expert tracking for conversations
+    router_logging_enabled = Column(Boolean, default=False)  # Enable expert tracking during conversations
+
     # TODO: Projects integration (future)
 
     # project_id = Column(pgUUID(as_uuid=True), ForeignKey('projects.id'), nullable=True)
@@ -222,6 +225,8 @@ class Agent(Base):
                 "last_session_at": self.last_free_choice_at.isoformat() if self.last_free_choice_at else None,
             },
 
+            "router_logging_enabled": self.router_logging_enabled,
+
             "created_at": self.created_at.isoformat(),
 
             "updated_at": self.updated_at.isoformat(),
@@ -288,6 +293,8 @@ class Agent(Base):
                     "enabled": self.free_choice_enabled,
                     "interval_minutes": self.free_choice_interval_minutes,
                 },
+
+                "router_logging_enabled": self.router_logging_enabled,
 
             }
 
@@ -362,6 +369,8 @@ class Agent(Base):
             free_choice_enabled=free_choice_config.get("enabled", False),
 
             free_choice_interval_minutes=free_choice_config.get("interval_minutes", 10),
+
+            router_logging_enabled=agent_dict.get("router_logging_enabled", False),
 
         )
 

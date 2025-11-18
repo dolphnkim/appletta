@@ -613,6 +613,47 @@
 }
 
 /* Analysis View */
+.analysis-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #2a2a2a;
+  border-radius: 6px;
+}
+
+.analysis-filters label {
+  font-size: 13px;
+  color: #888;
+  font-weight: 600;
+}
+
+.category-filter-select {
+  background: #1e1e1e;
+  border: 1px solid #404040;
+  color: #e0e0e0;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.category-filter-select:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.filter-indicator {
+  font-size: 12px;
+  color: #4a9eff;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: rgba(74, 158, 255, 0.1);
+  border-radius: 4px;
+}
+
 .analysis-actions {
   display: flex;
   gap: 12px;
@@ -633,6 +674,13 @@
   margin: 0 0 12px 0;
   font-size: 14px;
   color: #4a9eff;
+}
+
+.analysis-category-tag {
+  font-size: 12px;
+  color: #888;
+  font-weight: normal;
+  font-style: italic;
 }
 
 .analysis-grid {

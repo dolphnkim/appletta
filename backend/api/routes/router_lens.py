@@ -148,34 +148,65 @@ async def get_diagnostic_prompts():
 
 
 @router.post("/analyze/expert-usage")
-async def analyze_expert_usage():
-    """Analyze expert usage patterns across all saved sessions"""
-    inspector = get_router_inspector()
-    log_dir = inspector.log_dir
+async def analyze_expert_usage(agent_id: Optional[str] = None, category: Optional[str] = None):
+    """Analyze expert usage patterns across saved sessions
 
-    # Load all sessions
+    Args:
+        agent_id: Optional agent ID to analyze sessions for specific agent
+        category: Optional category to filter sessions by
+    """
+    # Determine log directory based on agent_id
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    if not log_dir.exists():
+        return {"error": "No sessions found"}
+
+    # Load all sessions (optionally filtered by category)
     sessions = []
     for filepath in log_dir.glob("router_session_*.json"):
         try:
             with open(filepath) as f:
-                sessions.append(json.load(f))
+                session_data = json.load(f)
+                # Filter by category if provided
+                if category:
+                    session_category = session_data.get("metadata", {}).get("category")
+                    if session_category != category:
+                        continue
+                sessions.append(session_data)
         except Exception:
             continue
 
     if not sessions:
-        return {"error": "No saved sessions found"}
+        return {"error": f"No saved sessions found{f' for category {category}' if category else ''}"}
 
+    inspector = get_router_inspector()
     analysis = inspector.analyze_expert_specialization(sessions)
     analysis["num_sessions_analyzed"] = len(sessions)
+    if category:
+        analysis["category"] = category
 
     return analysis
 
 
 @router.post("/analyze/entropy-distribution")
-async def analyze_entropy_distribution():
-    """Analyze router entropy distribution across sessions"""
-    inspector = get_router_inspector()
-    log_dir = inspector.log_dir
+async def analyze_entropy_distribution(agent_id: Optional[str] = None, category: Optional[str] = None):
+    """Analyze router entropy distribution across sessions
+
+    Args:
+        agent_id: Optional agent ID to analyze sessions for specific agent
+        category: Optional category to filter sessions by
+    """
+    # Determine log directory based on agent_id
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    if not log_dir.exists():
+        return {"error": "No sessions found"}
 
     all_entropies = []
     session_entropies = []
@@ -184,6 +215,11 @@ async def analyze_entropy_distribution():
         try:
             with open(filepath) as f:
                 data = json.load(f)
+                # Filter by category if provided
+                if category:
+                    session_category = data.get("metadata", {}).get("category")
+                    if session_category != category:
+                        continue
                 if "tokens" in data:
                     session_entropy = [t.get("entropy", 0) for t in data["tokens"]]
                     all_entropies.extend(session_entropy)
