@@ -132,6 +132,8 @@ class AgentUpdate(BaseModel):
 
     free_choice_config: Optional[FreeChoiceConfig] = None
 
+    router_logging_enabled: Optional[bool] = None
+
 
 
 # Response schemas
@@ -165,6 +167,8 @@ class AgentResponse(BaseModel):
     embedding_config: EmbeddingConfig
 
     free_choice_config: FreeChoiceConfig
+
+    router_logging_enabled: bool
 
     created_at: datetime
 
