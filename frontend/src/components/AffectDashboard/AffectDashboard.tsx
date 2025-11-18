@@ -95,11 +95,28 @@ export default function AffectDashboard({ conversationId, agentId }: AffectDashb
     try {
       await affectAPI.analyzeConversation(conversationId, agentId);
       await fetchConversationData();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to analyze conversation:', err);
-      setError('Analysis failed. Make sure the agent is available.');
+      const error = err as { message?: string };
+      if (error.message?.includes('cancelled')) {
+        setError('Analysis was cancelled.');
+      } else {
+        setError(`Analysis failed: ${error.message || 'Unknown error'}. Check that the agent is running.`);
+      }
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const cancelAnalysis = async () => {
+    if (!conversationId) return;
+
+    try {
+      await affectAPI.cancelAnalysis(conversationId);
+      setError('Analysis cancelled.');
+      setAnalyzing(false);
+    } catch (err) {
+      console.error('Failed to cancel analysis:', err);
     }
   };
 
@@ -170,6 +187,15 @@ export default function AffectDashboard({ conversationId, agentId }: AffectDashb
                 >
                   {analyzing ? 'Analyzing...' : 'Run Affect Analysis'}
                 </button>
+                {analyzing && (
+                  <button
+                    className="btn-cancel"
+                    onClick={cancelAnalysis}
+                    title="Cancel ongoing analysis"
+                  >
+                    Cancel
+                  </button>
+                )}
                 <span className="analysis-info">
                   {conversationAffect
                     ? `${conversationAffect.analyzed_messages}/${conversationAffect.total_messages} messages analyzed`
