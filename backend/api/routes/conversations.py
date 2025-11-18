@@ -145,17 +145,15 @@ async def get_context_window(
     ]
     messages_tokens = count_messages_tokens(messages_for_count)
 
-    # Estimate tool execution overhead
-    # Count tool calls from assistant message metadata
+    # Count actual tool execution overhead from stored token counts
     total_tool_calls = 0
+    tool_overhead_tokens = 0
     for msg in history:
         if msg.role == "assistant" and msg.metadata_:
             wizard_tools = msg.metadata_.get("wizard_tools_used", 0)
             total_tool_calls += wizard_tools
-
-    # Estimate 800 tokens per tool call (menu + result)
-    # This is a rough average for journal reads, RAG queries, web fetches
-    tool_overhead_tokens = total_tool_calls * 800
+            # Use actual counted tokens if available, otherwise estimate
+            tool_overhead_tokens += msg.metadata_.get("wizard_overhead_tokens", wizard_tools * 800)
 
     # Calculate totals and percentages
     total_tokens = project_instructions_tokens + external_summary_tokens + messages_tokens + tool_overhead_tokens
@@ -185,10 +183,10 @@ async def get_context_window(
     # Add tool overhead section if any tools were used
     if total_tool_calls > 0:
         sections.append({
-            "name": "Tool Execution Overhead (estimated)",
+            "name": "Tool Execution Overhead",
             "tokens": tool_overhead_tokens,
             "percentage": round((tool_overhead_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": f"{total_tool_calls} tool calls × ~800 tokens each (wizard menus + results)"
+            "content": f"{total_tool_calls} tool calls (wizard menus + results)"
         })
 
     return {
@@ -1385,11 +1383,18 @@ async def _chat_stream_internal(
             print(f"Accumulated response length: {len(accumulated_response)}")
             print(f"Tool calls made: {tool_call_count}")
 
+            # Count actual wizard overhead tokens
+            wizard_overhead_tokens = 0
+            if wizard_messages:
+                wizard_overhead_tokens = count_messages_tokens(wizard_messages)
+                print(f"Wizard overhead: {wizard_overhead_tokens} tokens")
+
             # Save to database
             assistant_tags = extract_keywords(accumulated_response, max_keywords=5)
             assistant_metadata = {
                 "model": agent.model_path,
                 "wizard_tools_used": tool_call_count,
+                "wizard_overhead_tokens": wizard_overhead_tokens,
                 "tags": assistant_tags
             }
             # Include memory narrative if present
