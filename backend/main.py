@@ -1,5 +1,11 @@
 """Main FastAPI application for Appletta backend"""
 
+# IMPORTANT: Set this BEFORE any imports that might load tokenizers
+# This prevents the "tokenizers fork after parallelism" warning and
+# fixes potential tokenizer corruption issues that cause message repetition
+import os
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
