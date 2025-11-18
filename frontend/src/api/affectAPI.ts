@@ -143,6 +143,18 @@ export const affectAPI = {
   },
 
   /**
+   * Cancel an ongoing affect analysis
+   */
+  cancelAnalysis: async (conversationId: string): Promise<{ status: string; message: string }> => {
+    const response = await fetch(
+      `${API_BASE}/api/v1/affect/conversation/${conversationId}/analyze/cancel`,
+      { method: 'POST' }
+    );
+    if (!response.ok) throw new Error('Failed to cancel analysis');
+    return response.json();
+  },
+
+  /**
    * Analyze a single message
    */
   analyzeMessage: async (

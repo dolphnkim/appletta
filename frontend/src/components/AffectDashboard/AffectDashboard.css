@@ -101,6 +101,22 @@
   cursor: not-allowed;
 }
 
+.btn-cancel {
+  background: #d9534f;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.btn-cancel:hover {
+  background: #c9302c;
+}
+
 .analysis-info {
   font-size: 11px;
   color: var(--text-muted, #888);

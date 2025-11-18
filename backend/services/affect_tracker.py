@@ -15,6 +15,9 @@ from datetime import datetime
 from backend.db.models.conversation import Message
 from backend.services.mlx_manager import get_mlx_manager
 
+# Global cancellation flags for affect analysis
+_active_analyses: Dict[str, bool] = {}  # conversation_id -> should_cancel
+
 
 # Affect Metadata Schema
 # This schema captures multiple dimensions of affect that are relevant for welfare research
@@ -191,7 +194,9 @@ Return the JSON analysis:"""
         return affect_data
 
     except Exception as e:
-        print(f"❌ Affect analysis failed: {e}")
+        print(f"❌ Affect analysis failed: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return _get_default_affect()
 
 
@@ -242,15 +247,42 @@ def _get_default_affect() -> Dict[str, Any]:
     }
 
 
+def cancel_analysis(conversation_id: str):
+    """Cancel an ongoing affect analysis"""
+    _active_analyses[conversation_id] = True
+    print(f"🛑 Cancellation requested for conversation {conversation_id[:8]}")
+
+
+def is_cancelled(conversation_id: str) -> bool:
+    """Check if analysis should be cancelled"""
+    return _active_analyses.get(conversation_id, False)
+
+
+def clear_cancellation(conversation_id: str):
+    """Clear cancellation flag"""
+    if conversation_id in _active_analyses:
+        del _active_analyses[conversation_id]
+
+
 async def analyze_conversation_affect(
     conversation_id: str,
     db: Session,
-    agent
+    agent,
+    progress_callback: Optional[callable] = None
 ) -> Dict[str, Any]:
     """Analyze affect patterns across an entire conversation
 
     Returns aggregate statistics and trajectory analysis.
+
+    Args:
+        conversation_id: ID of conversation to analyze
+        db: Database session
+        agent: Agent to use for analysis
+        progress_callback: Optional callback(current, total, message) for progress updates
     """
+    # Clear any previous cancellation flag
+    clear_cancellation(conversation_id)
+
     messages = db.query(Message).filter(
         Message.conversation_id == conversation_id
     ).order_by(Message.created_at).all()
@@ -260,8 +292,26 @@ async def analyze_conversation_affect(
 
     # Analyze each message (or use cached analysis from metadata)
     affect_trajectory = []
+    total_messages = len(messages)
+    analyzed_count = 0
 
-    for msg in messages:
+    for idx, msg in enumerate(messages):
+        # Check for cancellation
+        if is_cancelled(conversation_id):
+            print(f"🛑 Analysis cancelled after {analyzed_count}/{total_messages} messages")
+            clear_cancellation(conversation_id)
+            return {
+                "error": "Analysis cancelled by user",
+                "conversation_id": conversation_id,
+                "messages_analyzed": analyzed_count,
+                "total_messages": total_messages,
+                "partial_data": True
+            }
+
+        # Report progress
+        if progress_callback:
+            progress_callback(idx + 1, total_messages, str(msg.id)[:8])
+
         # Check if already analyzed
         if msg.metadata_ and "affect" in msg.metadata_:
             affect_trajectory.append({
@@ -272,8 +322,14 @@ async def analyze_conversation_affect(
             })
         else:
             # Analyze this message with context
-            context = messages[:messages.index(msg)]
-            affect = await analyze_message_affect(msg, agent, context)
+            context = messages[:idx]
+
+            try:
+                affect = await analyze_message_affect(msg, agent, context)
+                analyzed_count += 1
+            except Exception as e:
+                print(f"⚠️  Failed to analyze message {str(msg.id)[:8]}, using defaults: {e}")
+                affect = _get_default_affect()
 
             # Update message metadata
             if msg.metadata_ is None:
@@ -287,7 +343,12 @@ async def analyze_conversation_affect(
                 "affect": affect
             })
 
+            # Commit periodically to save progress
+            if (idx + 1) % 5 == 0:
+                db.commit()
+
     db.commit()
+    clear_cancellation(conversation_id)
 
     # Compute aggregate statistics
     valences = [t["affect"].get("valence", 0) for t in affect_trajectory]

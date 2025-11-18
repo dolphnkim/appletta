@@ -15,6 +15,7 @@ from backend.services.affect_tracker import (
     analyze_message_affect,
     analyze_conversation_affect,
     compute_fatigue_indicator,
+    cancel_analysis,
     AFFECT_SCHEMA
 )
 
@@ -168,6 +169,28 @@ async def analyze_conversation(
         "messages_analyzed": unanalyzed,
         "total_messages": len(messages),
         "summary": result.get("aggregates", {})
+    }
+
+
+@router.post("/conversation/{conversation_id}/analyze/cancel")
+async def cancel_conversation_analysis(
+    conversation_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Cancel an ongoing affect analysis for a conversation"""
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id
+    ).first()
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    cancel_analysis(str(conversation_id))
+
+    return {
+        "status": "cancelled",
+        "conversation_id": str(conversation_id),
+        "message": "Cancellation requested"
     }
 
 
