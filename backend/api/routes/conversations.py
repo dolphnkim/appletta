@@ -1137,6 +1137,7 @@ async def _chat_stream_internal(
             if use_router_logging:
                 print(f"🔬 ROUTER LOGGING ENABLED for agent {agent.name}")
                 from backend.services.diagnostic_inference import get_diagnostic_service
+                import asyncio
 
                 try:
                     diagnostic_service = get_diagnostic_service()
@@ -1147,10 +1148,13 @@ async def _chat_stream_internal(
 
                     if current_agent_id != str(agent.id):
                         # Show loading status to user
-                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Loading model for router logging... This may take up to 30 seconds for large models.'})}\n\n"
+                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Loading model for router logging... This may take several minutes for large models.'})}\n\n"
 
                         print(f"[Router Logging] Loading agent model: {agent.name}")
-                        diagnostic_service.load_model(
+
+                        # Run blocking model load in thread to not block event loop
+                        await asyncio.to_thread(
+                            diagnostic_service.load_model,
                             agent.model_path,
                             agent.adapter_path,
                             agent_id=str(agent.id),
@@ -1161,6 +1165,8 @@ async def _chat_stream_internal(
                         print(f"[Router Logging] Model loaded successfully")
                 except Exception as e:
                     print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
+                    import traceback
+                    traceback.print_exc()
                     yield f"data: {json.dumps({'type': 'status', 'content': f'⚠️ Router logging failed to initialize: {str(e)}'})}\n\n"
                     diagnostic_service = None
 
