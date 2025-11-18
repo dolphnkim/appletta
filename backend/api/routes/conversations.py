@@ -930,6 +930,9 @@ async def _chat_stream_internal(
     if not conversation:
         raise HTTPException(404, f"Conversation {conversation_id} not found")
 
+    # Capture conversation title early (before session might detach object)
+    conversation_title = conversation.title or "Untitled"
+
     # Get agent
     agent = db.query(Agent).filter(Agent.id == conversation.agent_id).first()
     if not agent:
@@ -1490,7 +1493,7 @@ async def _chat_stream_internal(
                         prompt_preview = f"[Conversation] {message[:100]}"
                         diagnostic_service.router_inspector.current_session["metadata"]["conversation_id"] = str(conversation_id)
                         diagnostic_service.router_inspector.current_session["metadata"]["category"] = "conversation"
-                        filepath = diagnostic_service.save_session(prompt_preview, f"Turn in conversation {conversation.title}")
+                        filepath = diagnostic_service.save_session(prompt_preview, f"Turn in conversation {conversation_title}")
                         print(f"🔬 Router session saved to: {filepath}")
                     except Exception as e:
                         print(f"🔬 Warning: Failed to save router session: {e}")
