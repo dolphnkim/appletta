@@ -465,8 +465,8 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
             result_msg = f"❌ TOOL FAILURE: {new_block['error']}"
             wizard_state.log_tool_use(f"FAILED to create journal block '{label}'")
         else:
-            result_msg = f"✅ TOOL SUCCESS: Created journal block '{new_block['label']}' (ID: {new_block.get('id', 'unknown')})"
-            wizard_state.log_tool_use(f"Created journal block '{new_block['label']}'")
+            result_msg = f"✅ TOOL SUCCESS: Created journal block '{label}' (ID: {new_block.get('id', 'unknown')})"
+            wizard_state.log_tool_use(f"Created journal block '{label}'")
 
         # Done - back to main menu (AFTER logging the action)
         wizard_state.reset_to_menu()
