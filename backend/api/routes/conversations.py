@@ -1235,6 +1235,10 @@ async def _chat_stream_internal(
                         # Run diagnostic inference in thread to not block event loop
                         # This is critical for large models where generation can take minutes
                         max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
+
+                        print(f"[Router Logging] About to start inference - {len(current_messages)} messages, max_tokens={max_tokens}, temp={agent.temperature}")
+                        print(f"[Router Logging] Prompt length: {len(conversation_prompt)} chars")
+
                         result_dict = await asyncio.to_thread(
                             diagnostic_service.run_inference,
                             prompt=conversation_prompt,
@@ -1243,8 +1247,12 @@ async def _chat_stream_internal(
                             log_routing=True
                         )
 
+                        print(f"[Router Logging] Inference complete, got result_dict with keys: {result_dict.keys()}")
+
                         streamed_content = result_dict["response"]
                         router_analysis_data = result_dict["router_analysis"]
+
+                        print(f"[Router Logging] Response length: {len(streamed_content)} chars")
 
                         # "Fake stream" the response by yielding it in chunks
                         import asyncio
