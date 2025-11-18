@@ -677,17 +677,21 @@ async def chat(
             Agent.id == memory_attachment.attached_agent_id
         ).first()
 
-    # 3. Use memory coordinator to generate first-person narrative about surfaced memories
-    memory_narrative, tag_updates = await coordinate_memories(
-        candidates=memory_candidates,
-        query_context=request.message,
-        memory_agent=memory_agent,  # Pass the attached memory agent (or None)
-        target_count=7
-    )
+    # 3. Use memory coordinator ONLY if there are relevant memories outside context window
+    memory_narrative = ""
+    tag_updates = {}
 
-    # Apply tag updates from memory agent
-    if tag_updates:
-        apply_tag_updates(tag_updates, db)
+    if memory_candidates and len(memory_candidates) > 0:
+        memory_narrative, tag_updates = await coordinate_memories(
+            candidates=memory_candidates,
+            query_context=request.message,
+            memory_agent=memory_agent,  # Pass the attached memory agent (or None)
+            target_count=7
+        )
+
+        # Apply tag updates from memory agent
+        if tag_updates:
+            apply_tag_updates(tag_updates, db)
 
     # Build system message with memories
     # Note: Journal blocks are NOT included in system prompt by default - they live in the database
@@ -1035,12 +1039,13 @@ async def _chat_stream_internal(
     memory_narrative = ""
     tag_updates = {}
 
-    if memory_attachment:
-        memory_agent = db.query(Agent).filter(
-            Agent.id == memory_attachment.attached_agent_id
-        ).first()
+    # Only run memory coordinator if there are relevant memories outside context window
+    if memory_candidates and len(memory_candidates) > 0:
+        if memory_attachment:
+            memory_agent = db.query(Agent).filter(
+                Agent.id == memory_attachment.attached_agent_id
+            ).first()
 
-        if memory_agent and memory_candidates:
             memory_narrative, tag_updates = await coordinate_memories(
                 candidates=memory_candidates,
                 query_context=message,
@@ -1361,15 +1366,20 @@ async def _chat_stream_internal(
 
             # Save to database
             assistant_tags = extract_keywords(accumulated_response, max_keywords=5)
+            assistant_metadata = {
+                "model": agent.model_path,
+                "wizard_tools_used": tool_call_count,
+                "tags": assistant_tags
+            }
+            # Include memory narrative if present
+            if memory_narrative:
+                assistant_metadata["memory_narrative"] = memory_narrative
+
             assistant_message = Message(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=accumulated_response,
-                metadata_={
-                    "model": agent.model_path,
-                    "wizard_tools_used": tool_call_count,
-                    "tags": assistant_tags
-                }
+                metadata_=assistant_metadata
             )
             assistant_embedding = embedding_service.embed_with_tags(accumulated_response, assistant_tags)
             assistant_message.embedding = assistant_embedding
@@ -1485,16 +1495,20 @@ async def _chat_stream_internal(
 
             # Save complete assistant message to database
             assistant_tags = extract_keywords(final_response, max_keywords=5)
+            assistant_metadata = {
+                "model": agent.model_path,
+                "streamed": True,
+                "tags": assistant_tags
+            }
+            # Include memory narrative if present
+            if memory_narrative:
+                assistant_metadata["memory_narrative"] = memory_narrative
 
             assistant_message = Message(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=final_response,
-                metadata_={
-                    "model": agent.model_path,
-                    "streamed": True,
-                    "tags": assistant_tags
-                }
+                metadata_=assistant_metadata
             )
 
             assistant_embedding = embedding_service.embed_with_tags(final_response, assistant_tags)

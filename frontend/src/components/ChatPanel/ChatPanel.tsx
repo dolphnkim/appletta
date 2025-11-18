@@ -86,6 +86,19 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     try {
       const data = await conversationAPI.getMessages(convId);
       setMessages(data);
+
+      // Extract memory narratives from message metadata
+      const narratives: Array<{id: string, content: string, collapsed: boolean}> = [];
+      data.forEach((msg: any) => {
+        if (msg.role === 'assistant' && msg.metadata && msg.metadata.memory_narrative) {
+          narratives.push({
+            id: msg.id,
+            content: msg.metadata.memory_narrative,
+            collapsed: false // Default to expanded
+          });
+        }
+      });
+      setSavedMemoryNarratives(narratives);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load messages');
     }
