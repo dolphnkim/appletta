@@ -275,6 +275,24 @@ export default function InterpretabilityView() {
     }
   };
 
+  const saveDiagnosticTestSession = async () => {
+    if (!diagnosticTestResult) return;
+
+    try {
+      setRouterLensLoading(true);
+      const promptPreview = `[${diagnosticTestResult.category}] ${diagnosticTestResult.prompt}`;
+      await routerLensAPI.saveDiagnosticSession(promptPreview, '');
+      await fetchSavedSessions();
+      setShowDiagnosticResult(false);
+      alert('Diagnostic session saved successfully!');
+    } catch (err) {
+      console.error('Failed to save diagnostic session:', err);
+      alert('Failed to save diagnostic session');
+    } finally {
+      setRouterLensLoading(false);
+    }
+  };
+
   const runQuickTest = async () => {
     try {
       setRouterLensLoading(true);
@@ -844,10 +862,8 @@ export default function InterpretabilityView() {
               </button>
               <button
                 className="btn-primary"
-                onClick={() => {
-                  saveCurrentSession();
-                  setShowDiagnosticResult(false);
-                }}
+                onClick={saveDiagnosticTestSession}
+                disabled={routerLensLoading}
               >
                 Save Session
               </button>

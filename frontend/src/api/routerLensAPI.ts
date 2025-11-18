@@ -198,6 +198,9 @@ export const routerLensAPI = {
     inspector_status: RouterLensStatus;
   }> => fetchAPI('/diagnostic/model-status'),
 
+  saveDiagnosticSession: (promptPreview: string = '', notes: string = ''): Promise<{ saved: boolean; filepath: string }> =>
+    fetchAPI(`/diagnostic/save-session?prompt_preview=${encodeURIComponent(promptPreview)}&notes=${encodeURIComponent(notes)}`, { method: 'POST' }),
+
   // Model browsing
   getConfigPaths: (): Promise<{
     models_dir: string;
