@@ -1142,11 +1142,14 @@ async def _chat_stream_internal(
                 try:
                     diagnostic_service = get_diagnostic_service()
 
-                    # Load agent's model if not already loaded
-                    model_status = diagnostic_service.get_inspector_status()
+                    # Check if model is already loaded for this agent
                     current_agent_id = getattr(diagnostic_service, 'agent_id', None)
+                    current_model_path = getattr(diagnostic_service, 'model_path', None)
 
-                    if current_agent_id != str(agent.id):
+                    print(f"[Router Logging] Current state: agent_id={current_agent_id}, model_path={current_model_path}")
+                    print(f"[Router Logging] Target: agent_id={agent.id}, model_path={agent.model_path}")
+
+                    if current_agent_id != str(agent.id) or current_model_path is None:
                         # Show loading status to user
                         yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Loading model for router logging... This may take several minutes for large models.'})}\n\n"
 
@@ -1163,6 +1166,9 @@ async def _chat_stream_internal(
 
                         yield f"data: {json.dumps({'type': 'status', 'content': '✅ Model loaded successfully!'})}\n\n"
                         print(f"[Router Logging] Model loaded successfully")
+                    else:
+                        print(f"[Router Logging] Model already loaded for this agent, skipping load")
+                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Using already-loaded model from diagnostic service'})}\n\n"
                 except Exception as e:
                     print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
                     import traceback
