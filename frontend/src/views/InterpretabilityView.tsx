@@ -325,6 +325,11 @@ export default function InterpretabilityView() {
       return;
     }
 
+    if (!modelStatus?.loaded || modelStatus?.agentId !== selectedAgentForExpert) {
+      setRouterLensError('Please load the agent model first in the Interpretability panel above');
+      return;
+    }
+
     try {
       setAnalyzingConversation(true);
       setRouterLensError(null);
@@ -919,6 +924,174 @@ export default function InterpretabilityView() {
           </div>
         )}
       </div>
+
+      {/* Conversation Analysis Modal */}
+      {showConversationAnalysis && conversationAnalysis && (
+        <div className="modal-overlay" onClick={() => setShowConversationAnalysis(false)}>
+          <div className="conversation-analysis-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="conversation-analysis-header">
+              <h3>Conversation Analysis: {conversationAnalysis.conversation_title}</h3>
+              <button className="close-btn" onClick={() => setShowConversationAnalysis(false)}>
+                ×
+              </button>
+            </div>
+
+            <div className="conversation-analysis-content">
+              {/* Aggregate Statistics Section */}
+              <div className="aggregate-section">
+                <h4>Overall Statistics</h4>
+                <div className="aggregate-stats-grid">
+                  <div className="stat-card">
+                    <div className="stat-value">{conversationAnalysis.aggregate_analysis.total_turns}</div>
+                    <div className="stat-label">Total Turns</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{conversationAnalysis.aggregate_analysis.total_tokens_analyzed}</div>
+                    <div className="stat-label">Tokens Analyzed</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{conversationAnalysis.aggregate_analysis.mean_entropy_across_turns.toFixed(3)}</div>
+                    <div className="stat-label">Mean Entropy</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-value">{conversationAnalysis.aggregate_analysis.entropy_variance.toFixed(3)}</div>
+                    <div className="stat-label">Entropy Variance</div>
+                  </div>
+                </div>
+
+                <div className="aggregate-experts-row">
+                  <div className="aggregate-expert-list">
+                    <h5>Most Used Experts</h5>
+                    {conversationAnalysis.aggregate_analysis.most_used_experts.slice(0, 5).map(([expertId, count]: [string, number]) => (
+                      <div key={expertId} className="aggregate-expert-item">
+                        <span className="expert-id">E{expertId}</span>
+                        <span className="expert-count">{count} activations</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="aggregate-expert-list">
+                    <h5>Least Used Experts</h5>
+                    {conversationAnalysis.aggregate_analysis.least_used_experts.slice(0, 5).map(([expertId, count]: [string, number]) => (
+                      <div key={expertId} className="aggregate-expert-item">
+                        <span className="expert-id">E{expertId}</span>
+                        <span className="expert-count">{count} activations</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Expert Usage Timeline Visualization */}
+              <div className="timeline-section">
+                <h4>Expert Activation Timeline</h4>
+                <div className="timeline-chart">
+                  {conversationAnalysis.turn_analyses.map((turn: any) => {
+                    const topExperts = turn.router_analysis?.top_experts || [];
+                    return (
+                      <div key={turn.turn_number} className="timeline-turn">
+                        <div className="timeline-turn-label">T{turn.turn_number}</div>
+                        <div className="timeline-experts">
+                          {topExperts.slice(0, 3).map((expert: any) => (
+                            <div
+                              key={expert.expert_id}
+                              className="timeline-expert-bar"
+                              style={{ width: `${expert.percentage}%` }}
+                              title={`Expert ${expert.expert_id}: ${expert.percentage.toFixed(1)}%`}
+                            >
+                              E{expert.expert_id}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Entropy Graph */}
+              <div className="entropy-graph-section">
+                <h4>Entropy Across Turns</h4>
+                <div className="entropy-graph">
+                  {conversationAnalysis.turn_analyses.map((turn: any, idx: number) => {
+                    const entropy = turn.router_analysis?.mean_token_entropy || 0;
+                    const maxEntropy = Math.max(...conversationAnalysis.turn_analyses.map((t: any) => t.router_analysis?.mean_token_entropy || 0));
+                    const heightPct = maxEntropy > 0 ? (entropy / maxEntropy) * 100 : 0;
+                    return (
+                      <div key={turn.turn_number} className="entropy-bar-wrapper">
+                        <div
+                          className="entropy-bar"
+                          style={{ height: `${heightPct}%` }}
+                          title={`Turn ${turn.turn_number}: Entropy ${entropy.toFixed(3)}`}
+                        />
+                        {idx % 2 === 0 && <div className="entropy-label">T{turn.turn_number}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Per-Turn Details */}
+              <div className="per-turn-section">
+                <h4>Turn-by-Turn Analysis</h4>
+                <div className="turns-list">
+                  {conversationAnalysis.turn_analyses.map((turn: any) => (
+                    <div key={turn.turn_number} className="turn-item">
+                      <div className="turn-header">
+                        <h5>Turn {turn.turn_number}</h5>
+                        {turn.router_analysis && (
+                          <div className="turn-stats">
+                            <span>{turn.router_analysis.total_tokens || 0} tokens</span>
+                            <span>{turn.router_analysis.unique_experts_used || 0} experts</span>
+                            <span>Entropy: {(turn.router_analysis.mean_token_entropy || 0).toFixed(3)}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="turn-messages">
+                        <div className="turn-message user">
+                          <strong>User:</strong>
+                          <div className="message-text">{turn.user_message}</div>
+                        </div>
+                        <div className="turn-message assistant">
+                          <strong>Assistant:</strong>
+                          <div className="message-text">{turn.assistant_response}</div>
+                        </div>
+                      </div>
+
+                      {turn.router_analysis && turn.router_analysis.top_experts && (
+                        <div className="turn-expert-analysis">
+                          <h6>Expert Activations</h6>
+                          <div className="expert-bars">
+                            {turn.router_analysis.top_experts.slice(0, 8).map((expert: any) => (
+                              <div key={expert.expert_id} className="expert-bar-row">
+                                <span className="expert-id">E{expert.expert_id}</span>
+                                <div className="expert-bar-container">
+                                  <div
+                                    className="expert-bar-fill"
+                                    style={{ width: `${expert.percentage}%` }}
+                                  />
+                                </div>
+                                <span className="expert-count">{expert.count}</span>
+                                <span className="expert-pct">{expert.percentage.toFixed(1)}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="conversation-analysis-footer">
+              <button className="btn-secondary" onClick={() => setShowConversationAnalysis(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Diagnostic Test Result Modal */}
       {showDiagnosticResult && diagnosticTestResult && (
