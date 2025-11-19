@@ -18,7 +18,7 @@ import numpy as np
 class RouterInspector:
     """Captures and analyzes MoE router decisions during inference"""
 
-    def __init__(self, num_experts: int = 64, top_k: int = 8, agent_id: Optional[str] = None):
+    def __init__(self, num_experts: int = 128, top_k: int = 8, agent_id: Optional[str] = None):
         self.num_experts = num_experts
         self.top_k = top_k
         self.enable_logging = False
@@ -285,7 +285,7 @@ def get_router_inspector() -> RouterInspector:
     return _global_inspector
 
 
-def reset_router_inspector(num_experts: int = 64, top_k: int = 8):
+def reset_router_inspector(num_experts: int = 128, top_k: int = 8):
     """Reset global inspector with new configuration"""
     global _global_inspector
     _global_inspector = RouterInspector(num_experts=num_experts, top_k=top_k)
