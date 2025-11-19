@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AffectDashboard from '../components/AffectDashboard/AffectDashboard';
+import BrainScan from '../components/BrainScan/BrainScan';
 import { routerLensAPI } from '../api/routerLensAPI';
 import { conversationAPI } from '../api/conversationAPI';
 import { agentAPI } from '../api/agentAPI';
@@ -19,7 +20,7 @@ import './InterpretabilityView.css';
 export default function InterpretabilityView() {
   const navigate = useNavigate();
   const agentId = localStorage.getItem('selectedAgentId') || '';
-  const [activeTab, setActiveTab] = useState<'expert' | 'welfare'>('expert');
+  const [activeTab, setActiveTab] = useState<'expert' | 'brain' | 'welfare'>('brain');
 
   // Router Lens state
   const [routerStatus, setRouterStatus] = useState<RouterLensStatus | null>(null);
@@ -424,6 +425,12 @@ export default function InterpretabilityView() {
 
       <div className="interpretability-tabs">
         <button
+          className={activeTab === 'brain' ? 'active' : ''}
+          onClick={() => setActiveTab('brain')}
+        >
+          🧠 Brain Scanner
+        </button>
+        <button
           className={activeTab === 'expert' ? 'active' : ''}
           onClick={() => setActiveTab('expert')}
         >
@@ -438,6 +445,10 @@ export default function InterpretabilityView() {
       </div>
 
       <div className="interpretability-view-content">
+        {activeTab === 'brain' && (
+          <BrainScan agentId={selectedAgentForExpert || agentId} />
+        )}
+
         {activeTab === 'expert' && (
           <div className="expert-analytics-section">
             <div className="section-header">
