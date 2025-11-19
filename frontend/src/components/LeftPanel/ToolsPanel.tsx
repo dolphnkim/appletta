@@ -9,7 +9,7 @@ interface ToolsPanelProps {
   onToolsChange: (enabledTools: string[]) => void;
 }
 
-export default function ToolsPanel({ agentId, enabledTools, onToolsChange }: ToolsPanelProps) {
+export default function ToolsPanel({ enabledTools, onToolsChange }: ToolsPanelProps) {
   const [availableTools, setAvailableTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
