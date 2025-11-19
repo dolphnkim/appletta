@@ -656,8 +656,7 @@ async def analyze_conversation(
     Returns:
         Per-turn analysis and aggregate statistics
     """
-    from backend.db.models.conversation import Conversation
-    from backend.db.models.message import Message
+    from backend.db.models.conversation import Conversation, Message
     import asyncio
     
     # Load conversation
@@ -670,21 +669,19 @@ async def analyze_conversation(
     if not agent:
         raise HTTPException(404, "Agent not found")
     
-    # Get diagnostic service
+    # Get diagnostic service and verify model is loaded
     try:
         diagnostic_service = get_diagnostic_service()
-        
-        # Load model if not already loaded for this agent
+
+        # Check if model is loaded for this agent
         current_agent_id = getattr(diagnostic_service, 'agent_id', None)
         if current_agent_id != str(agent.id):
-            print(f"[Conversation Analysis] Loading model for agent {agent.name}")
-            await asyncio.to_thread(
-                diagnostic_service.load_model,
-                agent.model_path,
-                agent.adapter_path,
-                agent_id=str(agent.id),
-                agent_name=agent.name
+            raise HTTPException(
+                400,
+                f"Model not loaded for this agent. Please load the agent model first using the 'Load Agent Model for Analytics' button in the Interpretability panel."
             )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"Failed to initialize diagnostic service: {str(e)}")
     
