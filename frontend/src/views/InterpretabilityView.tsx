@@ -58,6 +58,11 @@ export default function InterpretabilityView() {
   const [showDiagnosticResult, setShowDiagnosticResult] = useState(false);
   const [editedPrompts, setEditedPrompts] = useState<Record<number, string>>({});
 
+  // Conversation analysis state
+  const [conversationAnalysis, setConversationAnalysis] = useState<any | null>(null);
+  const [showConversationAnalysis, setShowConversationAnalysis] = useState(false);
+  const [analyzingConversation, setAnalyzingConversation] = useState(false);
+
   // Analysis filters
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
 
@@ -72,8 +77,11 @@ export default function InterpretabilityView() {
       fetchRouterLensStatus();
       fetchDiagnosticPrompts();
       fetchModelStatus();
+      if (selectedAgentForExpert) {
+        fetchConversations();
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, selectedAgentForExpert]);
 
   // Fetch sessions when agent changes
   useEffect(() => {
@@ -200,11 +208,13 @@ export default function InterpretabilityView() {
   };
 
   const fetchConversations = async () => {
-    if (!agentId) return;
+    // Use selectedAgentForExpert if in expert tab, otherwise use agentId
+    const targetAgentId = activeTab === 'expert' ? selectedAgentForExpert : agentId;
+    if (!targetAgentId) return;
 
     try {
       setConversationsLoading(true);
-      const convos = await conversationAPI.list(agentId);
+      const convos = await conversationAPI.list(targetAgentId);
       setConversations(convos);
 
       // Auto-select the most recent conversation if none selected
@@ -306,6 +316,30 @@ export default function InterpretabilityView() {
       alert('Failed to save diagnostic session');
     } finally {
       setRouterLensLoading(false);
+    }
+  };
+
+  const analyzeConversation = async () => {
+    if (!selectedConversationId) {
+      setRouterLensError('Please select a conversation first');
+      return;
+    }
+
+    try {
+      setAnalyzingConversation(true);
+      setRouterLensError(null);
+
+      const result = await routerLensAPI.analyzeConversation(selectedConversationId);
+      setConversationAnalysis(result);
+      setShowConversationAnalysis(true);
+
+      alert(`Conversation analysis complete!\n\nAnalyzed ${result.aggregate_analysis.total_turns} turns with ${result.aggregate_analysis.total_tokens_analyzed} total tokens.`);
+    } catch (err: unknown) {
+      console.error('Failed to analyze conversation:', err);
+      const error = err as { message?: string };
+      setRouterLensError(error.message || 'Failed to analyze conversation');
+    } finally {
+      setAnalyzingConversation(false);
     }
   };
 
@@ -479,6 +513,43 @@ export default function InterpretabilityView() {
                 </button>
               )}
             </div>
+
+            {/* Conversation Replay Section */}
+            {modelStatus?.loaded && modelStatus?.agentId === selectedAgentForExpert && (
+              <div className="conversation-replay-section">
+                <h4>Conversation Analysis</h4>
+                <p>Replay entire conversations to analyze expert routing patterns across all turns</p>
+                <div className="conversation-selector-row">
+                  <label>Select Conversation:</label>
+                  {conversationsLoading ? (
+                    <span className="loading-text">Loading conversations...</span>
+                  ) : conversations.length === 0 ? (
+                    <span className="no-conversations">No conversations found</span>
+                  ) : (
+                    <select
+                      value={selectedConversationId || ''}
+                      onChange={(e) => setSelectedConversationId(e.target.value)}
+                      className="conversation-select"
+                    >
+                      <option value="">-- Select a conversation --</option>
+                      {conversations.map((convo) => (
+                        <option key={convo.id} value={convo.id}>
+                          {convo.title || `Conversation ${new Date(convo.created_at).toLocaleDateString()}`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    className="btn-primary"
+                    onClick={analyzeConversation}
+                    disabled={!selectedConversationId || analyzingConversation}
+                    style={{ marginLeft: '10px' }}
+                  >
+                    {analyzingConversation ? 'Analyzing...' : 'Analyze Conversation'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {routerStatus && (
               <div className="router-status-bar">

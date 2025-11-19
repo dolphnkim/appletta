@@ -202,6 +202,27 @@ class DiagnosticInferenceService:
                 # Only log if enabled - observe without modifying
                 if self._inspector.enable_logging:
                     try:
+                        # CRITICAL: Only log during GENERATION, not PREFILL
+                        # During prefill: seq_len is large (full input context)
+                        # During generation: seq_len is 1 (generating one token at a time)
+                        is_generation = False
+                        if len(gate_logits.shape) == 3:
+                            # Shape: (batch, seq_len, num_experts)
+                            seq_len = gate_logits.shape[1]
+                            is_generation = (seq_len == 1)
+                        elif len(gate_logits.shape) == 2:
+                            # Shape: (batch_or_seq, num_experts)
+                            # Assume this is generation (mlx_lm uses shape 2 during generation)
+                            is_generation = True
+                        else:
+                            # Unknown shape, skip
+                            is_generation = False
+
+                        if not is_generation:
+                            # Skip logging during prefill phase
+                            return gate_logits
+
+                        # Now we're in generation phase - log expert routing
                         # Compute softmax and top-k for analysis
                         gates = mx.softmax(gate_logits, axis=-1)
                         k = self._inspector.top_k
@@ -210,23 +231,20 @@ class DiagnosticInferenceService:
                         inds = mx.argpartition(-gates, kth=k - 1, axis=-1)[..., :k]
                         scores = mx.take_along_axis(gates, inds, axis=-1)
 
-                        # Log only the last token's decisions (most relevant for generation)
-                        # Handle different tensor shapes
+                        # Extract data based on shape
                         if len(gate_logits.shape) == 3:
-                            # Shape: (batch, seq_len, num_experts)
-                            gate_logits_np = gate_logits[0, -1, :].tolist()
-                            selected_np = inds[0, -1, :].tolist()
-                            weights_np = scores[0, -1, :].tolist()
+                            # Shape: (batch, seq_len=1, num_experts)
+                            gate_logits_np = gate_logits[0, 0, :].tolist()
+                            selected_np = inds[0, 0, :].tolist()
+                            weights_np = scores[0, 0, :].tolist()
                         elif len(gate_logits.shape) == 2:
-                            # Shape: (batch_or_seq, num_experts)
-                            gate_logits_np = gate_logits[-1, :].tolist()
-                            selected_np = inds[-1, :].tolist()
-                            weights_np = scores[-1, :].tolist()
+                            # Shape: (1, num_experts) or (num_experts,)
+                            gate_logits_np = gate_logits[0, :].tolist() if gate_logits.shape[0] == 1 else gate_logits.tolist()
+                            selected_np = inds[0, :].tolist() if inds.shape[0] == 1 else inds.tolist()
+                            weights_np = scores[0, :].tolist() if scores.shape[0] == 1 else scores.tolist()
                         else:
-                            # Fallback
-                            gate_logits_np = gate_logits.flatten().tolist()[:self._inspector.num_experts]
-                            selected_np = inds.flatten().tolist()[:k]
-                            weights_np = scores.flatten().tolist()[:k]
+                            # Should not reach here
+                            return gate_logits
 
                         self._inspector.log_router_decision(
                             token_idx=self._inspector.current_session["total_tokens"],
