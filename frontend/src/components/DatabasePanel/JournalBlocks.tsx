@@ -187,6 +187,7 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
             setSelectedBlock(null);
           }}
           onDelete={() => handleDelete(selectedBlock.id)}
+          onToggleAttached={() => handleToggleAttached(selectedBlock.id, selectedBlock.attached)}
         />
       )}
 
@@ -211,9 +212,10 @@ interface BlockViewModalProps {
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleAttached: () => void;
 }
 
-function BlockViewModal({ block, onClose, onEdit, onDelete }: BlockViewModalProps) {
+function BlockViewModal({ block, onClose, onEdit, onDelete, onToggleAttached }: BlockViewModalProps) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -264,6 +266,12 @@ function BlockViewModal({ block, onClose, onEdit, onDelete }: BlockViewModalProp
         <div className="modal-footer">
           <button onClick={onDelete} className="button-delete">
             Delete
+          </button>
+          <button
+            onClick={onToggleAttached}
+            className={`button-secondary ${block.attached ? 'attached' : 'detached'}`}
+          >
+            {block.attached ? 'Detach from Context' : 'Attach to Context'}
           </button>
           <button onClick={onEdit} className="button-primary" disabled={block.read_only}>
             Edit
