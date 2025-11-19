@@ -1401,8 +1401,13 @@ async def _chat_stream_internal(
                         db=db
                     )
 
-                    # Check if this was an invalid command
-                    if continue_wizard and "didn't understand that command" in wizard_prompt_result:
+                    # Check if tool was executed first - reset invalid counter
+                    if wizard_state.iteration > 0:
+                        tool_call_count = wizard_state.iteration
+                        invalid_command_count = 0
+                        print(f"   ➡️  Tool executed (total: {tool_call_count}/{max_tool_calls})")
+                    # Check if this was an invalid command (only if tool wasn't executed)
+                    elif continue_wizard and "didn't understand that command" in wizard_prompt_result:
                         invalid_command_count += 1
                         print(f"   ⚠️  Invalid command #{invalid_command_count}/{max_invalid_commands}")
 
@@ -1410,12 +1415,6 @@ async def _chat_stream_internal(
                             print(f"   🛑 Too many invalid commands - auto-finalizing")
                             wizard_loop_active = False
                             continue
-
-                    if wizard_state.iteration > 0:
-                        # Tool was executed - reset invalid counter
-                        tool_call_count = wizard_state.iteration
-                        invalid_command_count = 0
-                        print(f"   ➡️  Tool executed (total: {tool_call_count}/{max_tool_calls})")
 
                     if continue_wizard and wizard_prompt_result:
                         # Tool needs more input (multi-step), add prompt and get response
