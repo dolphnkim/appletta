@@ -359,8 +359,9 @@ class MLXManager:
  
 
         # Wait for server to be ready (not just started, but accepting connections)
+        # Increased timeout for large models (235B+ can take 3-5 minutes to load)
 
-        max_wait_time = 60  # seconds
+        max_wait_time = 300  # seconds (5 minutes)
 
         check_interval = 2  # seconds
 
