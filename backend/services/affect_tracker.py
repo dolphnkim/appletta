@@ -134,6 +134,67 @@ async def analyze_message_affect(
         # Return neutral defaults if no agent available
         return _get_default_affect()
 
+    # First, try using diagnostic inference service if model is already loaded
+    try:
+        from backend.services.diagnostic_inference import get_diagnostic_service
+
+        diagnostic_service = get_diagnostic_service()
+
+        # Check if diagnostic service has this agent's model loaded
+        if (diagnostic_service.model is not None and
+            diagnostic_service.agent_id == str(agent.id)):
+
+            print(f"\n🎭 AFFECT ANALYSIS for message {str(message.id)[:8]} (using diagnostic inference)...")
+
+            # Build context if provided
+            context_str = ""
+            if conversation_context and len(conversation_context) > 0:
+                context_str = "\n\nRecent conversation context:\n"
+                for ctx_msg in conversation_context[-5:]:  # Last 5 messages for context
+                    context_str += f"[{ctx_msg.role}]: {ctx_msg.content[:500]}\n"
+
+            system_prompt = get_affect_analysis_prompt()
+            user_prompt = f"""Analyze the affect in this {message.role} message:
+
+"{message.content}"
+{context_str}
+Return the JSON analysis:"""
+
+            # Format as a simple prompt (diagnostic service takes string, not messages)
+            full_prompt = f"{system_prompt}\n\n{user_prompt}\n\nAnalysis:"
+
+            # Run inference with diagnostic service (in thread to avoid blocking)
+            import asyncio
+            result = await asyncio.to_thread(
+                diagnostic_service.run_inference,
+                prompt=full_prompt,
+                max_tokens=512,
+                temperature=0.3,  # Lower temp for consistent analysis
+                log_routing=False  # Don't log routing for affect analysis
+            )
+
+            content = result["response"]
+
+            # Parse JSON from response
+            affect_data = _parse_affect_json(content)
+
+            # Add metadata
+            affect_data["analyzed_at"] = datetime.utcnow().isoformat() + "Z"
+            affect_data["analyzer_agent_id"] = str(agent.id)
+            affect_data["inference_method"] = "diagnostic"
+
+            print(f"  Valence: {affect_data.get('valence', 0):.2f}, "
+                  f"Activation: {affect_data.get('activation', 0):.2f}, "
+                  f"Emotions: {affect_data.get('emotions', [])}")
+
+            return affect_data
+
+    except Exception as e:
+        print(f"  Could not use diagnostic inference: {e}")
+        # Fall through to MLX server method
+        pass
+
+    # Fallback: Use MLX server if diagnostic inference not available
     mlx_manager = get_mlx_manager()
     mlx_process = mlx_manager.get_agent_server(agent.id)
 
