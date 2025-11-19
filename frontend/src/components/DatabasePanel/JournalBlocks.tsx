@@ -267,6 +267,12 @@ function BlockViewModal({ block, onClose, onEdit, onDelete, onToggleAttached }: 
           <button onClick={onDelete} className="button-delete">
             Delete
           </button>
+          <button
+            onClick={onToggleAttached}
+            className={`button-secondary ${block.attached ? 'attached' : 'detached'}`}
+          >
+            {block.attached ? 'Detach from Context' : 'Attach to Context'}
+          </button>
           <button onClick={onEdit} className="button-primary" disabled={block.read_only}>
             Edit
           </button>

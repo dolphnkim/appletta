@@ -101,10 +101,20 @@ export default function ConversationsList({
     }
   };
 
-  const handleCancelEdit = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleCancelEdit = (e?: React.MouseEvent | React.KeyboardEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
     setEditingId(null);
     setEditTitle('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, conversationId: string) => {
+    if (e.key === 'Escape') {
+      handleCancelEdit(e);
+    } else if (e.key === 'Enter') {
+      handleSaveEdit(conversationId);
+    }
   };
 
   const formatDate = (dateStr: string) => {
@@ -172,10 +182,18 @@ export default function ConversationsList({
                       value={editTitle}
                       onChange={(e) => setEditTitle(e.target.value)}
                       onClick={(e) => e.stopPropagation()}
-                      onBlur={(e) => handleSaveEdit(conversation.id, e)}
+                      onKeyDown={(e) => handleKeyDown(e, conversation.id)}
                       autoFocus
                       className="conversation-title-input"
                     />
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      className="conversation-cancel"
+                      title="Cancel (Esc)"
+                    >
+                      ✕
+                    </button>
                   </form>
                 ) : (
                   <>

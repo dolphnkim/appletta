@@ -19,7 +19,6 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
 
   useEffect(() => {
