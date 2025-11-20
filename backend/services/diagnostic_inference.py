@@ -34,7 +34,7 @@ class DiagnosticInferenceService:
         self.model = None
         self.tokenizer = None
         self.model_path = None
-        self.router_inspector = RouterInspector(num_experts=64, top_k=8)
+        self.router_inspector = RouterInspector(num_experts=128, top_k=8)
         self.is_moe_model = False
         self.agent_id = None
         self.agent_name = None
@@ -135,7 +135,7 @@ class DiagnosticInferenceService:
             # Qwen2-MoE has structure: model.layers[i].mlp.gate (nn.Linear)
             # and model.layers[i].mlp.experts (list of expert MLPs)
 
-            num_experts = 64  # Default, will update if found
+            num_experts = 128  # Default for Qwen2.5-Coder-32B-Instruct-A22B, will update if found
             top_k = 8  # Default
 
             # Try to find actual values from model config
