@@ -826,7 +826,6 @@ async def chat(
             "messages": messages,
             "temperature": agent.temperature,
             "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-            "seed": 42,
         }
 
         print(f"\n📤 REQUEST TO MAIN LLM:")
@@ -1195,7 +1194,6 @@ async def _chat_stream_internal(
                     "temperature": agent.temperature,
                     "top_p": agent.top_p,
                     "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                    "seed": 42,
                     "stream": True
                 }
 
@@ -1255,7 +1253,6 @@ async def _chat_stream_internal(
                         print(f"[Router Logging] Response length: {len(streamed_content)} chars")
 
                         # "Fake stream" the response by yielding it in chunks
-                        import asyncio
                         chunk_size = 20  # characters per chunk
                         for i in range(0, len(streamed_content), chunk_size):
                             content_chunk = streamed_content[i:i+chunk_size]
@@ -1347,7 +1344,6 @@ async def _chat_stream_internal(
                                 "messages": choice_messages,
                                 "temperature": agent.temperature,
                                 "max_tokens": 100,  # Short response for menu choice
-                                "seed": 42,
                             }
                         )
                         response.raise_for_status()
@@ -1411,6 +1407,18 @@ async def _chat_stream_internal(
                         invalid_command_count += 1
                         print(f"   ⚠️  Invalid command #{invalid_command_count}/{max_invalid_commands}")
 
+                        # CRITICAL: Restart MLX server after invalid command to clear poisoned KV cache
+                        # MLX server caches prompts, and after an invalid command the cache is corrupted
+                        # causing the model to repeat the same output on subsequent requests
+                        if mlx_process and not skip_mlx_server:
+                            print(f"   🔄 Restarting MLX server to clear KV cache after invalid command")
+                            try:
+                                await mlx_manager.stop_agent_server(agent.id)
+                                mlx_process = await mlx_manager.start_agent_server(agent)
+                                print(f"   ✅ MLX server restarted on port {mlx_process.port}")
+                            except Exception as e:
+                                print(f"   ⚠️  Failed to restart MLX server: {e}")
+
                         if invalid_command_count >= max_invalid_commands:
                             print(f"   🛑 Too many invalid commands - auto-finalizing")
                             wizard_loop_active = False
@@ -1424,8 +1432,11 @@ async def _chat_stream_internal(
                         })
 
                         # Loop to get more input for multi-step tool
-                        while continue_wizard and wizard_prompt_result:
-                            print(f"\n📤 WIZARD SUB-PROMPT:")
+                        inner_loop_count = 0
+                        max_inner_loop = 20  # Prevent infinite loops
+                        while continue_wizard and wizard_prompt_result and inner_loop_count < max_inner_loop:
+                            inner_loop_count += 1
+                            print(f"\n📤 WIZARD SUB-PROMPT (iteration {inner_loop_count}):")
                             print(f"{wizard_prompt_result[:300]}...")
 
                             sub_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages]
@@ -1437,7 +1448,6 @@ async def _chat_stream_internal(
                                         "messages": sub_messages,
                                         "temperature": agent.temperature,
                                         "max_tokens": 2000,  # Longer for content
-                                        "seed": 42,
                                     }
                                 )
                                 response.raise_for_status()
@@ -1451,6 +1461,9 @@ async def _chat_stream_internal(
                                 "content": sub_response
                             })
 
+                            # Track iteration before processing
+                            previous_iteration = wizard_state.iteration
+
                             wizard_prompt_result, wizard_state, continue_wizard = await process_wizard_step(
                                 user_message=sub_response,
                                 wizard_state=wizard_state,
@@ -1458,9 +1471,29 @@ async def _chat_stream_internal(
                                 db=db
                             )
 
-                            if wizard_state.iteration > tool_call_count:
+                            # Check if tool was executed or invalid command
+                            if wizard_state.iteration > previous_iteration:
                                 tool_call_count = wizard_state.iteration
+                                invalid_command_count = 0  # Reset on successful tool execution
                                 print(f"   ➡️  Tool executed (total: {tool_call_count}/{max_tool_calls})")
+                            elif continue_wizard and "didn't understand that command" in wizard_prompt_result:
+                                invalid_command_count += 1
+                                print(f"   ⚠️  Invalid command in inner loop #{invalid_command_count}/{max_invalid_commands}")
+
+                                # CRITICAL: Restart MLX server after invalid command to clear poisoned KV cache
+                                if mlx_process and not skip_mlx_server:
+                                    print(f"   🔄 Restarting MLX server to clear KV cache after invalid command (inner loop)")
+                                    try:
+                                        await mlx_manager.stop_agent_server(agent.id)
+                                        mlx_process = await mlx_manager.start_agent_server(agent)
+                                        print(f"   ✅ MLX server restarted on port {mlx_process.port}")
+                                    except Exception as e:
+                                        print(f"   ⚠️  Failed to restart MLX server: {e}")
+
+                                if invalid_command_count >= max_invalid_commands:
+                                    print(f"   🛑 Too many invalid commands in inner loop - breaking out")
+                                    wizard_loop_active = False
+                                    break
 
                             if continue_wizard and wizard_prompt_result:
                                 wizard_messages.append({
@@ -1603,7 +1636,6 @@ async def _chat_stream_internal(
                 "temperature": agent.temperature,
                 "top_p": agent.top_p,
                 "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                "seed": 42,
                 "stream": True
             }
 
