@@ -792,3 +792,73 @@ async def analyze_conversation(
         "turn_analyses": turn_analyses,
         "aggregate_analysis": aggregate_analysis
     }
+
+
+@router.get("/sessions/{filename}/heatmap")
+async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
+    """Get expert activation heatmap data for visualization
+
+    Returns data formatted for 2D heatmap:
+    - X-axis: Token position (time)
+    - Y-axis: Expert ID
+    - Color: Activation weight (0-1)
+
+    This is the "AI MRI scan" - watch the brain light up!
+    """
+    # Determine file path
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    filepath = log_dir / filename
+
+    if not filepath.exists():
+        raise HTTPException(404, f"Session {filename} not found")
+
+    with open(filepath) as f:
+        session_data = json.load(f)
+
+    # Extract token-by-token expert activations
+    tokens = session_data.get("tokens", [])
+    if not tokens:
+        return {
+            "error": "No token data in session",
+            "num_tokens": 0,
+            "num_experts": 0,
+            "heatmap_data": []
+        }
+
+    num_experts = session_data.get("metadata", {}).get("num_experts", 128)
+
+    # Build heatmap matrix: [num_tokens x num_experts]
+    # Each cell is the activation weight for that expert at that token
+    heatmap_matrix = []
+
+    for token_data in tokens:
+        # Create a row for this token (one value per expert)
+        row = [0.0] * num_experts
+
+        # Fill in the activated experts
+        selected_experts = token_data.get("selected_experts", [])
+        expert_weights = token_data.get("expert_weights", [])
+
+        for expert_id, weight in zip(selected_experts, expert_weights):
+            if expert_id < num_experts:
+                row[expert_id] = weight
+
+        heatmap_matrix.append(row)
+
+    return {
+        "filename": filename,
+        "num_tokens": len(tokens),
+        "num_experts": num_experts,
+        "heatmap_matrix": heatmap_matrix,  # [tokens x experts] matrix
+        "metadata": {
+            "start_time": session_data.get("start_time"),
+            "end_time": session_data.get("end_time"),
+            "prompt_preview": session_data.get("metadata", {}).get("prompt", "")[:200],
+            "response_preview": session_data.get("metadata", {}).get("response", "")[:200]
+        },
+        "summary": session_data.get("summary", {})
+    }
