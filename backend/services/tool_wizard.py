@@ -83,6 +83,8 @@ def clean_llm_response(response: str) -> str:
     Clean up LLM response to extract just the actual answer.
     Removes:
     - Thinking tags and their content
+    - Python code blocks and function definitions
+    - Triple backticks
 
     NOTE: Preserves ALL content after thinking tags, including multi-line text.
     This is important for journal block content which can be long.
@@ -99,25 +101,21 @@ def clean_llm_response(response: str) -> str:
     # Remove <think> tags if they exist without closing
     cleaned = re.sub(r'<think>.*', '', cleaned, flags=re.DOTALL)
 
+    # Remove Python function definitions (def function_name...)
+    # This handles models that try to use Python function call syntax
+    cleaned = re.sub(r'^def\s+\w+\([^)]*\).*?:\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'^\s*return\s+.*$', '', cleaned, flags=re.MULTILINE)
+
+    # Remove code blocks (```python ... ```)
+    cleaned = re.sub(r'```(?:python)?\s*\n.*?\n```', '', cleaned, flags=re.DOTALL)
+
+    # Remove triple backticks if they're standalone
+    cleaned = cleaned.replace('```', '')
+
     return cleaned.strip()
 
 
-def show_main_menu() -> str:
-    """Generate the main menu prompt - basic version without resources"""
-    # This is kept for backwards compatibility but should not be used
-    # Use show_main_menu_with_resources() instead
-    return """MANDATORY: Before responding to the user, you MUST select ONE option below.
-
-RESPOND WITH ONLY YOUR CHOICE:
-
-chat_normally
-create_journal_block
-search_memories
-
-YOUR RESPONSE MUST BE EXACTLY ONE OF THE ABOVE COMMANDS."""
-
-
-def show_main_menu_with_resources(agent_id: str, db: Session, post_response: bool = False) -> str:
+def show_main_menu(agent_id: str, db: Session, post_response: bool = False) -> str:
     """Generate the main menu with available resources listed
 
     Args:
@@ -177,7 +175,10 @@ def show_main_menu_with_resources(agent_id: str, db: Session, post_response: boo
         for block in blocks:
             menu += f"delete_block, {block['label']}\n"
 
-    menu += "\nRESPOND WITH EXACTLY ONE LINE FROM ABOVE. NOTHING ELSE."
+    menu += "\n❌ DO NOT write Python code, function calls, or def statements!"
+    menu += "\n✅ RESPOND WITH EXACTLY ONE LINE FROM THE OPTIONS ABOVE."
+    menu += "\n✅ Example: create_journal_block"
+    menu += "\n✅ Example: read_block, My Notes"
 
     return menu
 
@@ -311,7 +312,7 @@ async def process_wizard_step(
 
             if not target_block:
                 print(f"   ❌ Block not found: {target}")
-                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu_with_resources(agent_id, db),
+                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu(agent_id, db),
                         wizard_state, True)
 
             # Read the full block content
@@ -326,9 +327,9 @@ async def process_wizard_step(
                 wizard_state.log_tool_use(f"Read journal block '{full_block['label']}'")
 
             if "error" in full_block:
-                response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu_with_resources(agent_id, db)
+                response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db)
             else:
-                response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu_with_resources(agent_id, db)
+                response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db)
 
             wizard_state.reset_to_menu()
             wizard_state.increment_iteration()
@@ -350,7 +351,7 @@ async def process_wizard_step(
 
             if not target_block:
                 print(f"   ❌ Block not found: {target}")
-                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu_with_resources(agent_id, db),
+                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu(agent_id, db),
                         wizard_state, True)
 
             # Read the full block content
@@ -358,7 +359,7 @@ async def process_wizard_step(
             full_block = read_journal_block(target_block["id"], db)
 
             if "error" in full_block:
-                return (f"❌ Error reading block: {full_block['error']}\n\n" + show_main_menu_with_resources(agent_id, db),
+                return (f"❌ Error reading block: {full_block['error']}\n\n" + show_main_menu(agent_id, db),
                         wizard_state, True)
 
             wizard_state.tool = "edit"
@@ -395,7 +396,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
 
             if not target_block:
                 print(f"   ❌ Block not found: {target}")
-                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu_with_resources(agent_id, db),
+                return (f"❌ Journal block '{target}' not found.\n\n" + show_main_menu(agent_id, db),
                         wizard_state, True)
 
             # Delete the block
@@ -411,12 +412,12 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
 
             wizard_state.reset_to_menu()
             wizard_state.increment_iteration()
-            return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu_with_resources(agent_id, db), wizard_state, True)
+            return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db), wizard_state, True)
 
         else:
             # Invalid command
             print(f"   ❌ INVALID COMMAND - LLM response was: {user_message[:100]}")
-            return (f"I didn't understand that command: '{user_message}'\n\n" + show_main_menu_with_resources(agent_id, db),
+            return (f"I didn't understand that command: '{user_message}'\n\n" + show_main_menu(agent_id, db),
                     wizard_state, True)
 
     # === CREATE JOURNAL BLOCK FLOW ===
@@ -443,7 +444,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
         # Verify we have the label from previous step
         if "label" not in wizard_state.context:
             print(f"   ❌ BUG: Label not in context! Context: {wizard_state.context}")
-            return ("❌ Something went wrong - label was lost. Let's start over.\n\n" + show_main_menu(),
+            return ("❌ Something went wrong - label was lost. Let's start over.\n\n" + show_main_menu(agent_id, db),
                     WizardState(), True)
 
         label = wizard_state.context["label"]
@@ -472,7 +473,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
 
-        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db),
                 wizard_state, True)
 
     # === EDIT JOURNAL BLOCK FLOW ===
@@ -492,7 +493,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
         full_block = read_journal_block(selected_block_summary["id"], db)
 
         if "error" in full_block:
-            return (f"❌ Error reading block: {full_block['error']}\n\n" + show_main_menu(),
+            return (f"❌ Error reading block: {full_block['error']}\n\n" + show_main_menu(agent_id, db),
                     wizard_state, True)
 
         wizard_state.context["selected_block"] = full_block
@@ -567,7 +568,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
             result_msg = f"✅ TOOL SUCCESS: Updated journal block '{block['label']}' (search/replace)"
             wizard_state.log_tool_use(f"Updated journal block '{block['label']}' (search/replace)")
 
-        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db),
                 wizard_state, True)
 
     elif wizard_state.step == "edit_rewrite":
@@ -594,7 +595,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
             result_msg = f"✅ TOOL SUCCESS: Rewrote journal block '{block['label']}'"
             wizard_state.log_tool_use(f"Rewrote journal block '{block['label']}'")
 
-        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db),
                 wizard_state, True)
 
     elif wizard_state.step == "edit_append":
@@ -622,7 +623,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
             result_msg = f"✅ TOOL SUCCESS: Appended to journal block '{block['label']}'"
             wizard_state.log_tool_use(f"Appended to journal block '{block['label']}'")
 
-        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(),
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db),
                 wizard_state, True)
 
     # === READ JOURNAL BLOCK FLOW ===
@@ -644,11 +645,11 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
         if "error" in full_block:
             result_msg = f"❌ TOOL FAILURE: {full_block['error']}"
             wizard_state.log_tool_use(f"FAILED to read journal block")
-            response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
+            response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db)
         else:
             result_msg = f"✅ TOOL SUCCESS: Read journal block '{full_block['label']}'"
             wizard_state.log_tool_use(f"Read journal block '{full_block['label']}'")
-            response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
+            response = f"{result_msg}\n\n=== {full_block['label']} ===\n\n{full_block['value']}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db)
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
@@ -679,7 +680,7 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
-        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(), wizard_state, True)
+        return (f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db), wizard_state, True)
 
     # === SEARCH MEMORIES FLOW ===
     elif wizard_state.step == "search_query":
@@ -702,14 +703,14 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
         if not results:
             result_msg = f"✅ TOOL SUCCESS: Search completed for '{query}' - No memories found"
             wizard_state.log_tool_use(f"Searched memories for '{query}' - No results")
-            response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu()
+            response = f"{result_msg}\n\n{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db)
         else:
             result_msg = f"✅ TOOL SUCCESS: Search completed for '{query}' - Found {len(results)} memories"
             wizard_state.log_tool_use(f"Searched memories for '{query}' - Found {len(results)} results")
             response = f"{result_msg}\n\nHere's what I found:\n\n"
             for i, result in enumerate(results, 1):
                 response += f"{i}. {result['content'][:200]}...\n\n"
-            response += f"{wizard_state.get_tool_use_summary()}" + show_main_menu()
+            response += f"{wizard_state.get_tool_use_summary()}" + show_main_menu(agent_id, db)
 
         wizard_state.reset_to_menu()
         wizard_state.increment_iteration()
@@ -718,4 +719,4 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
     # Unknown step - reset
     else:
         wizard_state = WizardState()
-        return ("Something went wrong. " + show_main_menu(), wizard_state, True)
+        return ("Something went wrong. " + show_main_menu(agent_id, db), wizard_state, True)

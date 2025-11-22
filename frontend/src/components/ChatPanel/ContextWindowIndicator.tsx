@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { contextWindowAPI, type ContextWindowBreakdown } from '../../api/contextWindowAPI';
 import './ContextWindowIndicator.css';
 
@@ -6,36 +6,42 @@ interface ContextWindowIndicatorProps {
   agentId: string;
   conversationId?: string;
   onClick: () => void;
+  refreshTrigger?: number;  // Increment this to trigger a refresh (e.g., after sending message)
 }
 
 export default function ContextWindowIndicator({
   agentId,
   conversationId,
   onClick,
+  refreshTrigger = 0,
 }: ContextWindowIndicatorProps) {
   const [data, setData] = useState<ContextWindowBreakdown | null>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        let breakdown: ContextWindowBreakdown;
-        if (conversationId) {
-          breakdown = await contextWindowAPI.getBreakdown(conversationId);
-        } else {
-          breakdown = await contextWindowAPI.getAgentBreakdown(agentId);
-        }
-        setData(breakdown);
-      } catch (err) {
-        console.error('Failed to load context window:', err);
+  const fetchData = useCallback(async () => {
+    try {
+      let breakdown: ContextWindowBreakdown;
+      if (conversationId) {
+        breakdown = await contextWindowAPI.getBreakdown(conversationId);
+      } else {
+        breakdown = await contextWindowAPI.getAgentBreakdown(agentId);
       }
-    };
-
-    fetchData();
-
-    // Refresh every 10 seconds (was 2 seconds - too aggressive)
-    const interval = setInterval(fetchData, 10000);
-    return () => clearInterval(interval);
+      setData(breakdown);
+    } catch (err) {
+      console.error('Failed to load context window:', err);
+    }
   }, [agentId, conversationId]);
+
+  // Fetch on mount and when conversation/agent changes
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Fetch when refreshTrigger changes (after sending a message)
+  useEffect(() => {
+    if (refreshTrigger > 0) {
+      fetchData();
+    }
+  }, [refreshTrigger, fetchData]);
 
   if (!data) return null;
 

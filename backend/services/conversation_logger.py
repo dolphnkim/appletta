@@ -8,9 +8,9 @@ from typing import Dict, Any, Optional
 
 
 def get_log_directory() -> Path:
-    """Get the log directory path (~/.appletta)"""
+    """Get the log directory path (~/.appletta/logs)"""
     home_dir = Path.home()
-    log_dir = home_dir / ".appletta"
+    log_dir = home_dir / ".appletta" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 
@@ -18,6 +18,50 @@ def get_log_directory() -> Path:
 def get_log_file_path() -> Path:
     """Get the path to the JSONL log file"""
     return get_log_directory() / "conversations.jsonl"
+
+
+def get_debug_log_path() -> Path:
+    """Get the path to the debug/terminal JSONL log file"""
+    return get_log_directory() / "debug.jsonl"
+
+
+def log_debug(
+    category: str,
+    message: str,
+    data: Optional[Dict[str, Any]] = None,
+    conversation_id: Optional[str] = None,
+    agent_id: Optional[str] = None
+):
+    """Log debug/terminal output to JSONL file
+
+    Args:
+        category: Category of log (e.g., 'mlx_setup', 'wizard', 'streaming', 'error')
+        message: The log message
+        data: Optional additional data
+        conversation_id: Optional conversation context
+        agent_id: Optional agent context
+    """
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "category": category,
+        "message": message,
+    }
+
+    if conversation_id:
+        log_entry["conversation_id"] = str(conversation_id)
+    if agent_id:
+        log_entry["agent_id"] = str(agent_id)
+    if data:
+        log_entry["data"] = data
+
+    log_file = get_debug_log_path()
+
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        # Don't fail the main operation if logging fails
+        pass  # Silent fail for debug logging
 
 
 def log_message(

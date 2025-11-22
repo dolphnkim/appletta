@@ -1,3 +1,6 @@
+//JournalBLocks README 
+// This component provides a user interface for managing journal blocks associated with a specific agent. It allows users AND agents to view, create, edit, and delete journal blocks, as well as toggle their context state. The component handles loading states, error messages, and modal dialogs for creating and editing blocks.
+// Journal blocks should not be automatically included in the context of the agent unless explicitly marked as "In Context". 
 import { useState, useEffect } from 'react';
 import { journalAPI } from '../../api/journalAPI';
 import type { JournalBlock, JournalBlockCreate } from '../../types/journal';
@@ -77,17 +80,17 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
     }
   };
 
-  const handleToggleAttached = async (blockId: string, currentlyAttached: boolean) => {
+  const handleToggleContext = async (blockId: string, currentlyInContext: boolean) => {
     try {
       const updated = await journalAPI.update(agentId, blockId, {
-        attached: !currentlyAttached
+        always_in_context: !currentlyInContext
       });
       setBlocks(blocks.map((b) => (b.id === blockId ? updated : b)));
       if (selectedBlock?.id === blockId) {
         setSelectedBlock(updated);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to toggle attached state');
+      setError(err instanceof Error ? err.message : 'Failed to toggle context state');
     }
   };
 
@@ -137,17 +140,14 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
           blocks.map((block) => (
             <div
               key={block.id}
-              className={`journal-block-item ${selectedBlock?.id === block.id ? 'active' : ''} ${!block.attached ? 'detached' : ''}`}
+              className={`journal-block-item ${selectedBlock?.id === block.id ? 'active' : ''} ${block.always_in_context ? 'in-context' : ''}`}
               onClick={() => setSelectedBlock(block)}
             >
               <div className="block-item-header">
                 <div className="block-label">{block.label}</div>
                 <div className="block-badges">
-                  {!block.attached && (
-                    <span className="badge detached">Detached</span>
-                  )}
                   {block.always_in_context && (
-                    <span className="badge sticky">Sticky</span>
+                    <span className="badge in-context">In Context</span>
                   )}
                   {block.read_only && <span className="badge read-only">Read-only</span>}
                   {!block.editable_by_main_agent && (
@@ -164,13 +164,13 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
               <div className="block-item-meta">
                 <span>Updated: {formatDate(block.updated_at)}</span>
                 <button
-                  className={`context-toggle ${block.attached ? 'attached' : 'detached'}`}
+                  className={`context-toggle ${block.always_in_context ? 'in-context' : 'rag-only'}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleToggleAttached(block.id, block.attached);
+                    handleToggleContext(block.id, block.always_in_context);
                   }}
                 >
-                  {block.attached ? 'Detach' : 'Attach'}
+                  {block.always_in_context ? 'In Context' : 'RAG Only'}
                 </button>
               </div>
             </div>
@@ -187,7 +187,7 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
             setSelectedBlock(null);
           }}
           onDelete={() => handleDelete(selectedBlock.id)}
-          onToggleAttached={() => handleToggleAttached(selectedBlock.id, selectedBlock.attached)}
+          onToggleContext={() => handleToggleContext(selectedBlock.id, selectedBlock.always_in_context)}
         />
       )}
 
@@ -212,16 +212,16 @@ interface BlockViewModalProps {
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onToggleAttached: () => void;
+  onToggleContext: () => void;
 }
 
-function BlockViewModal({ block, onClose, onEdit, onDelete, onToggleAttached }: BlockViewModalProps) {
+function BlockViewModal({ block, onClose, onEdit, onDelete, onToggleContext }: BlockViewModalProps) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{block.label}</h2>
-          {!block.attached && <span className="modal-detached-badge">Detached</span>}
+          {block.always_in_context && <span className="modal-context-badge">In Context</span>}
           <button onClick={onClose} className="modal-close">
             ×
           </button>
@@ -268,10 +268,10 @@ function BlockViewModal({ block, onClose, onEdit, onDelete, onToggleAttached }: 
             Delete
           </button>
           <button
-            onClick={onToggleAttached}
-            className={`button-secondary ${block.attached ? 'attached' : 'detached'}`}
+            onClick={onToggleContext}
+            className={`button-secondary ${block.always_in_context ? 'in-context' : 'rag-only'}`}
           >
-            {block.attached ? 'Detach from Context' : 'Attach to Context'}
+            {block.always_in_context ? 'Remove from Context' : 'Add to Context'}
           </button>
           <button onClick={onEdit} className="button-primary" disabled={block.read_only}>
             Edit

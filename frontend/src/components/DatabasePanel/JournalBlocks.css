@@ -1,3 +1,7 @@
+/*JournalBLocks README 
+This component provides a user interface for managing journal blocks associated with a specific agent. It allows users AND agents to view, create, edit, and delete journal blocks, as well as toggle their context state. The component handles loading states, error messages, and modal dialogs for creating and editing blocks.
+Journal blocks should not be automatically included in the context of the agent unless explicitly marked as "In Context". 
+*/
 .journal-blocks {
   display: flex;
   flex-direction: column;

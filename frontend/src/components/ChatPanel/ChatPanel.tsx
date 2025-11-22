@@ -381,6 +381,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
             agentId={agentId}
             conversationId={conversationId}
             onClick={() => setShowContextWindow(true)}
+            refreshTrigger={messages.length}
           />
           <select
             className="agent-selector"
