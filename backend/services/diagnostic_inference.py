@@ -322,15 +322,29 @@ class DiagnosticInferenceService:
         # Disable logging
         self.router_inspector.enable_logging = False
 
-        # Count actual tokens generated (encode the response)
+        # Count actual tokens generated and decode them
         actual_tokens_generated = 0
         if self.tokenizer and response:
             try:
                 # Tokenize the generated response to get actual token count
                 response_tokens = self.tokenizer.encode(response)
                 actual_tokens_generated = len(response_tokens)
+
+                # Decode each token individually and add to session data
+                num_logged = len(self.router_inspector.current_session.get("tokens", []))
+                print(f"[Diagnostic] Generated {actual_tokens_generated} tokens, logged {num_logged} router decisions")
+
+                for i, token_id in enumerate(response_tokens):
+                    if i < num_logged:
+                        # Decode this token
+                        token_text = self.tokenizer.decode([token_id])
+                        # Update the token data with actual text
+                        self.router_inspector.current_session["tokens"][i]["token"] = token_text
+
             except Exception as e:
-                print(f"[Diagnostic] Warning: Failed to count tokens: {e}")
+                print(f"[Diagnostic] Warning: Failed to decode tokens: {e}")
+                import traceback
+                traceback.print_exc()
 
         # Get session summary
         session_summary = self.router_inspector.get_session_summary()

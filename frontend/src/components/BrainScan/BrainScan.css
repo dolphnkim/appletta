@@ -154,10 +154,67 @@
   padding: 20px;
 }
 
+.context-display-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
 .context-display h4 {
   color: #00ff88;
-  margin: 0 0 15px 0;
+  margin: 0;
   font-size: 1.1em;
+}
+
+.context-edit-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-button, .save-button, .cancel-button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid;
+}
+
+.edit-button {
+  background: #1a1a1a;
+  border-color: #00cc99;
+  color: #00cc99;
+}
+
+.edit-button:hover {
+  background: #003322;
+  border-color: #00ff88;
+  color: #00ff88;
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+}
+
+.save-button {
+  background: #003322;
+  border-color: #00ff88;
+  color: #00ff88;
+}
+
+.save-button:hover {
+  background: #004433;
+  box-shadow: 0 0 15px rgba(0, 255, 136, 0.5);
+}
+
+.cancel-button {
+  background: #1a1a1a;
+  border-color: #ff4444;
+  color: #ff4444;
+}
+
+.cancel-button:hover {
+  background: #330000;
+  box-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
 }
 
 .context-text {
@@ -172,6 +229,25 @@
   word-wrap: break-word;
   font-size: 0.9em;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.context-text-editor {
+  width: 100%;
+  background: #0a0a0a;
+  border: 2px solid #00ff88;
+  border-radius: 6px;
+  padding: 15px;
+  color: #00ff88;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 0.9em;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 150px;
+}
+
+.context-text-editor:focus {
+  outline: none;
+  box-shadow: 0 0 15px rgba(0, 255, 136, 0.4);
 }
 
 /* Token Navigator */

@@ -45,6 +45,9 @@ export default function BrainScan({ agentId }: BrainScanProps) {
   const [loading, setLoading] = useState(false);
   const [currentTokenIndex, setCurrentTokenIndex] = useState(0);
   const [showPrompt, setShowPrompt] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedPrompt, setEditedPrompt] = useState('');
+  const [editedResponse, setEditedResponse] = useState('');
 
   // Fetch available sessions
   useEffect(() => {
@@ -90,6 +93,7 @@ export default function BrainScan({ agentId }: BrainScanProps) {
 
   const loadHeatmap = async (filename: string) => {
     setLoading(true);
+    setIsEditing(false); // Reset edit mode when loading new session
     try {
       const url = agentId
         ? `/api/v1/router-lens/sessions/${filename}/heatmap?agent_id=${agentId}`
@@ -99,11 +103,46 @@ export default function BrainScan({ agentId }: BrainScanProps) {
       const data = await response.json();
       setHeatmapData(data);
       setSelectedSession(filename);
+      // Initialize edited text with current values
+      setEditedPrompt(data.metadata.prompt || data.metadata.prompt_preview || '');
+      setEditedResponse(data.metadata.response || data.metadata.response_preview || '');
     } catch (err) {
       console.error('Failed to load heatmap:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Toggle edit mode
+  const toggleEditMode = () => {
+    if (!isEditing) {
+      // Entering edit mode - initialize with current text
+      setEditedPrompt(heatmapData?.metadata.prompt || heatmapData?.metadata.prompt_preview || '');
+      setEditedResponse(heatmapData?.metadata.response || heatmapData?.metadata.response_preview || '');
+    }
+    setIsEditing(!isEditing);
+  };
+
+  // Save edits
+  const saveEdits = () => {
+    if (heatmapData) {
+      setHeatmapData({
+        ...heatmapData,
+        metadata: {
+          ...heatmapData.metadata,
+          prompt: editedPrompt,
+          response: editedResponse
+        }
+      });
+    }
+    setIsEditing(false);
+  };
+
+  // Cancel edits
+  const cancelEdits = () => {
+    setEditedPrompt(heatmapData?.metadata.prompt || heatmapData?.metadata.prompt_preview || '');
+    setEditedResponse(heatmapData?.metadata.response || heatmapData?.metadata.response_preview || '');
+    setIsEditing(false);
   };
 
   // Navigate to next/previous token
@@ -215,14 +254,43 @@ export default function BrainScan({ agentId }: BrainScanProps) {
 
           {/* Context Display */}
           <div className="context-display">
-            <h4>{showPrompt ? 'Prompt' : 'Model Response'}</h4>
-            <div className="context-text">
-              {showPrompt ? (
-                heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'
-              ) : (
-                heatmapData.metadata.response || heatmapData.metadata.response_preview || 'No response available'
-              )}
+            <div className="context-display-header">
+              <h4>{showPrompt ? 'Prompt' : 'Model Response'}</h4>
+              <div className="context-edit-controls">
+                {!isEditing ? (
+                  <button className="edit-button" onClick={toggleEditMode}>
+                    ✏️ Edit
+                  </button>
+                ) : (
+                  <>
+                    <button className="save-button" onClick={saveEdits}>
+                      ✓ Save
+                    </button>
+                    <button className="cancel-button" onClick={cancelEdits}>
+                      ✕ Cancel
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
+
+            {!isEditing ? (
+              <div className="context-text">
+                {showPrompt ? (
+                  heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'
+                ) : (
+                  heatmapData.metadata.response || heatmapData.metadata.response_preview || 'No response available'
+                )}
+              </div>
+            ) : (
+              <textarea
+                className="context-text-editor"
+                value={showPrompt ? editedPrompt : editedResponse}
+                onChange={(e) => showPrompt ? setEditedPrompt(e.target.value) : setEditedResponse(e.target.value)}
+                rows={8}
+                placeholder={showPrompt ? 'Enter prompt...' : 'Enter response...'}
+              />
+            )}
           </div>
 
           {/* Token Navigator */}
