@@ -9,10 +9,10 @@ export default function TrainingView() {
   return (
     <div className="training-view">
       <header className="training-view-header">
+        <h2>Training Lab</h2>
         <button className="back-button" onClick={() => navigate('/')}>
-          ← Back to Dashboard
+          Back to Dashboard
         </button>
-        <h2>🧪 Training Lab</h2>
       </header>
 
       <div className="training-view-content">

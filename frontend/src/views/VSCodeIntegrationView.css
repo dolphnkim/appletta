@@ -6,9 +6,15 @@
 }
 
 .vscode-header {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 30px;
-  position: relative;
+  padding: 16px 0;
+}
+
+.vscode-header-left {
+  text-align: left;
 }
 
 .vscode-header h1 {
@@ -22,21 +28,20 @@
 }
 
 .back-button {
-  position: absolute;
-  left: 0;
-  top: 0;
-  background: #2a2a2a;
-  color: #4a9eff;
-  border: 1px solid #3a3a3a;
   padding: 8px 16px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
   border-radius: 6px;
+  color: #e0e0e0;
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.2s ease;
+  transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .back-button:hover {
   background: #3a3a3a;
+  color: #fff;
   border-color: #4a9eff;
 }
 

@@ -417,10 +417,10 @@ export default function InterpretabilityView() {
   return (
     <div className="interpretability-view">
       <header className="interpretability-view-header">
+        <h2>Interpretability</h2>
         <button className="back-button" onClick={() => navigate('/')}>
-          ← Back to Dashboard
+          Back to Dashboard
         </button>
-        <h2>🔬 Interpretability</h2>
       </header>
 
       <div className="interpretability-tabs">

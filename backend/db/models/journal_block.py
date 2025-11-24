@@ -34,8 +34,8 @@ class JournalBlock(Base):
     attached = Column(Boolean, default=True)  # If false, block is grayed out and not accessible
     always_in_context = Column(Boolean, default=False)  # If true, always included in system prompt
 
-    # Embedding for semantic search
-    embedding = Column(Vector(768))
+    # Embedding for semantic search (Qwen3-Embedding-8B: 4096 dimensions)
+    embedding = Column(Vector(4096))
 
     # Metadata (flexible storage for future use, using metadata_ to avoid SQLAlchemy reserved name)
     metadata_ = Column("metadata", JSONB)

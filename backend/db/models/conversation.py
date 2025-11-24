@@ -47,8 +47,8 @@ class Message(Base):
     role = Column(String(50), nullable=False)  # 'user', 'assistant', 'system'
     content = Column(Text, nullable=False)
 
-    # Embedding for semantic search
-    embedding = Column(Vector(768))
+    # Embedding for semantic search (Qwen3-Embedding-8B: 4096 dimensions)
+    embedding = Column(Vector(4096))
 
     # Metadata (e.g., model used, tokens, etc., using metadata_ to avoid SQLAlchemy reserved name)
     metadata_ = Column("metadata", JSONB)

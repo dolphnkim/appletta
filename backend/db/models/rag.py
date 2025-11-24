@@ -124,8 +124,8 @@ class RagChunk(Base):
     start_char = Column(Integer)
     end_char = Column(Integer)
 
-    # Embedding (768 dimensions for thenlper/gte-base)
-    embedding = Column(Vector(768))
+    # Embedding (4096 dimensions for Qwen3-Embedding-8B)
+    embedding = Column(Vector(4096))
 
     # Metadata (using metadata_ to avoid SQLAlchemy reserved name)
     metadata_ = Column("metadata", JSONB)

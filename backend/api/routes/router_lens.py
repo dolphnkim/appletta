@@ -834,6 +834,7 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
     # Build heatmap matrix: [num_tokens x num_experts]
     # Each cell is the activation weight for that expert at that token
     heatmap_matrix = []
+    token_texts = []  # Actual token strings
 
     for token_data in tokens:
         # Create a row for this token (one value per expert)
@@ -849,14 +850,21 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
 
         heatmap_matrix.append(row)
 
+        # Store token text if available
+        token_text = token_data.get("token", f"Token {token_data.get('idx', len(token_texts))}")
+        token_texts.append(token_text)
+
     return {
         "filename": filename,
         "num_tokens": len(tokens),
         "num_experts": num_experts,
         "heatmap_matrix": heatmap_matrix,  # [tokens x experts] matrix
+        "token_texts": token_texts,  # Actual token strings for each position
         "metadata": {
             "start_time": session_data.get("start_time"),
             "end_time": session_data.get("end_time"),
+            "prompt": session_data.get("metadata", {}).get("prompt", ""),  # Full prompt
+            "response": session_data.get("metadata", {}).get("response", ""),  # Full response
             "prompt_preview": session_data.get("metadata", {}).get("prompt", "")[:200],
             "response_preview": session_data.get("metadata", {}).get("response", "")[:200]
         },

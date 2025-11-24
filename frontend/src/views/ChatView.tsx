@@ -170,7 +170,7 @@ export default function ChatView() {
         title="Back to dashboard"
         onClick={() => navigate('/')}
       >
-        🏠
+        Back to Dashboard
       </button>
       <div className="app-left-panel" style={{ width: `${leftWidth}%` }}>
         <LeftPanel

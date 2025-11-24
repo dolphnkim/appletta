@@ -165,11 +165,13 @@ export default function VSCodeIntegrationView() {
   return (
     <div className="vscode-view">
       <header className="vscode-header">
+        <div className="vscode-header-left">
+          <h1>VS Code Integration</h1>
+          <p>Serve your local MLX models as an OpenAI-compatible API for VS Code extensions</p>
+        </div>
         <button className="back-button" onClick={() => navigate('/')}>
-          ← Dashboard
+          Back to Dashboard
         </button>
-        <h1>VS Code Integration</h1>
-        <p>Serve your local MLX models as an OpenAI-compatible API for VS Code extensions</p>
       </header>
 
       {error && (
