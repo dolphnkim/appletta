@@ -195,7 +195,20 @@ export default function BrainScan({ agentId }: BrainScanProps) {
     return text.replace(/ /g, '·').replace(/\n/g, '↵').replace(/\t/g, '→');
   };
 
-  const currentTokenText = heatmapData?.token_texts[currentTokenIndex] || '';
+  // Get current token text with fallback
+  const getCurrentTokenText = (): string => {
+    if (!heatmapData) return '';
+    const tokenText = heatmapData.token_texts[currentTokenIndex] || '';
+
+    // If it's a placeholder like "layer_0", show the token index instead
+    if (tokenText.startsWith('layer_')) {
+      return `Token #${currentTokenIndex}`;
+    }
+
+    return tokenText;
+  };
+
+  const currentTokenText = getCurrentTokenText();
   const activations = getCurrentTokenActivations();
 
   return (

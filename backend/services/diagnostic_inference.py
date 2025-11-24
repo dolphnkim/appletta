@@ -346,6 +346,10 @@ class DiagnosticInferenceService:
                 import traceback
                 traceback.print_exc()
 
+        # Store prompt and response in session metadata for saving
+        self.router_inspector.current_session["metadata"]["prompt"] = prompt
+        self.router_inspector.current_session["metadata"]["response"] = response
+
         # Get session summary
         session_summary = self.router_inspector.get_session_summary()
 

@@ -444,12 +444,16 @@ async def save_diagnostic_session(prompt_preview: str = "", notes: str = "", cat
     if category:
         service.router_inspector.current_session["metadata"]["category"] = category
 
-    filepath = service.save_session(prompt_preview, notes)
+    # Get prompt and response from session metadata
+    prompt = service.router_inspector.current_session.get("metadata", {}).get("prompt", prompt_preview)
+    response = service.router_inspector.current_session.get("metadata", {}).get("response", "")
+
+    filepath = service.router_inspector.save_session(prompt=prompt, response=response)
 
     # Also save to global inspector
     inspector = get_router_inspector()
     inspector.current_session = service.router_inspector.current_session.copy()
-    inspector.save_session(prompt_preview, notes)
+    inspector.save_session(prompt=prompt, response=response)
 
     return {
         "saved": True,
