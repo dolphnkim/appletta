@@ -44,10 +44,12 @@ export default function BrainScan({ agentId }: BrainScanProps) {
   const [heatmapData, setHeatmapData] = useState<HeatmapData | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentTokenIndex, setCurrentTokenIndex] = useState(0);
-  const [showPrompt, setShowPrompt] = useState(true);
+  const [showPrompt, setShowPrompt] = useState(true); // For navigation mode only
   const [isEditing, setIsEditing] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState('');
   const [editedResponse, setEditedResponse] = useState('');
+  const [viewMode, setViewMode] = useState<'navigation' | 'heatmap'>('heatmap');
+  const [intensityMetric, setIntensityMetric] = useState<'cognitive_load' | 'max_weight' | 'entropy'>('cognitive_load');
 
   // Fetch available sessions
   useEffect(() => {
@@ -208,6 +210,48 @@ export default function BrainScan({ agentId }: BrainScanProps) {
     return tokenText;
   };
 
+  // Calculate cognitive intensity for a token
+  const calculateTokenIntensity = (tokenIndex: number): number => {
+    if (!heatmapData || tokenIndex >= heatmapData.heatmap_matrix.length) return 0;
+
+    const tokenRow = heatmapData.heatmap_matrix[tokenIndex];
+
+    switch (intensityMetric) {
+      case 'cognitive_load':
+        // Number of active experts / total experts
+        const activeExperts = tokenRow.filter(w => w > 0).length;
+        return activeExperts / heatmapData.num_experts;
+
+      case 'max_weight':
+        // Maximum activation weight for this token
+        return Math.max(...tokenRow);
+
+      case 'entropy':
+        // Calculate entropy of expert distribution (higher = more uncertain/complex)
+        const activeWeights = tokenRow.filter(w => w > 0);
+        if (activeWeights.length === 0) return 0;
+
+        const sum = activeWeights.reduce((a, b) => a + b, 0);
+        const probs = activeWeights.map(w => w / sum);
+        const entropy = -probs.reduce((acc, p) => acc + (p > 0 ? p * Math.log2(p) : 0), 0);
+
+        // Normalize entropy to 0-1 range (max entropy for 8 experts ≈ 3)
+        return Math.min(entropy / 3, 1);
+
+      default:
+        return 0;
+    }
+  };
+
+  // Get color for intensity heatmap
+  const getIntensityColor = (intensity: number): string => {
+    // Gradient from transparent -> yellow -> orange -> red
+    if (intensity < 0.2) return `rgba(255, 255, 0, ${intensity * 2})`; // Yellow
+    if (intensity < 0.5) return `rgba(255, 200, 0, ${intensity})`; // Orange-yellow
+    if (intensity < 0.8) return `rgba(255, 100, 0, ${intensity})`; // Orange
+    return `rgba(255, 0, 0, ${Math.min(intensity, 1)})`; // Red
+  };
+
   const currentTokenText = getCurrentTokenText();
   const activations = getCurrentTokenActivations();
 
@@ -249,6 +293,38 @@ export default function BrainScan({ agentId }: BrainScanProps) {
       {/* Token Navigation View */}
       {heatmapData && !loading && (
         <div className="token-navigation-container">
+          {/* View Mode Switcher */}
+          <div className="view-mode-switcher">
+            <button
+              className={viewMode === 'heatmap' ? 'active' : ''}
+              onClick={() => setViewMode('heatmap')}
+            >
+              🔥 Cognitive Heatmap
+            </button>
+            <button
+              className={viewMode === 'navigation' ? 'active' : ''}
+              onClick={() => setViewMode('navigation')}
+            >
+              🧭 Token Navigator
+            </button>
+          </div>
+
+          {/* Metric Selector (only in heatmap mode) */}
+          {viewMode === 'heatmap' && (
+            <div className="metric-selector">
+              <label>Intensity Metric:</label>
+              <select
+                value={intensityMetric}
+                onChange={(e) => setIntensityMetric(e.target.value as any)}
+                className="metric-dropdown"
+              >
+                <option value="cognitive_load">Cognitive Load (# of experts)</option>
+                <option value="max_weight">Maximum Activation</option>
+                <option value="entropy">Uncertainty/Complexity (entropy)</option>
+              </select>
+            </div>
+          )}
+
           {/* Context Switcher */}
           <div className="context-switcher">
             <button
@@ -265,46 +341,140 @@ export default function BrainScan({ agentId }: BrainScanProps) {
             </button>
           </div>
 
-          {/* Context Display */}
-          <div className="context-display">
-            <div className="context-display-header">
-              <h4>{showPrompt ? 'Prompt' : 'Model Response'}</h4>
-              <div className="context-edit-controls">
-                {!isEditing ? (
-                  <button className="edit-button" onClick={toggleEditMode}>
-                    ✏️ Edit
-                  </button>
+          {/* Cognitive Intensity Heatmap View */}
+          {viewMode === 'heatmap' && (
+            <div className="cognitive-heatmap-container">
+              <div className="heatmap-header">
+                <h4>Cognitive Intensity Heatmap</h4>
+                <div className="heatmap-legend">
+                  <span>Low</span>
+                  <div className="legend-gradient" />
+                  <span>High</span>
+                </div>
+              </div>
+
+              <div className="heatmap-text">
+                {showPrompt ? (
+                  <div className="heatmap-prompt-message">
+                    <p>Prompt text (expert activations not captured during prefill):</p>
+                    <div className="context-text">
+                      {heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'}
+                    </div>
+                  </div>
                 ) : (
-                  <>
-                    <button className="save-button" onClick={saveEdits}>
-                      ✓ Save
-                    </button>
-                    <button className="cancel-button" onClick={cancelEdits}>
-                      ✕ Cancel
-                    </button>
-                  </>
+                  heatmapData.token_texts.map((token, idx) => {
+                    const intensity = calculateTokenIntensity(idx);
+                    const color = getIntensityColor(intensity);
+
+                    return (
+                      <span
+                        key={idx}
+                        className={`heatmap-token ${currentTokenIndex === idx ? 'selected' : ''}`}
+                        style={{ backgroundColor: color }}
+                        onClick={() => setCurrentTokenIndex(idx)}
+                        title={`Token ${idx}: ${token}\nIntensity: ${(intensity * 100).toFixed(1)}%`}
+                      >
+                        {token}
+                      </span>
+                    );
+                  })
                 )}
+              </div>
+
+              {/* Selected Token Details */}
+              <div className="selected-token-details">
+                <h5>Selected Token: "{currentTokenText}"</h5>
+                <div className="token-metrics">
+                  <div className="metric">
+                    <span className="metric-label">Cognitive Load:</span>
+                    <span className="metric-value">
+                      {(calculateTokenIntensity(currentTokenIndex) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Active Experts:</span>
+                    <span className="metric-value">
+                      {activations.length} / {heatmapData.num_experts}
+                    </span>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Top Expert:</span>
+                    <span className="metric-value">
+                      {activations.length > 0 ? `Expert ${activations[0].expertId}` : 'None'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="token-expert-activations">
+                  <h6>Expert Activations:</h6>
+                  {activations.length === 0 ? (
+                    <div className="no-activations">No expert activations</div>
+                  ) : (
+                    <div className="activations-list">
+                      {activations.slice(0, 5).map(({ expertId, weight }) => (
+                        <div key={expertId} className="activation-row">
+                          <div className="expert-label">Expert {expertId}</div>
+                          <div className="activation-bar-container">
+                            <div
+                              className="activation-bar"
+                              style={{
+                                width: `${weight * 100}%`,
+                                backgroundColor: getActivationColor(weight)
+                              }}
+                            />
+                          </div>
+                          <div className="activation-weight">{weight.toFixed(4)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
+          )}
 
-            {!isEditing ? (
-              <div className="context-text">
-                {showPrompt ? (
-                  heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'
-                ) : (
-                  heatmapData.metadata.response || heatmapData.metadata.response_preview || 'No response available'
-                )}
+          {/* Original Context Display (for navigation mode and editing) */}
+          {viewMode === 'navigation' && (
+            <div className="context-display">
+              <div className="context-display-header">
+                <h4>{showPrompt ? 'Prompt' : 'Model Response'}</h4>
+                <div className="context-edit-controls">
+                  {!isEditing ? (
+                    <button className="edit-button" onClick={toggleEditMode}>
+                      ✏️ Edit
+                    </button>
+                  ) : (
+                    <>
+                      <button className="save-button" onClick={saveEdits}>
+                        ✓ Save
+                      </button>
+                      <button className="cancel-button" onClick={cancelEdits}>
+                        ✕ Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-            ) : (
-              <textarea
-                className="context-text-editor"
-                value={showPrompt ? editedPrompt : editedResponse}
-                onChange={(e) => showPrompt ? setEditedPrompt(e.target.value) : setEditedResponse(e.target.value)}
-                rows={8}
-                placeholder={showPrompt ? 'Enter prompt...' : 'Enter response...'}
-              />
-            )}
-          </div>
+
+              {!isEditing ? (
+                <div className="context-text">
+                  {showPrompt ? (
+                    heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'
+                  ) : (
+                    heatmapData.metadata.response || heatmapData.metadata.response_preview || 'No response available'
+                  )}
+                </div>
+              ) : (
+                <textarea
+                  className="context-text-editor"
+                  value={showPrompt ? editedPrompt : editedResponse}
+                  onChange={(e) => showPrompt ? setEditedPrompt(e.target.value) : setEditedResponse(e.target.value)}
+                  rows={8}
+                  placeholder={showPrompt ? 'Enter prompt...' : 'Enter response...'}
+                />
+              )}
+            </div>
+          )}
 
           {/* Token Navigator */}
           <div className="token-navigator">

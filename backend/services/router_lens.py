@@ -54,15 +54,17 @@ class RouterInspector:
     def log_router_decision(
         self,
         token_idx: int,
+        layer_idx: int,
         gate_logits: List[float],
         selected_experts: List[int],
         expert_weights: List[float],
         input_token: Optional[str] = None
     ):
-        """Log a single router decision for one token
+        """Log a single router decision for one token at one layer
 
         Args:
             token_idx: Position in sequence
+            layer_idx: Which transformer layer this decision is from
             gate_logits: Raw router logits for all experts [num_experts]
             selected_experts: Indices of top-k selected experts
             expert_weights: Weights/probabilities for selected experts
@@ -72,17 +74,32 @@ class RouterInspector:
         gate_probs = self._softmax(gate_logits)
         entropy = self._entropy(gate_probs)
 
-        token_data = {
-            "idx": token_idx,
+        # Find or create token entry
+        # Since each token goes through multiple layers, we aggregate by token_idx
+        token_entry = None
+        for t in self.current_session["tokens"]:
+            if t["idx"] == token_idx:
+                token_entry = t
+                break
+
+        if token_entry is None:
+            # Create new token entry
+            token_entry = {
+                "idx": token_idx,
+                "layers": [],  # Store per-layer decisions
+                "token": input_token  # Will be filled in by token decoding later
+            }
+            self.current_session["tokens"].append(token_entry)
+            self.current_session["total_tokens"] += 1
+
+        # Add this layer's routing decision
+        layer_data = {
+            "layer_idx": layer_idx,
             "selected_experts": selected_experts,
             "expert_weights": expert_weights,
-            "entropy": entropy,
+            "entropy": entropy
         }
-
-        if input_token:
-            token_data["token"] = input_token
-
-        self.current_session["tokens"].append(token_data)
+        token_entry["layers"].append(layer_data)
 
         # Update usage counts
         for expert_id in selected_experts:
@@ -90,9 +107,6 @@ class RouterInspector:
 
         # Store entropy
         self.current_session["entropy_history"].append(entropy)
-
-        # Increment token counter
-        self.current_session["total_tokens"] += 1
 
         # Optionally store full gate logits (expensive, for deep analysis)
         if len(self.current_session["gate_logits_history"]) < 100:  # Limit storage

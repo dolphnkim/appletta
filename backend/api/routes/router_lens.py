@@ -844,13 +844,25 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
         # Create a row for this token (one value per expert)
         row = [0.0] * num_experts
 
-        # Fill in the activated experts
-        selected_experts = token_data.get("selected_experts", [])
-        expert_weights = token_data.get("expert_weights", [])
+        # Handle new layered structure (each token has multiple layer decisions)
+        if "layers" in token_data:
+            # New format: aggregate expert weights across all layers
+            for layer_data in token_data["layers"]:
+                selected_experts = layer_data.get("selected_experts", [])
+                expert_weights = layer_data.get("expert_weights", [])
 
-        for expert_id, weight in zip(selected_experts, expert_weights):
-            if expert_id < num_experts:
-                row[expert_id] = weight
+                for expert_id, weight in zip(selected_experts, expert_weights):
+                    if expert_id < num_experts:
+                        # Accumulate weights across layers (could also use max, mean, etc.)
+                        row[expert_id] += weight
+        else:
+            # Old format: single decision per token (backwards compatibility)
+            selected_experts = token_data.get("selected_experts", [])
+            expert_weights = token_data.get("expert_weights", [])
+
+            for expert_id, weight in zip(selected_experts, expert_weights):
+                if expert_id < num_experts:
+                    row[expert_id] = weight
 
         heatmap_matrix.append(row)
 

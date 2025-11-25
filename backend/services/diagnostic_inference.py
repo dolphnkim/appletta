@@ -248,10 +248,10 @@ class DiagnosticInferenceService:
 
                         self._inspector.log_router_decision(
                             token_idx=self._inspector.current_session["total_tokens"],
+                            layer_idx=self._layer_idx,
                             gate_logits=gate_logits_np,
                             selected_experts=selected_np,
-                            expert_weights=weights_np,
-                            input_token=f"layer_{self._layer_idx}"
+                            expert_weights=weights_np
                         )
                     except Exception as e:
                         # Don't break inference if logging fails
