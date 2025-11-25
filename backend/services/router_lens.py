@@ -1,11 +1,12 @@
 """Router Lens - MoE Router Introspection System
 
 Provides tools to inspect and analyze Mixture-of-Experts router behavior:
-- Per-token expert selection logging
+- Per-token expert selection logging (BOTH prefill and generation)
 - Gate logit distribution analysis
 - Expert usage histograms
 - Router entropy metrics
 - Expert activation patterns
+- Layer × Expert analysis for LoRA targeting
 """
 
 import json
@@ -16,7 +17,11 @@ import numpy as np
 
 
 class RouterInspector:
-    """Captures and analyzes MoE router decisions during inference"""
+    """Captures and analyzes MoE router decisions during inference
+    
+    Now captures BOTH prefill (prompt processing) and generation phases
+    to enable full interpretability research.
+    """
 
     def __init__(self, num_experts: int = 128, top_k: int = 8, agent_id: Optional[str] = None):
         self.num_experts = num_experts
@@ -43,12 +48,25 @@ class RouterInspector:
 
         self.current_session = {
             "start_time": datetime.utcnow().isoformat() + "Z",
-            "tokens": [],  # Per-token expert selections
-            "total_tokens": 0,  # Counter for unique tokens (not layer decisions)
-            "generation_token_idx": 0,  # Current token being generated
+            # Separate tracking for prefill vs generation
+            "prefill_tokens": [],  # Tokens from prompt processing (how model interprets input)
+            "generation_tokens": [],  # Tokens from response generation
+            "tokens": [],  # Combined view (for backwards compatibility)
+            "total_tokens": 0,
+            "prefill_token_idx": 0,
+            "generation_token_idx": 0,
+            # Expert usage tracking - overall and by phase
             "expert_usage_count": {i: 0 for i in range(self.num_experts)},
-            "gate_logits_history": [],  # Raw gate logits for analysis
-            "entropy_history": [],  # Router entropy per token
+            "prefill_expert_usage": {i: 0 for i in range(self.num_experts)},
+            "generation_expert_usage": {i: 0 for i in range(self.num_experts)},
+            # Layer × Expert matrix for identifying layer-specific patterns
+            # Structure: { layer_idx: { expert_id: { "count": N, "total_weight": W } } }
+            "layer_expert_matrix": {},
+            "prefill_layer_expert_matrix": {},
+            "generation_layer_expert_matrix": {},
+            # Other tracking
+            "gate_logits_history": [],
+            "entropy_history": [],
             "metadata": metadata
         }
 
@@ -59,6 +77,7 @@ class RouterInspector:
         gate_logits: List[float],
         selected_experts: List[int],
         expert_weights: List[float],
+        phase: str = "generation",  # NEW: "prefill" or "generation"
         input_token: Optional[str] = None
     ):
         """Log a single router decision for one token at one layer
@@ -69,27 +88,39 @@ class RouterInspector:
             gate_logits: Raw router logits for all experts [num_experts]
             selected_experts: Indices of top-k selected experts
             expert_weights: Weights/probabilities for selected experts
+            phase: "prefill" for prompt processing, "generation" for response
             input_token: Optional token string for context
         """
         # Compute entropy of gate distribution
         gate_probs = self._softmax(gate_logits)
         entropy = self._entropy(gate_probs)
 
+        # Select the appropriate token list based on phase
+        if phase == "prefill":
+            token_list = self.current_session["prefill_tokens"]
+            usage_dict = self.current_session["prefill_expert_usage"]
+            layer_matrix = self.current_session["prefill_layer_expert_matrix"]
+        else:
+            token_list = self.current_session["generation_tokens"]
+            usage_dict = self.current_session["generation_expert_usage"]
+            layer_matrix = self.current_session["generation_layer_expert_matrix"]
+
         # Find or create token entry
-        # Since each token goes through multiple layers, we aggregate by token_idx
         token_entry = None
-        for t in self.current_session["tokens"]:
+        for t in token_list:
             if t["idx"] == token_idx:
                 token_entry = t
                 break
 
         if token_entry is None:
-            # Create new token entry
             token_entry = {
                 "idx": token_idx,
-                "layers": [],  # Store per-layer decisions
-                "token": input_token  # Will be filled in by token decoding later
+                "phase": phase,
+                "layers": [],
+                "token": input_token
             }
+            token_list.append(token_entry)
+            # Also add to combined list for backwards compatibility
             self.current_session["tokens"].append(token_entry)
             self.current_session["total_tokens"] = len(self.current_session["tokens"])
 
@@ -102,16 +133,45 @@ class RouterInspector:
         }
         token_entry["layers"].append(layer_data)
 
-        # Update usage counts
-        for expert_id in selected_experts:
+        # Update usage counts (both phase-specific and overall)
+        for expert_id, weight in zip(selected_experts, expert_weights):
+            # Phase-specific
+            usage_dict[expert_id] = usage_dict.get(expert_id, 0) + 1
+            # Overall
             self.current_session["expert_usage_count"][expert_id] += 1
+            
+            # Update layer × expert matrix
+            layer_key = str(layer_idx)
+            expert_key = str(expert_id)
+            
+            # Phase-specific matrix
+            if layer_key not in layer_matrix:
+                layer_matrix[layer_key] = {}
+            if expert_key not in layer_matrix[layer_key]:
+                layer_matrix[layer_key][expert_key] = {"count": 0, "total_weight": 0.0}
+            layer_matrix[layer_key][expert_key]["count"] += 1
+            layer_matrix[layer_key][expert_key]["total_weight"] += weight
+            
+            # Overall matrix
+            overall_matrix = self.current_session["layer_expert_matrix"]
+            if layer_key not in overall_matrix:
+                overall_matrix[layer_key] = {}
+            if expert_key not in overall_matrix[layer_key]:
+                overall_matrix[layer_key][expert_key] = {"count": 0, "total_weight": 0.0}
+            overall_matrix[layer_key][expert_key]["count"] += 1
+            overall_matrix[layer_key][expert_key]["total_weight"] += weight
 
         # Store entropy
         self.current_session["entropy_history"].append(entropy)
 
-        # Optionally store full gate logits (expensive, for deep analysis)
-        if len(self.current_session["gate_logits_history"]) < 100:  # Limit storage
-            self.current_session["gate_logits_history"].append(gate_logits)
+        # Optionally store full gate logits (expensive, limit storage)
+        if len(self.current_session["gate_logits_history"]) < 100:
+            self.current_session["gate_logits_history"].append({
+                "phase": phase,
+                "token_idx": token_idx,
+                "layer_idx": layer_idx,
+                "logits": gate_logits
+            })
 
     def get_session_summary(self) -> Dict[str, Any]:
         """Get summary statistics for current session"""
@@ -129,31 +189,80 @@ class RouterInspector:
         usage_entropy = self._entropy(self._normalize(usage_values))
 
         # Compute expert co-occurrence patterns
-        # Need to handle both old flat structure and new layered structure
         expert_sequences = []
         for t in self.current_session["tokens"]:
             if "layers" in t:
-                # New layered structure - aggregate experts across all layers
                 all_experts = set()
                 for layer in t["layers"]:
                     all_experts.update(layer.get("selected_experts", []))
                 expert_sequences.append(list(all_experts))
             else:
-                # Old flat structure (backwards compatibility)
                 expert_sequences.append(t.get("selected_experts", []))
 
         co_occurrence = self._compute_co_occurrence(expert_sequences)
+        
+        # Layer-wise expert analysis
+        layer_summary = self._summarize_layer_expert_matrix(
+            self.current_session["layer_expert_matrix"]
+        )
 
         return {
             "total_tokens": len(self.current_session["tokens"]),
+            "prefill_tokens": len(self.current_session["prefill_tokens"]),
+            "generation_tokens": len(self.current_session["generation_tokens"]),
             "total_expert_activations": total_activations,
             "unique_experts_used": sum(1 for v in usage_values if v > 0),
-            "top_experts": [{"expert_id": e, "count": c, "percentage": c / total_activations * 100} for e, c in top_experts],
-            "usage_entropy": usage_entropy,  # Higher = more balanced usage
-            "mean_token_entropy": np.mean(self.current_session["entropy_history"]) if self.current_session["entropy_history"] else 0,
+            "top_experts": [{"expert_id": e, "count": c, "percentage": c / total_activations * 100 if total_activations > 0 else 0} for e, c in top_experts],
+            "usage_entropy": usage_entropy,
+            "mean_token_entropy": float(np.mean(self.current_session["entropy_history"])) if self.current_session["entropy_history"] else 0,
             "expert_usage_distribution": usage,
-            "co_occurrence_top_pairs": co_occurrence[:5],
+            "prefill_expert_usage": self.current_session["prefill_expert_usage"],
+            "generation_expert_usage": self.current_session["generation_expert_usage"],
+            "co_occurrence_top_pairs": co_occurrence[:10],
+            "layer_summary": layer_summary,
             "start_time": self.current_session["start_time"],
+        }
+    
+    def _summarize_layer_expert_matrix(self, matrix: Dict) -> Dict[str, Any]:
+        """Summarize the layer × expert matrix for visualization"""
+        if not matrix:
+            return {"layers": [], "top_layer_experts": []}
+        
+        layer_summaries = []
+        all_layer_experts = []
+        
+        for layer_idx, experts in matrix.items():
+            layer_total = sum(e["count"] for e in experts.values())
+            top_experts_in_layer = sorted(
+                [(int(eid), data["count"], data["total_weight"]) for eid, data in experts.items()],
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]
+            
+            layer_summaries.append({
+                "layer": int(layer_idx),
+                "total_activations": layer_total,
+                "unique_experts": len(experts),
+                "top_experts": [{"expert_id": e[0], "count": e[1], "avg_weight": e[2]/e[1] if e[1] > 0 else 0} for e in top_experts_in_layer]
+            })
+            
+            for eid, data in experts.items():
+                all_layer_experts.append({
+                    "layer": int(layer_idx),
+                    "expert_id": int(eid),
+                    "count": data["count"],
+                    "total_weight": data["total_weight"]
+                })
+        
+        # Sort layers
+        layer_summaries.sort(key=lambda x: x["layer"])
+        
+        # Find experts that dominate specific layers
+        top_layer_experts = sorted(all_layer_experts, key=lambda x: x["count"], reverse=True)[:20]
+        
+        return {
+            "layers": layer_summaries,
+            "top_layer_experts": top_layer_experts
         }
 
     def _compute_co_occurrence(self, expert_sequences: List[List[int]]) -> List[Tuple[Tuple[int, int], int]]:
@@ -161,13 +270,11 @@ class RouterInspector:
         co_occur: Dict[Tuple[int, int], int] = {}
 
         for experts in expert_sequences:
-            # Count pairs of experts that activate together
             for i in range(len(experts)):
                 for j in range(i + 1, len(experts)):
                     pair = tuple(sorted([experts[i], experts[j]]))
                     co_occur[pair] = co_occur.get(pair, 0) + 1
 
-        # Sort by frequency
         sorted_pairs = sorted(co_occur.items(), key=lambda x: x[1], reverse=True)
         return sorted_pairs
 
@@ -177,8 +284,9 @@ class RouterInspector:
         Returns: Path to saved file
         """
         self.current_session["end_time"] = datetime.utcnow().isoformat() + "Z"
-        self.current_session["metadata"]["prompt"] = prompt[:500] if prompt else ""
-        self.current_session["metadata"]["response"] = response[:500] if response else ""
+        # Store FULL prompt and response, not truncated
+        self.current_session["metadata"]["prompt"] = prompt
+        self.current_session["metadata"]["response"] = response
         self.current_session["summary"] = self.get_session_summary()
 
         # Generate filename
@@ -197,6 +305,8 @@ class RouterInspector:
             "num_experts": self.num_experts,
             "top_k": self.top_k,
             "session_tokens": len(self.current_session.get("tokens", [])),
+            "prefill_tokens": len(self.current_session.get("prefill_tokens", [])),
+            "generation_tokens": len(self.current_session.get("generation_tokens", [])),
             "log_directory": str(self.log_dir),
             "enable_logging": getattr(self, "enable_logging", False),
         }
@@ -208,27 +318,48 @@ class RouterInspector:
         - Which experts activate for certain prompt types
         - Expert clustering based on co-activation
         - Potential semantic roles
+        - Layer-specific patterns
         """
-        # Aggregate usage patterns
         aggregate_usage = {i: 0 for i in range(self.num_experts)}
+        aggregate_prefill_usage = {i: 0 for i in range(self.num_experts)}
+        aggregate_generation_usage = {i: 0 for i in range(self.num_experts)}
         all_co_occur: Dict[Tuple[int, int], int] = {}
+        aggregate_layer_matrix: Dict[str, Dict[str, Dict[str, float]]] = {}
 
         for session in sessions:
-            usage = session.get("expert_usage_distribution", {})
+            # Overall usage
+            usage = session.get("expert_usage_distribution", session.get("summary", {}).get("expert_usage_distribution", {}))
             for expert_id, count in usage.items():
                 aggregate_usage[int(expert_id)] = aggregate_usage.get(int(expert_id), 0) + count
+            
+            # Phase-specific usage
+            prefill_usage = session.get("prefill_expert_usage", {})
+            for expert_id, count in prefill_usage.items():
+                aggregate_prefill_usage[int(expert_id)] = aggregate_prefill_usage.get(int(expert_id), 0) + count
+                
+            gen_usage = session.get("generation_expert_usage", {})
+            for expert_id, count in gen_usage.items():
+                aggregate_generation_usage[int(expert_id)] = aggregate_generation_usage.get(int(expert_id), 0) + count
 
-            # Aggregate co-occurrence
+            # Aggregate layer × expert matrix
+            layer_matrix = session.get("layer_expert_matrix", {})
+            for layer_idx, experts in layer_matrix.items():
+                if layer_idx not in aggregate_layer_matrix:
+                    aggregate_layer_matrix[layer_idx] = {}
+                for expert_id, data in experts.items():
+                    if expert_id not in aggregate_layer_matrix[layer_idx]:
+                        aggregate_layer_matrix[layer_idx][expert_id] = {"count": 0, "total_weight": 0.0}
+                    aggregate_layer_matrix[layer_idx][expert_id]["count"] += data.get("count", 0)
+                    aggregate_layer_matrix[layer_idx][expert_id]["total_weight"] += data.get("total_weight", 0)
+
+            # Co-occurrence
             for token_data in session.get("tokens", []):
-                # Handle both old and new structure
                 if "layers" in token_data:
-                    # New layered structure
                     all_experts_in_token = set()
                     for layer in token_data["layers"]:
                         all_experts_in_token.update(layer.get("selected_experts", []))
                     experts = list(all_experts_in_token)
                 else:
-                    # Old flat structure
                     experts = token_data.get("selected_experts", [])
 
                 for i in range(len(experts)):
@@ -236,14 +367,18 @@ class RouterInspector:
                         pair = tuple(sorted([experts[i], experts[j]]))
                         all_co_occur[pair] = all_co_occur.get(pair, 0) + 1
 
-        # Identify expert clusters based on co-occurrence
         clusters = self._cluster_experts(all_co_occur)
+        layer_summary = self._summarize_layer_expert_matrix(aggregate_layer_matrix)
 
         return {
             "aggregate_usage": aggregate_usage,
+            "prefill_usage": aggregate_prefill_usage,
+            "generation_usage": aggregate_generation_usage,
             "expert_clusters": clusters,
             "most_used": sorted(aggregate_usage.items(), key=lambda x: x[1], reverse=True)[:10],
             "least_used": sorted(aggregate_usage.items(), key=lambda x: x[1])[:10],
+            "layer_summary": layer_summary,
+            "co_occurrence_pairs": sorted(all_co_occur.items(), key=lambda x: x[1], reverse=True)[:20],
         }
 
     def _cluster_experts(self, co_occurrence: Dict[Tuple[int, int], int], threshold: float = 0.5) -> List[List[int]]:
@@ -251,13 +386,11 @@ class RouterInspector:
         if not co_occurrence:
             return []
 
-        # Collect all unique expert IDs from co-occurrence data
         all_expert_ids = set()
         for (e1, e2) in co_occurrence.keys():
             all_expert_ids.add(e1)
             all_expert_ids.add(e2)
 
-        # Build adjacency based on high co-occurrence
         max_cooccur = max(co_occurrence.values()) if co_occurrence else 1
         adjacency: Dict[int, List[int]] = {expert_id: [] for expert_id in all_expert_ids}
 
@@ -266,7 +399,6 @@ class RouterInspector:
                 adjacency[e1].append(e2)
                 adjacency[e2].append(e1)
 
-        # Greedy clustering
         visited = set()
         clusters = []
 
@@ -298,8 +430,8 @@ class RouterInspector:
     def _entropy(probs: List[float]) -> float:
         """Compute entropy of probability distribution"""
         probs = np.array(probs)
-        probs = probs[probs > 0]  # Avoid log(0)
-        return -np.sum(probs * np.log(probs))
+        probs = probs[probs > 0]
+        return float(-np.sum(probs * np.log(probs)))
 
     @staticmethod
     def _normalize(values: List[float]) -> List[float]:

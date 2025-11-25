@@ -1,4 +1,11 @@
-"""API routes for Router Lens - MoE introspection tools"""
+"""API routes for Router Lens - MoE introspection tools
+
+Now includes:
+- Prefill vs Generation phase analysis
+- Category-based expert tracking
+- Layer × Expert heatmap data
+- Co-occurrence clustering
+"""
 
 import json
 import traceback
@@ -36,6 +43,7 @@ class DiagnosticInferenceRequest(BaseModel):
     prompt: str
     max_tokens: int = 100
     temperature: float = 0.7
+    capture_prefill: bool = True  # NEW: Option to capture prefill
 
 
 class LoadModelRequest(BaseModel):
@@ -54,6 +62,8 @@ async def get_router_lens_status():
         "num_experts": inspector.num_experts,
         "top_k": inspector.top_k,
         "current_session_tokens": len(inspector.current_session.get("tokens", [])),
+        "prefill_tokens": len(inspector.current_session.get("prefill_tokens", [])),
+        "generation_tokens": len(inspector.current_session.get("generation_tokens", [])),
         "log_directory": str(inspector.log_dir),
     }
 
@@ -89,13 +99,7 @@ async def save_current_session(prompt: str = "", response: str = ""):
 
 @router.get("/sessions")
 async def list_saved_sessions(limit: int = 20, agent_id: Optional[str] = None):
-    """List saved router lens sessions
-
-    Args:
-        limit: Maximum number of sessions to return
-        agent_id: Optional agent ID to filter sessions (returns sessions for specific agent)
-    """
-    # Determine log directory based on agent_id
+    """List saved router lens sessions"""
     if agent_id:
         log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
     else:
@@ -115,6 +119,8 @@ async def list_saved_sessions(limit: int = 20, agent_id: Optional[str] = None):
                     "start_time": data.get("start_time"),
                     "end_time": data.get("end_time"),
                     "total_tokens": data.get("summary", {}).get("total_tokens", 0),
+                    "prefill_tokens": data.get("summary", {}).get("prefill_tokens", 0),
+                    "generation_tokens": data.get("summary", {}).get("generation_tokens", 0),
                     "prompt_preview": data.get("metadata", {}).get("prompt", "")[:100],
                     "agent_id": data.get("metadata", {}).get("agent_id"),
                     "category": data.get("metadata", {}).get("category"),
@@ -126,10 +132,14 @@ async def list_saved_sessions(limit: int = 20, agent_id: Optional[str] = None):
 
 
 @router.get("/sessions/{filename}")
-async def get_session_details(filename: str):
+async def get_session_details(filename: str, agent_id: Optional[str] = None):
     """Get full details of a saved session"""
-    inspector = get_router_inspector()
-    filepath = inspector.log_dir / filename
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+    
+    filepath = log_dir / filename
 
     if not filepath.exists():
         raise HTTPException(404, f"Session {filename} not found")
@@ -138,6 +148,34 @@ async def get_session_details(filename: str):
         data = json.load(f)
 
     return data
+
+
+@router.get("/categories")
+async def get_available_categories(agent_id: Optional[str] = None):
+    """Get all unique categories from saved sessions"""
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    if not log_dir.exists():
+        return {"categories": [], "counts": {}}
+
+    categories = {}
+    for filepath in log_dir.glob("router_session_*.json"):
+        try:
+            with open(filepath) as f:
+                data = json.load(f)
+                category = data.get("metadata", {}).get("category", "uncategorized")
+                if category:
+                    categories[category] = categories.get(category, 0) + 1
+        except Exception:
+            continue
+
+    return {
+        "categories": list(categories.keys()),
+        "counts": categories
+    }
 
 
 @router.get("/diagnostic-prompts")
@@ -149,13 +187,7 @@ async def get_diagnostic_prompts():
 
 @router.post("/analyze/expert-usage")
 async def analyze_expert_usage(agent_id: Optional[str] = None, category: Optional[str] = None):
-    """Analyze expert usage patterns across saved sessions
-
-    Args:
-        agent_id: Optional agent ID to analyze sessions for specific agent
-        category: Optional category to filter sessions by
-    """
-    # Determine log directory based on agent_id
+    """Analyze expert usage patterns across saved sessions"""
     if agent_id:
         log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
     else:
@@ -164,13 +196,11 @@ async def analyze_expert_usage(agent_id: Optional[str] = None, category: Optiona
     if not log_dir.exists():
         return {"error": "No sessions found"}
 
-    # Load all sessions (optionally filtered by category)
     sessions = []
     for filepath in log_dir.glob("router_session_*.json"):
         try:
             with open(filepath) as f:
                 session_data = json.load(f)
-                # Filter by category if provided
                 if category:
                     session_category = session_data.get("metadata", {}).get("category")
                     if session_category != category:
@@ -191,15 +221,211 @@ async def analyze_expert_usage(agent_id: Optional[str] = None, category: Optiona
     return analysis
 
 
+@router.post("/analyze/category-comparison")
+async def analyze_category_comparison(
+    categories: List[str],
+    agent_id: Optional[str] = None
+):
+    """Compare expert usage across multiple categories
+    
+    This is the key endpoint for understanding which experts specialize in what!
+    """
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    if not log_dir.exists():
+        return {"error": "No sessions found"}
+
+    # Load sessions by category
+    category_sessions: Dict[str, List[Dict]] = {cat: [] for cat in categories}
+    
+    for filepath in log_dir.glob("router_session_*.json"):
+        try:
+            with open(filepath) as f:
+                session_data = json.load(f)
+                cat = session_data.get("metadata", {}).get("category")
+                if cat in category_sessions:
+                    category_sessions[cat].append(session_data)
+        except Exception:
+            continue
+
+    # Analyze each category
+    inspector = get_router_inspector()
+    category_analyses = {}
+    
+    for cat, sessions in category_sessions.items():
+        if sessions:
+            analysis = inspector.analyze_expert_specialization(sessions)
+            category_analyses[cat] = {
+                "num_sessions": len(sessions),
+                "top_experts": analysis.get("most_used", [])[:10],
+                "prefill_usage": analysis.get("prefill_usage", {}),
+                "generation_usage": analysis.get("generation_usage", {}),
+                "layer_summary": analysis.get("layer_summary", {}),
+            }
+        else:
+            category_analyses[cat] = {"num_sessions": 0, "top_experts": []}
+
+    # Find experts that differentiate categories
+    # (experts that are high in one category but low in others)
+    differentiating_experts = _find_differentiating_experts(category_analyses)
+
+    return {
+        "categories": category_analyses,
+        "differentiating_experts": differentiating_experts,
+    }
+
+
+def _find_differentiating_experts(category_analyses: Dict) -> List[Dict]:
+    """Find experts that strongly differentiate between categories"""
+    # Collect all expert usage across categories
+    expert_by_category: Dict[int, Dict[str, float]] = {}
+    
+    for cat, analysis in category_analyses.items():
+        if analysis["num_sessions"] == 0:
+            continue
+        for expert_id, count in analysis.get("top_experts", []):
+            if expert_id not in expert_by_category:
+                expert_by_category[expert_id] = {}
+            # Normalize by session count
+            expert_by_category[expert_id][cat] = count / analysis["num_sessions"]
+    
+    # Find experts with high variance across categories
+    differentiating = []
+    for expert_id, usage in expert_by_category.items():
+        if len(usage) < 2:
+            continue
+        values = list(usage.values())
+        mean_usage = sum(values) / len(values)
+        variance = sum((v - mean_usage) ** 2 for v in values) / len(values)
+        
+        if variance > 0:
+            # Find which category this expert is strongest in
+            max_cat = max(usage.items(), key=lambda x: x[1])
+            differentiating.append({
+                "expert_id": expert_id,
+                "variance": variance,
+                "strongest_category": max_cat[0],
+                "usage_by_category": usage
+            })
+    
+    # Sort by variance (most differentiating first)
+    differentiating.sort(key=lambda x: x["variance"], reverse=True)
+    return differentiating[:20]
+
+
+@router.get("/analyze/layer-expert-heatmap")
+async def get_layer_expert_heatmap(
+    agent_id: Optional[str] = None,
+    category: Optional[str] = None,
+    phase: Optional[str] = None  # "prefill", "generation", or None for both
+):
+    """Get Layer × Expert activation heatmap for visualization
+    
+    Returns a matrix showing which experts activate most on which layers.
+    Critical for identifying LoRA targeting opportunities!
+    """
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    if not log_dir.exists():
+        return {"error": "No sessions found"}
+
+    # Aggregate layer × expert data across sessions
+    layer_expert_counts: Dict[int, Dict[int, int]] = {}
+    layer_expert_weights: Dict[int, Dict[int, float]] = {}
+    num_sessions = 0
+
+    for filepath in log_dir.glob("router_session_*.json"):
+        try:
+            with open(filepath) as f:
+                session_data = json.load(f)
+                
+                # Filter by category if specified
+                if category:
+                    session_cat = session_data.get("metadata", {}).get("category")
+                    if session_cat != category:
+                        continue
+                
+                num_sessions += 1
+                
+                # Choose which matrix to use based on phase
+                if phase == "prefill":
+                    matrix = session_data.get("prefill_layer_expert_matrix", {})
+                elif phase == "generation":
+                    matrix = session_data.get("generation_layer_expert_matrix", {})
+                else:
+                    matrix = session_data.get("layer_expert_matrix", {})
+                
+                for layer_str, experts in matrix.items():
+                    layer_idx = int(layer_str)
+                    if layer_idx not in layer_expert_counts:
+                        layer_expert_counts[layer_idx] = {}
+                        layer_expert_weights[layer_idx] = {}
+                    
+                    for expert_str, data in experts.items():
+                        expert_id = int(expert_str)
+                        count = data.get("count", 0)
+                        weight = data.get("total_weight", 0)
+                        
+                        layer_expert_counts[layer_idx][expert_id] = \
+                            layer_expert_counts[layer_idx].get(expert_id, 0) + count
+                        layer_expert_weights[layer_idx][expert_id] = \
+                            layer_expert_weights[layer_idx].get(expert_id, 0) + weight
+                            
+        except Exception as e:
+            continue
+
+    if not layer_expert_counts:
+        return {"error": "No layer-expert data found"}
+
+    # Convert to heatmap format
+    all_layers = sorted(layer_expert_counts.keys())
+    all_experts = set()
+    for experts in layer_expert_counts.values():
+        all_experts.update(experts.keys())
+    all_experts = sorted(all_experts)
+
+    # Build matrix [layers × experts]
+    heatmap_matrix = []
+    for layer in all_layers:
+        row = []
+        for expert in all_experts:
+            count = layer_expert_counts.get(layer, {}).get(expert, 0)
+            row.append(count)
+        heatmap_matrix.append(row)
+
+    # Find hotspots (layer-expert pairs with highest activation)
+    hotspots = []
+    for layer in all_layers:
+        for expert, count in layer_expert_counts.get(layer, {}).items():
+            weight = layer_expert_weights.get(layer, {}).get(expert, 0)
+            hotspots.append({
+                "layer": layer,
+                "expert": expert,
+                "count": count,
+                "avg_weight": weight / count if count > 0 else 0
+            })
+    hotspots.sort(key=lambda x: x["count"], reverse=True)
+
+    return {
+        "layers": all_layers,
+        "experts": all_experts,
+        "heatmap_matrix": heatmap_matrix,
+        "hotspots": hotspots[:30],
+        "num_sessions": num_sessions,
+        "category": category,
+        "phase": phase
+    }
+
+
 @router.post("/analyze/entropy-distribution")
 async def analyze_entropy_distribution(agent_id: Optional[str] = None, category: Optional[str] = None):
-    """Analyze router entropy distribution across sessions
-
-    Args:
-        agent_id: Optional agent ID to analyze sessions for specific agent
-        category: Optional category to filter sessions by
-    """
-    # Determine log directory based on agent_id
+    """Analyze router entropy distribution across sessions"""
     if agent_id:
         log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
     else:
@@ -215,7 +441,6 @@ async def analyze_entropy_distribution(agent_id: Optional[str] = None, category:
         try:
             with open(filepath) as f:
                 data = json.load(f)
-                # Filter by category if provided
                 if category:
                     session_category = data.get("metadata", {}).get("category")
                     if session_category != category:
@@ -247,47 +472,50 @@ async def analyze_entropy_distribution(agent_id: Optional[str] = None, category:
 
 
 @router.get("/expert-clusters")
-async def get_expert_clusters():
+async def get_expert_clusters(agent_id: Optional[str] = None, category: Optional[str] = None):
     """Get discovered expert clusters based on co-activation patterns"""
-    inspector = get_router_inspector()
-    log_dir = inspector.log_dir
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
 
     sessions = []
     for filepath in log_dir.glob("router_session_*.json"):
         try:
             with open(filepath) as f:
-                sessions.append(json.load(f))
+                data = json.load(f)
+                if category:
+                    if data.get("metadata", {}).get("category") != category:
+                        continue
+                sessions.append(data)
         except Exception:
             continue
 
     if not sessions:
         return {"clusters": [], "message": "No sessions to analyze"}
 
+    inspector = get_router_inspector()
     analysis = inspector.analyze_expert_specialization(sessions)
+    
     return {
         "clusters": analysis.get("expert_clusters", []),
+        "co_occurrence_pairs": analysis.get("co_occurrence_pairs", [])[:20],
         "most_used": analysis.get("most_used", []),
         "least_used": analysis.get("least_used", []),
+        "num_sessions": len(sessions),
+        "category": category
     }
 
 
 @router.post("/simulate/expert-mask")
 async def simulate_expert_masking(request: ExpertMaskTestRequest):
-    """Simulate what would happen if certain experts were disabled
-
-    NOTE: This is a placeholder. Actual implementation would require
-    modifying the model's forward pass to mask specific experts.
-    """
+    """Simulate what would happen if certain experts were disabled"""
     return {
         "status": "not_implemented",
         "message": "Expert masking simulation requires custom MLX model modifications",
         "requested_mask": request.disabled_experts,
     }
 
-
-# =============================================================================
-# Real-time Monitoring (WebSocket or SSE would be better for production)
-# =============================================================================
 
 @router.get("/monitor/current")
 async def get_current_monitoring_data():
@@ -298,11 +526,12 @@ async def get_current_monitoring_data():
     if not tokens:
         return {"status": "no_data", "message": "No tokens in current session"}
 
-    # Get last N tokens
     last_tokens = tokens[-20:] if len(tokens) > 20 else tokens
 
     return {
         "total_tokens": len(tokens),
+        "prefill_tokens": len(inspector.current_session.get("prefill_tokens", [])),
+        "generation_tokens": len(inspector.current_session.get("generation_tokens", [])),
         "last_tokens": last_tokens,
         "current_usage": inspector.current_session.get("expert_usage_count", {}),
         "recent_entropy": inspector.current_session.get("entropy_history", [])[-10:],
@@ -310,16 +539,12 @@ async def get_current_monitoring_data():
 
 
 # =============================================================================
-# Diagnostic Inference - Direct model loading with router logging
+# Diagnostic Inference
 # =============================================================================
 
 @router.post("/diagnostic/load-model")
 async def load_model_for_diagnostics(request: LoadModelRequest):
-    """Load a model for diagnostic inference with router logging
-
-    This loads the model directly (not via MLX server) so we can patch it
-    for full router introspection.
-    """
+    """Load a model for diagnostic inference with router logging"""
     try:
         service = get_diagnostic_service()
     except ImportError as e:
@@ -338,17 +563,12 @@ async def load_model_for_diagnostics(request: LoadModelRequest):
 
 @router.post("/diagnostic/load-agent-model/{agent_id}")
 async def load_agent_model_for_diagnostics(agent_id: str, db: Session = Depends(get_db)):
-    """Load an agent's model for diagnostic inference with router logging
-
-    This uses the agent's configured model and adapter paths.
-    Sessions will be saved to this agent's profile.
-    """
+    """Load an agent's model for diagnostic inference with router logging"""
     try:
         service = get_diagnostic_service()
     except ImportError as e:
         raise HTTPException(500, f"MLX not installed: {str(e)}")
 
-    # Get agent from database
     try:
         agent_uuid = UUID(agent_id)
     except ValueError:
@@ -358,7 +578,6 @@ async def load_agent_model_for_diagnostics(agent_id: str, db: Session = Depends(
     if not agent:
         raise HTTPException(404, f"Agent not found: {agent_id}")
 
-    # Load the agent's model
     try:
         result = service.load_model(
             agent.model_path,
@@ -399,14 +618,7 @@ async def get_diagnostic_model_status():
 
 @router.post("/diagnostic/infer")
 async def run_diagnostic_inference(request: DiagnosticInferenceRequest):
-    """Run a single inference with full router logging
-
-    Returns the generated text and complete router analysis including:
-    - Expert usage counts
-    - Token-by-token routing decisions
-    - Entropy distribution
-    - Co-occurrence patterns
-    """
+    """Run a single inference with full router logging (prefill + generation)"""
     try:
         service = get_diagnostic_service()
     except ImportError as e:
@@ -420,10 +632,10 @@ async def run_diagnostic_inference(request: DiagnosticInferenceRequest):
             prompt=request.prompt,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
-            log_routing=True
+            log_routing=True,
+            capture_prefill=request.capture_prefill
         )
 
-        # Also update the global inspector for UI consistency
         inspector = get_router_inspector()
         inspector.current_session = service.router_inspector.current_session.copy()
 
@@ -440,33 +652,28 @@ async def save_diagnostic_session(prompt_preview: str = "", notes: str = "", cat
     except ImportError as e:
         raise HTTPException(500, f"MLX not installed: {str(e)}")
 
-    # Add category to session metadata if provided
     if category:
         service.router_inspector.current_session["metadata"]["category"] = category
 
-    # Get prompt and response from session metadata
     prompt = service.router_inspector.current_session.get("metadata", {}).get("prompt", prompt_preview)
     response = service.router_inspector.current_session.get("metadata", {}).get("response", "")
 
     filepath = service.router_inspector.save_session(prompt=prompt, response=response)
 
-    # Also save to global inspector
     inspector = get_router_inspector()
     inspector.current_session = service.router_inspector.current_session.copy()
     inspector.save_session(prompt=prompt, response=response)
 
     return {
         "saved": True,
-        "filepath": filepath
+        "filepath": filepath,
+        "category": category
     }
 
 
 @router.post("/diagnostic/quick-test")
 async def quick_diagnostic_test():
-    """Run a quick test to generate sample router data
-
-    Requires MLX to be installed and a model to be loaded.
-    """
+    """Run a quick test to generate sample router data"""
     try:
         service = get_diagnostic_service()
     except ImportError as e:
@@ -478,7 +685,6 @@ async def quick_diagnostic_test():
             "No model loaded. Load an MoE model first with /diagnostic/load-model"
         )
 
-    # Use a simple test prompt
     test_prompts = [
         "Explain the concept of empathy in simple terms.",
         "What is 2 + 2?",
@@ -493,10 +699,10 @@ async def quick_diagnostic_test():
             prompt=prompt,
             max_tokens=50,
             temperature=0.7,
-            log_routing=True
+            log_routing=True,
+            capture_prefill=True
         )
 
-        # Sync to global inspector
         inspector = get_router_inspector()
         inspector.current_session = service.router_inspector.current_session.copy()
 
@@ -525,17 +731,11 @@ async def browse_models():
         return {"models": [], "base_path": str(models_dir), "exists": False}
 
     models = []
-
-    # Look for directories that look like model repos (have config.json)
     for item in models_dir.iterdir():
         if item.is_dir():
-            # Check if it's a HuggingFace cache structure (models--org--name)
             if item.name.startswith("models--"):
-                # Parse the model name from cache structure
                 parts = item.name.replace("models--", "").split("--")
                 model_name = "/".join(parts)
-
-                # Find the actual snapshot directory
                 snapshots_dir = item / "snapshots"
                 if snapshots_dir.exists():
                     for snapshot in snapshots_dir.iterdir():
@@ -545,20 +745,15 @@ async def browse_models():
                                 "path": str(snapshot),
                                 "type": "huggingface_cache"
                             })
-                            break  # Just use the first valid snapshot
+                            break
             elif (item / "config.json").exists():
-                # Direct model directory
                 models.append({
                     "name": item.name,
                     "path": str(item),
                     "type": "local"
                 })
 
-    return {
-        "models": models,
-        "base_path": str(models_dir),
-        "exists": True
-    }
+    return {"models": models, "base_path": str(models_dir), "exists": True}
 
 
 @router.get("/browse/adapters")
@@ -570,33 +765,17 @@ async def browse_adapters():
         return {"adapters": [], "base_path": str(adapters_dir), "exists": False}
 
     adapters = []
-
-    # Look for directories that contain adapter_config.json or adapter_model.bin
     for item in adapters_dir.iterdir():
         if item.is_dir():
             if (item / "adapter_config.json").exists() or (item / "adapter_model.safetensors").exists():
-                adapters.append({
-                    "name": item.name,
-                    "path": str(item)
-                })
+                adapters.append({"name": item.name, "path": str(item)})
 
-    return {
-        "adapters": adapters,
-        "base_path": str(adapters_dir),
-        "exists": True
-    }
+    return {"adapters": adapters, "base_path": str(adapters_dir), "exists": True}
 
 
 @router.get("/browse/directory")
 async def browse_directory(path: str = "~"):
-    """Browse any directory on the filesystem
-
-    Args:
-        path: Directory path to browse (default: home directory)
-
-    Returns:
-        List of items (files and directories) in the specified path
-    """
+    """Browse any directory on the filesystem"""
     browse_path = Path(path).expanduser().resolve()
 
     if not browse_path.exists():
@@ -608,13 +787,11 @@ async def browse_directory(path: str = "~"):
         }
 
     if not browse_path.is_dir():
-        # If it's a file, return the parent directory
         browse_path = browse_path.parent
 
     items = []
     try:
         for item in sorted(browse_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-            # Skip hidden files/dirs unless they're important ones
             if item.name.startswith('.') and item.name not in ['.cache']:
                 continue
 
@@ -624,18 +801,15 @@ async def browse_directory(path: str = "~"):
                 "is_dir": item.is_dir(),
             }
 
-            # Check if it's a model directory (has config.json)
             if item.is_dir() and (item / "config.json").exists():
                 item_info["is_model"] = True
-
-            # Check if it's an adapter directory
             if item.is_dir() and ((item / "adapter_config.json").exists() or
                                    (item / "adapter_model.safetensors").exists()):
                 item_info["is_adapter"] = True
 
             items.append(item_info)
     except PermissionError:
-        pass  # Skip items we can't access
+        pass
 
     return {
         "path": str(browse_path),
@@ -644,176 +818,13 @@ async def browse_directory(path: str = "~"):
         "parent": str(browse_path.parent) if browse_path.parent != browse_path else None
     }
 
-@router.post("/analyze-conversation/{conversation_id}")
-async def analyze_conversation(
-    conversation_id: UUID,
-    db: Session = Depends(get_db)
-) -> Dict[str, Any]:
-    """Analyze expert routing patterns across an entire conversation
-    
-    Replays all assistant responses through diagnostic inference with router logging
-    to capture expert activation patterns throughout the conversation.
-    
-    Args:
-        conversation_id: ID of the conversation to analyze
-        
-    Returns:
-        Per-turn analysis and aggregate statistics
-    """
-    from backend.db.models.conversation import Conversation, Message
-    import asyncio
-    
-    # Load conversation
-    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-    if not conversation:
-        raise HTTPException(404, "Conversation not found")
-    
-    # Load agent
-    agent = db.query(Agent).filter(Agent.id == conversation.agent_id).first()
-    if not agent:
-        raise HTTPException(404, "Agent not found")
-    
-    # Get diagnostic service and verify model is loaded
-    try:
-        diagnostic_service = get_diagnostic_service()
-
-        # Check if model is loaded for this agent
-        current_agent_id = getattr(diagnostic_service, 'agent_id', None)
-        if current_agent_id != str(agent.id):
-            raise HTTPException(
-                400,
-                f"Model not loaded for this agent. Please load the agent model first using the 'Load Agent Model for Analytics' button in the Interpretability panel."
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"Failed to initialize diagnostic service: {str(e)}")
-    
-    # Load all messages in conversation
-    messages = db.query(Message).filter(
-        Message.conversation_id == conversation_id
-    ).order_by(Message.created_at.asc()).all()
-    
-    if not messages:
-        raise HTTPException(404, "No messages found in conversation")
-    
-    # Process messages turn by turn
-    turn_analyses = []
-    conversation_context = []
-    
-    for msg in messages:
-        # Build context for this turn
-        if msg.role == "system":
-            conversation_context.insert(0, {"role": "system", "content": msg.content})
-        elif msg.role == "user":
-            conversation_context.append({"role": "user", "content": msg.content})
-        elif msg.role == "assistant":
-            # This is an assistant message - replay it with router logging
-            conversation_context.append({"role": "assistant", "content": msg.content})
-            
-            # Build prompt from context up to the user message
-            prompt_parts = []
-            for ctx_msg in conversation_context[:-1]:  # Exclude the assistant response
-                role = ctx_msg["role"]
-                content = ctx_msg["content"]
-                if role == "system":
-                    prompt_parts.append(f"System: {content}")
-                elif role == "user":
-                    prompt_parts.append(f"User: {content}")
-                elif role == "assistant":
-                    prompt_parts.append(f"Assistant: {content}")
-            
-            conversation_prompt = "\n\n".join(prompt_parts)
-            
-            # Run diagnostic inference
-            print(f"[Conversation Analysis] Analyzing turn {len(turn_analyses) + 1}")
-            
-            try:
-                result_dict = await asyncio.to_thread(
-                    diagnostic_service.run_inference,
-                    prompt=conversation_prompt,
-                    max_tokens=len(msg.content.split()),  # Approximate
-                    temperature=agent.temperature,
-                    log_routing=True
-                )
-                
-                turn_analyses.append({
-                    "turn_number": len(turn_analyses) + 1,
-                    "message_id": str(msg.id),
-                    "user_message": conversation_context[-2]["content"] if len(conversation_context) >= 2 else "",
-                    "assistant_response": msg.content,
-                    "router_analysis": result_dict["router_analysis"]
-                })
-            except Exception as e:
-                print(f"[Conversation Analysis] Failed to analyze turn: {e}")
-                continue
-    
-    # Compute aggregate statistics
-    all_expert_usage = {}
-    total_tokens_analyzed = 0
-    all_entropy_values = []
-    
-    for turn in turn_analyses:
-        router_data = turn["router_analysis"]
-        total_tokens_analyzed += router_data.get("total_tokens", 0)
-        
-        # Aggregate expert usage
-        for expert_id, count in router_data.get("expert_usage_count", {}).items():
-            expert_id_str = str(expert_id)
-            if expert_id_str not in all_expert_usage:
-                all_expert_usage[expert_id_str] = 0
-            all_expert_usage[expert_id_str] += count
-        
-        # Collect entropy values
-        if "mean_token_entropy" in router_data:
-            all_entropy_values.append(router_data["mean_token_entropy"])
-    
-    # Calculate aggregate metrics
-    mean_entropy = sum(all_entropy_values) / len(all_entropy_values) if all_entropy_values else 0
-    variance = sum((x - mean_entropy) ** 2 for x in all_entropy_values) / len(all_entropy_values) if all_entropy_values else 0
-    
-    aggregate_analysis = {
-        "total_turns": len(turn_analyses),
-        "total_tokens_analyzed": total_tokens_analyzed,
-        "overall_expert_usage": all_expert_usage,
-        "mean_entropy_across_turns": mean_entropy,
-        "entropy_variance": variance,
-        "most_used_experts": sorted(
-            all_expert_usage.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )[:10],
-        "least_used_experts": sorted(
-            all_expert_usage.items(),
-            key=lambda x: x[1]
-        )[:10]
-    }
-    
-    return {
-        "conversation_id": str(conversation_id),
-        "conversation_title": conversation.title or "Untitled",
-        "agent_name": agent.name,
-        "turn_analyses": turn_analyses,
-        "aggregate_analysis": aggregate_analysis
-    }
-
 
 @router.get("/sessions/{filename}/heatmap")
 async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
     """Get expert activation heatmap data for visualization
-
-    Returns data formatted for 2D heatmap:
-    - X-axis: Token position (time)
-    - Y-axis: Expert ID  
-    - Color: Actual routing weight (sum of softmax weights across layers)
-
-    FIXED: Now uses actual expert weights instead of just layer frequency.
     
-    For each token, we sum the softmax weights that each expert received
-    across all layers. This gives the true "contribution" of each expert
-    to that token's processing.
+    Now includes prefill and generation tokens separately!
     """
-    # Determine file path
     if agent_id:
         log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
     else:
@@ -827,77 +838,72 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
     with open(filepath) as f:
         session_data = json.load(f)
 
-    # Extract token-by-token expert activations
-    tokens = session_data.get("tokens", [])
-    if not tokens:
-        return {
-            "error": "No token data in session",
-            "num_tokens": 0,
-            "num_experts": 0,
-            "heatmap_data": []
-        }
-
     num_experts = session_data.get("metadata", {}).get("num_experts", 128)
 
-    # Build heatmap matrix: [num_tokens x num_experts]
-    # FIXED: Now accumulates actual softmax weights, not just layer frequency
-    heatmap_matrix = []
-    token_texts = []
+    def build_heatmap(tokens: List[Dict]) -> tuple:
+        """Build heatmap matrix from token list"""
+        heatmap_matrix = []
+        token_texts = []
+        
+        for token_data in tokens:
+            row = [0.0] * num_experts
+            
+            if "layers" in token_data:
+                for layer_data in token_data["layers"]:
+                    selected_experts = layer_data.get("selected_experts", [])
+                    expert_weights = layer_data.get("expert_weights", [])
+                    
+                    if expert_weights and len(expert_weights) == len(selected_experts):
+                        for expert_id, weight in zip(selected_experts, expert_weights):
+                            if expert_id < num_experts:
+                                row[expert_id] += weight
+                    else:
+                        for expert_id in selected_experts:
+                            if expert_id < num_experts:
+                                row[expert_id] += 1.0 / len(selected_experts) if selected_experts else 0
+            
+            heatmap_matrix.append(row)
+            token_text = token_data.get("token", f"Token {token_data.get('idx', len(token_texts))}")
+            token_texts.append(token_text)
+        
+        return heatmap_matrix, token_texts
 
-    for token_data in tokens:
-        # Create a row for this token (one value per expert)
-        row = [0.0] * num_experts
-
-        if "layers" in token_data:
-            # Sum actual expert weights across all layers
-            for layer_data in token_data["layers"]:
-                selected_experts = layer_data.get("selected_experts", [])
-                expert_weights = layer_data.get("expert_weights", [])
-                
-                # Use actual weights if available, otherwise fall back to equal contribution
-                if expert_weights and len(expert_weights) == len(selected_experts):
-                    for expert_id, weight in zip(selected_experts, expert_weights):
-                        if expert_id < num_experts:
-                            row[expert_id] += weight
-                else:
-                    # Fallback: equal contribution if no weights recorded
-                    for expert_id in selected_experts:
-                        if expert_id < num_experts:
-                            row[expert_id] += 1.0 / len(selected_experts) if selected_experts else 0
-        else:
-            # Old format: single decision per token (backwards compatibility)
-            selected_experts = token_data.get("selected_experts", [])
-            expert_weights = token_data.get("expert_weights", [])
-
-            if expert_weights and len(expert_weights) == len(selected_experts):
-                for expert_id, weight in zip(selected_experts, expert_weights):
-                    if expert_id < num_experts:
-                        row[expert_id] = weight
-            else:
-                for expert_id in selected_experts:
-                    if expert_id < num_experts:
-                        row[expert_id] = 1.0 / len(selected_experts) if selected_experts else 0
-
-        heatmap_matrix.append(row)
-
-        # Store token text if available
-        token_text = token_data.get("token", f"Token {token_data.get('idx', len(token_texts))}")
-        token_texts.append(token_text)
+    # Build heatmaps for prefill and generation separately
+    prefill_tokens = session_data.get("prefill_tokens", [])
+    generation_tokens = session_data.get("generation_tokens", [])
+    all_tokens = session_data.get("tokens", [])
+    
+    prefill_matrix, prefill_texts = build_heatmap(prefill_tokens) if prefill_tokens else ([], [])
+    generation_matrix, generation_texts = build_heatmap(generation_tokens) if generation_tokens else ([], [])
+    combined_matrix, combined_texts = build_heatmap(all_tokens) if all_tokens else ([], [])
 
     return {
         "filename": filename,
-        "num_tokens": len(tokens),
         "num_experts": num_experts,
-        "heatmap_matrix": heatmap_matrix,  # [tokens x experts] - actual weight sums
-        "token_texts": token_texts,
-        "token_details": tokens,  # Full layer-by-layer data for detailed analysis
+        # Combined view (backwards compatibility)
+        "num_tokens": len(all_tokens),
+        "heatmap_matrix": combined_matrix,
+        "token_texts": combined_texts,
+        # Separate views for prefill and generation
+        "prefill": {
+            "num_tokens": len(prefill_tokens),
+            "heatmap_matrix": prefill_matrix,
+            "token_texts": prefill_texts,
+        },
+        "generation": {
+            "num_tokens": len(generation_tokens),
+            "heatmap_matrix": generation_matrix,
+            "token_texts": generation_texts,
+        },
         "metadata": {
             "start_time": session_data.get("start_time"),
             "end_time": session_data.get("end_time"),
             "prompt": session_data.get("metadata", {}).get("prompt", ""),
             "response": session_data.get("metadata", {}).get("response", ""),
-            "prompt_preview": session_data.get("metadata", {}).get("prompt", "")[:200],
-            "response_preview": session_data.get("metadata", {}).get("response", "")[:200]
+            "category": session_data.get("metadata", {}).get("category", ""),
         },
-        "summary": session_data.get("summary", {})
+        "summary": session_data.get("summary", {}),
+        "layer_expert_matrix": session_data.get("layer_expert_matrix", {}),
+        "prefill_layer_expert_matrix": session_data.get("prefill_layer_expert_matrix", {}),
+        "generation_layer_expert_matrix": session_data.get("generation_layer_expert_matrix", {}),
     }

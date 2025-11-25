@@ -2,6 +2,8 @@
 
 Bypasses the MLX server to load models directly and patch them for router logging.
 Used for research/debugging MoE expert patterns.
+
+NOW CAPTURES BOTH PREFILL AND GENERATION PHASES for full interpretability.
 """
 
 import json
@@ -22,7 +24,14 @@ from backend.services.router_lens import RouterInspector
 
 
 class DiagnosticInferenceService:
-    """Service for running single inference passes with full router introspection"""
+    """Service for running single inference passes with full router introspection
+    
+    Captures expert routing decisions during BOTH:
+    - Prefill phase: How the model interprets/processes the input prompt
+    - Generation phase: How the model produces the response
+    
+    This enables research into which experts handle different types of inputs.
+    """
 
     def __init__(self):
         if not MLX_AVAILABLE:
@@ -38,6 +47,7 @@ class DiagnosticInferenceService:
         self.is_moe_model = False
         self.agent_id = None
         self.agent_name = None
+        self.capture_prefill = True  # NEW: Control prefill capture
 
     def load_model(
         self,
@@ -81,6 +91,7 @@ class DiagnosticInferenceService:
 
         if self.is_moe_model:
             print(f"[Diagnostic] Detected MoE model, patching for router introspection...")
+            print(f"[Diagnostic] Prefill capture: {'ENABLED' if self.capture_prefill else 'DISABLED'}")
             try:
                 self._patch_moe_model()
             except Exception as e:
@@ -105,14 +116,11 @@ class DiagnosticInferenceService:
         if self.model is None:
             return False
 
-        # Look for common MoE signatures in the model structure
         model_str = str(type(self.model))
 
-        # Check model type names
         if "moe" in model_str.lower() or "mixture" in model_str.lower():
             return True
 
-        # Check for gate/router modules in the model
         for name, module in self.model.named_modules():
             name_lower = name.lower()
             if "gate" in name_lower or "router" in name_lower or "expert" in name_lower:
@@ -125,20 +133,14 @@ class DiagnosticInferenceService:
         if not self.is_moe_model or self.model is None:
             return
 
-        # Find and patch gate/router layers
-        # This is model-specific, focusing on Qwen2-MoE style
         self._patch_qwen2_style()
 
     def _patch_qwen2_style(self):
         """Patch Qwen2-MoE style router (gate -> softmax -> topk)"""
         try:
-            # Qwen2-MoE has structure: model.layers[i].mlp.gate (nn.Linear)
-            # and model.layers[i].mlp.experts (list of expert MLPs)
+            num_experts = 128
+            top_k = 8
 
-            num_experts = 128  # Default for Qwen2.5-Coder-32B-Instruct-A22B, will update if found
-            top_k = 8  # Default
-
-            # Try to find actual values from model config
             if hasattr(self.model, 'config'):
                 if hasattr(self.model.config, 'num_local_experts'):
                     num_experts = self.model.config.num_local_experts
@@ -170,16 +172,20 @@ class DiagnosticInferenceService:
             raise RuntimeError(f"Failed to patch MoE model for router logging: {e}")
 
     def _wrap_gate(self, mlp_module, layer_idx: int):
-        """Wrap the gate layer to observe router decisions without modifying forward pass"""
+        """Wrap the gate layer to observe router decisions without modifying forward pass
+        
+        NOW CAPTURES BOTH PREFILL AND GENERATION!
+        """
         original_gate = mlp_module.gate
         inspector = self.router_inspector
+        service = self  # Reference to access capture_prefill flag
 
-        # Create a wrapper class that intercepts __call__
         class GateWrapper:
-            def __init__(self, gate, layer_idx, inspector):
+            def __init__(self, gate, layer_idx, inspector, service):
                 self._original_gate = gate
                 self._layer_idx = layer_idx
                 self._inspector = inspector
+                self._service = service
 
             def __call__(self, x):
                 # Call original gate to get logits
@@ -187,74 +193,104 @@ class DiagnosticInferenceService:
 
                 # Debug: print first time to confirm hook is called
                 if not hasattr(self._inspector, '_debug_printed'):
-                    # Auto-detect actual number of experts from gate output
                     actual_num_experts = gate_logits.shape[-1]
                     if actual_num_experts != self._inspector.num_experts:
                         print(f"[Diagnostic] Gate hook called! Layer {self._layer_idx}, logits shape: {gate_logits.shape}")
                         print(f"[Diagnostic] Updating num_experts: {self._inspector.num_experts} -> {actual_num_experts}")
                         self._inspector.num_experts = actual_num_experts
-                        # Reinitialize expert usage count with correct size
                         self._inspector.current_session["expert_usage_count"] = {i: 0 for i in range(actual_num_experts)}
+                        self._inspector.current_session["prefill_expert_usage"] = {i: 0 for i in range(actual_num_experts)}
+                        self._inspector.current_session["generation_expert_usage"] = {i: 0 for i in range(actual_num_experts)}
                     else:
                         print(f"[Diagnostic] Gate hook called! Layer {self._layer_idx}, logits shape: {gate_logits.shape}")
                     self._inspector._debug_printed = True
 
-                # Only log if enabled - observe without modifying
-                if self._inspector.enable_logging:
-                    try:
-                        # CRITICAL: Only log during GENERATION, not PREFILL
-                        # During prefill: seq_len is large (full input context)
-                        # During generation: seq_len is 1 (generating one token at a time)
-                        is_generation = False
+                # Only log if enabled
+                if not self._inspector.enable_logging:
+                    return gate_logits
+
+                try:
+                    # Determine phase based on sequence length
+                    # Prefill: seq_len > 1 (processing entire prompt at once)
+                    # Generation: seq_len == 1 (generating one token at a time)
+                    
+                    if len(gate_logits.shape) == 3:
+                        # Shape: (batch, seq_len, num_experts)
+                        batch_size, seq_len, num_experts = gate_logits.shape
+                        is_prefill = seq_len > 1
+                    elif len(gate_logits.shape) == 2:
+                        # Shape: (seq_len, num_experts) or (batch, num_experts)
+                        # If first dim > 1 and we haven't seen generation yet, assume prefill
+                        seq_len = gate_logits.shape[0]
+                        is_prefill = seq_len > 1
+                    else:
+                        return gate_logits
+                    
+                    phase = "prefill" if is_prefill else "generation"
+                    
+                    # Skip prefill if not capturing it
+                    if is_prefill and not self._service.capture_prefill:
+                        return gate_logits
+
+                    # Compute softmax and top-k
+                    gates = mx.softmax(gate_logits, axis=-1)
+                    k = self._inspector.top_k
+                    inds = mx.argpartition(-gates, kth=k - 1, axis=-1)[..., :k]
+                    scores = mx.take_along_axis(gates, inds, axis=-1)
+
+                    if is_prefill:
+                        # PREFILL: Process ALL tokens in the sequence
                         if len(gate_logits.shape) == 3:
                             # Shape: (batch, seq_len, num_experts)
-                            seq_len = gate_logits.shape[1]
-                            is_generation = (seq_len == 1)
+                            for token_pos in range(seq_len):
+                                gate_logits_np = gate_logits[0, token_pos, :].tolist()
+                                selected_np = inds[0, token_pos, :].tolist()
+                                weights_np = scores[0, token_pos, :].tolist()
+                                
+                                self._inspector.log_router_decision(
+                                    token_idx=token_pos,
+                                    layer_idx=self._layer_idx,
+                                    gate_logits=gate_logits_np,
+                                    selected_experts=selected_np,
+                                    expert_weights=weights_np,
+                                    phase="prefill"
+                                )
                         elif len(gate_logits.shape) == 2:
-                            # Shape: (batch_or_seq, num_experts)
-                            # Assume this is generation (mlx_lm uses shape 2 during generation)
-                            is_generation = True
-                        else:
-                            # Unknown shape, skip
-                            is_generation = False
-
-                        if not is_generation:
-                            # Skip logging during prefill phase
-                            return gate_logits
-
-                        # Now we're in generation phase - log expert routing
-
-                        # Increment token counter when we see layer 0 (start of new token)
+                            # Shape: (seq_len, num_experts)
+                            for token_pos in range(seq_len):
+                                gate_logits_np = gate_logits[token_pos, :].tolist()
+                                selected_np = inds[token_pos, :].tolist()
+                                weights_np = scores[token_pos, :].tolist()
+                                
+                                self._inspector.log_router_decision(
+                                    token_idx=token_pos,
+                                    layer_idx=self._layer_idx,
+                                    gate_logits=gate_logits_np,
+                                    selected_experts=selected_np,
+                                    expert_weights=weights_np,
+                                    phase="prefill"
+                                )
+                    else:
+                        # GENERATION: Single token at a time
+                        # Track token index for generation phase
                         if self._layer_idx == 0:
-                            # Check if this is a new token by seeing if any layers have been logged yet
-                            current_token_idx = self._inspector.current_session["generation_token_idx"]
-                            # Find if token already exists
-                            token_exists = any(t["idx"] == current_token_idx for t in self._inspector.current_session["tokens"])
+                            current_idx = self._inspector.current_session["generation_token_idx"]
+                            token_exists = any(
+                                t["idx"] == current_idx 
+                                for t in self._inspector.current_session["generation_tokens"]
+                            )
                             if token_exists:
-                                # Move to next token
                                 self._inspector.current_session["generation_token_idx"] += 1
 
-                        # Compute softmax and top-k for analysis
-                        gates = mx.softmax(gate_logits, axis=-1)
-                        k = self._inspector.top_k
-
-                        # Get top-k experts
-                        inds = mx.argpartition(-gates, kth=k - 1, axis=-1)[..., :k]
-                        scores = mx.take_along_axis(gates, inds, axis=-1)
-
-                        # Extract data based on shape
                         if len(gate_logits.shape) == 3:
-                            # Shape: (batch, seq_len=1, num_experts)
                             gate_logits_np = gate_logits[0, 0, :].tolist()
                             selected_np = inds[0, 0, :].tolist()
                             weights_np = scores[0, 0, :].tolist()
                         elif len(gate_logits.shape) == 2:
-                            # Shape: (1, num_experts) or (num_experts,)
                             gate_logits_np = gate_logits[0, :].tolist() if gate_logits.shape[0] == 1 else gate_logits.tolist()
                             selected_np = inds[0, :].tolist() if inds.shape[0] == 1 else inds.tolist()
                             weights_np = scores[0, :].tolist() if scores.shape[0] == 1 else scores.tolist()
                         else:
-                            # Should not reach here
                             return gate_logits
 
                         self._inspector.log_router_decision(
@@ -262,23 +298,23 @@ class DiagnosticInferenceService:
                             layer_idx=self._layer_idx,
                             gate_logits=gate_logits_np,
                             selected_experts=selected_np,
-                            expert_weights=weights_np
+                            expert_weights=weights_np,
+                            phase="generation"
                         )
-                    except Exception as e:
-                        # Don't break inference if logging fails
-                        if not hasattr(self._inspector, '_error_printed'):
-                            print(f"[Diagnostic] Warning: Failed to log router decision: {e}")
-                            self._inspector._error_printed = True
 
-                # Return original gate output unchanged
+                except Exception as e:
+                    if not hasattr(self._inspector, '_error_printed'):
+                        print(f"[Diagnostic] Warning: Failed to log router decision: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        self._inspector._error_printed = True
+
                 return gate_logits
 
             def __getattr__(self, name):
-                # Forward all other attributes to original gate
                 return getattr(self._original_gate, name)
 
-        # Replace the gate with our wrapper
-        mlp_module.gate = GateWrapper(original_gate, layer_idx, inspector)
+        mlp_module.gate = GateWrapper(original_gate, layer_idx, inspector, service)
 
     def _get_model_config(self) -> Dict[str, Any]:
         """Extract model configuration info"""
@@ -299,7 +335,8 @@ class DiagnosticInferenceService:
         prompt: str,
         max_tokens: int = 512,
         temperature: float = 0.7,
-        log_routing: bool = True
+        log_routing: bool = True,
+        capture_prefill: bool = True  # NEW: Option to capture prefill
     ) -> Dict[str, Any]:
         """Run a single inference pass with router logging
 
@@ -308,6 +345,7 @@ class DiagnosticInferenceService:
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             log_routing: Whether to enable router logging
+            capture_prefill: Whether to capture prefill phase routing (default True)
 
         Returns:
             Dict with generated text and router analysis
@@ -315,14 +353,25 @@ class DiagnosticInferenceService:
         if self.model is None:
             raise RuntimeError("No model loaded. Call load_model() first.")
 
-        # Reset and enable router logging
+        # Reset and configure router logging
         self.router_inspector.reset_session()
         self.router_inspector.enable_logging = log_routing
+        self.capture_prefill = capture_prefill
 
         print(f"[Diagnostic] Running inference: {prompt[:50]}...")
+        print(f"[Diagnostic] Prefill capture: {'ENABLED' if capture_prefill else 'DISABLED'}")
+
+        # Tokenize prompt to get token count and texts BEFORE generation
+        prompt_tokens = []
+        if self.tokenizer:
+            try:
+                prompt_token_ids = self.tokenizer.encode(prompt)
+                prompt_tokens = [self.tokenizer.decode([tid]) for tid in prompt_token_ids]
+                print(f"[Diagnostic] Prompt has {len(prompt_tokens)} tokens")
+            except Exception as e:
+                print(f"[Diagnostic] Warning: Failed to tokenize prompt: {e}")
 
         # Generate text
-        # Note: mlx_lm API may vary by version, using minimal args for compatibility
         response = generate(
             self.model,
             self.tokenizer,
@@ -333,44 +382,47 @@ class DiagnosticInferenceService:
         # Disable logging
         self.router_inspector.enable_logging = False
 
-        # Count actual tokens generated and decode them
-        actual_tokens_generated = 0
-        if self.tokenizer and response:
+        # Decode tokens and add text to session data
+        if self.tokenizer:
             try:
-                # Tokenize the generated response to get actual token count
-                response_tokens = self.tokenizer.encode(response)
-                actual_tokens_generated = len(response_tokens)
-
-                # Decode each token individually and add to session data
-                num_logged = len(self.router_inspector.current_session.get("tokens", []))
-                print(f"[Diagnostic] Generated {actual_tokens_generated} tokens, logged {num_logged} router decisions")
-
-                for i, token_id in enumerate(response_tokens):
-                    if i < num_logged:
-                        # Decode this token
-                        token_text = self.tokenizer.decode([token_id])
-                        # Update the token data with actual text
-                        self.router_inspector.current_session["tokens"][i]["token"] = token_text
+                # Add token text to prefill tokens
+                prefill_tokens = self.router_inspector.current_session.get("prefill_tokens", [])
+                for i, token_data in enumerate(prefill_tokens):
+                    if i < len(prompt_tokens):
+                        token_data["token"] = prompt_tokens[i]
+                
+                # Add token text to generation tokens
+                if response:
+                    response_token_ids = self.tokenizer.encode(response)
+                    response_tokens = [self.tokenizer.decode([tid]) for tid in response_token_ids]
+                    
+                    gen_tokens = self.router_inspector.current_session.get("generation_tokens", [])
+                    for i, token_data in enumerate(gen_tokens):
+                        if i < len(response_tokens):
+                            token_data["token"] = response_tokens[i]
+                    
+                    print(f"[Diagnostic] Generated {len(response_tokens)} tokens")
+                    print(f"[Diagnostic] Logged {len(prefill_tokens)} prefill, {len(gen_tokens)} generation routing decisions")
 
             except Exception as e:
                 print(f"[Diagnostic] Warning: Failed to decode tokens: {e}")
                 import traceback
                 traceback.print_exc()
 
-        # Store prompt and response in session metadata for saving
+        # Store full prompt and response in session metadata
         self.router_inspector.current_session["metadata"]["prompt"] = prompt
         self.router_inspector.current_session["metadata"]["response"] = response
+        self.router_inspector.current_session["metadata"]["prompt_token_count"] = len(prompt_tokens)
 
         # Get session summary
         session_summary = self.router_inspector.get_session_summary()
-
-        # Add actual token count to summary
-        session_summary["actual_tokens_generated"] = actual_tokens_generated
 
         return {
             "prompt": prompt,
             "response": response,
             "router_analysis": session_summary,
+            "prefill_token_count": len(self.router_inspector.current_session.get("prefill_tokens", [])),
+            "generation_token_count": len(self.router_inspector.current_session.get("generation_tokens", [])),
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
 

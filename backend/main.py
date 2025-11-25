@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core.config import settings
-from backend.api.routes import agents, agent_attachments, files, rag, search, conversations, journal_blocks, router_lens, affect, vscode_integration
+from backend.api.routes import agents, agent_attachments, files, rag, router_lens_api, search, conversations, journal_blocks, affect, vscode_integration
 from backend.db.base import Base
 from backend.db.session import engine
 
@@ -40,7 +40,7 @@ app.include_router(rag.router)
 app.include_router(search.router)
 app.include_router(conversations.router)
 app.include_router(journal_blocks.router)
-app.include_router(router_lens.router)
+app.include_router(router_lens_api.router)
 app.include_router(affect.router)
 app.include_router(vscode_integration.router)
 
