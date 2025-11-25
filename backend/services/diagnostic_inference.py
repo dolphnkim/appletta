@@ -223,6 +223,17 @@ class DiagnosticInferenceService:
                             return gate_logits
 
                         # Now we're in generation phase - log expert routing
+
+                        # Increment token counter when we see layer 0 (start of new token)
+                        if self._layer_idx == 0:
+                            # Check if this is a new token by seeing if any layers have been logged yet
+                            current_token_idx = self._inspector.current_session["generation_token_idx"]
+                            # Find if token already exists
+                            token_exists = any(t["idx"] == current_token_idx for t in self._inspector.current_session["tokens"])
+                            if token_exists:
+                                # Move to next token
+                                self._inspector.current_session["generation_token_idx"] += 1
+
                         # Compute softmax and top-k for analysis
                         gates = mx.softmax(gate_logits, axis=-1)
                         k = self._inspector.top_k
@@ -247,7 +258,7 @@ class DiagnosticInferenceService:
                             return gate_logits
 
                         self._inspector.log_router_decision(
-                            token_idx=self._inspector.current_session["total_tokens"],
+                            token_idx=self._inspector.current_session["generation_token_idx"],
                             layer_idx=self._layer_idx,
                             gate_logits=gate_logits_np,
                             selected_experts=selected_np,
@@ -286,7 +297,7 @@ class DiagnosticInferenceService:
     def run_inference(
         self,
         prompt: str,
-        max_tokens: int = 100,
+        max_tokens: int = 512,
         temperature: float = 0.7,
         log_routing: bool = True
     ) -> Dict[str, Any]:

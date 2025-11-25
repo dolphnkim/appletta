@@ -164,19 +164,24 @@ export default function BrainScan({ agentId }: BrainScanProps) {
   const getCurrentTokenActivations = () => {
     if (!heatmapData) return [];
 
-    const activations: { expertId: number; weight: number }[] = [];
+    const activations: { expertId: number; weight: number; percentage: number }[] = [];
     const tokenRow = heatmapData.heatmap_matrix[currentTokenIndex];
 
     if (tokenRow) {
+      // Calculate total weight for normalization
+      const totalWeight = tokenRow.reduce((sum, w) => sum + w, 0);
+
       tokenRow.forEach((weight, expertId) => {
         if (weight > 0) {
-          activations.push({ expertId, weight });
+          // Convert to percentage of total
+          const percentage = totalWeight > 0 ? (weight / totalWeight) * 100 : 0;
+          activations.push({ expertId, weight, percentage });
         }
       });
     }
 
-    // Sort by weight descending
-    return activations.sort((a, b) => b.weight - a.weight);
+    // Sort by percentage descending and take only top 8
+    return activations.sort((a, b) => b.percentage - a.percentage).slice(0, 8);
   };
 
   // Get color for activation weight (0-1)
@@ -406,24 +411,24 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                 </div>
 
                 <div className="token-expert-activations">
-                  <h6>Expert Activations:</h6>
+                  <h6>Top Expert Activations:</h6>
                   {activations.length === 0 ? (
                     <div className="no-activations">No expert activations</div>
                   ) : (
                     <div className="activations-list">
-                      {activations.slice(0, 5).map(({ expertId, weight }) => (
+                      {activations.map(({ expertId, percentage }) => (
                         <div key={expertId} className="activation-row">
                           <div className="expert-label">Expert {expertId}</div>
                           <div className="activation-bar-container">
                             <div
                               className="activation-bar"
                               style={{
-                                width: `${weight * 100}%`,
-                                backgroundColor: getActivationColor(weight)
+                                width: `${percentage}%`,
+                                backgroundColor: getActivationColor(percentage / 100)
                               }}
                             />
                           </div>
-                          <div className="activation-weight">{weight.toFixed(4)}</div>
+                          <div className="activation-weight">{percentage.toFixed(1)}%</div>
                         </div>
                       ))}
                     </div>
@@ -527,24 +532,24 @@ export default function BrainScan({ agentId }: BrainScanProps) {
 
             {/* Expert Activations for Current Token */}
             <div className="token-expert-activations">
-              <h5>Expert Activations for This Token</h5>
+              <h5>Top 8 Expert Activations for This Token</h5>
               {activations.length === 0 ? (
                 <div className="no-activations">No expert activations recorded</div>
               ) : (
                 <div className="activations-list">
-                  {activations.map(({ expertId, weight }) => (
+                  {activations.map(({ expertId, percentage }) => (
                     <div key={expertId} className="activation-row">
                       <div className="expert-label">Expert {expertId}</div>
                       <div className="activation-bar-container">
                         <div
                           className="activation-bar"
                           style={{
-                            width: `${weight * 100}%`,
-                            backgroundColor: getActivationColor(weight)
+                            width: `${percentage}%`,
+                            backgroundColor: getActivationColor(percentage / 100)
                           }}
                         />
                       </div>
-                      <div className="activation-weight">{weight.toFixed(4)}</div>
+                      <div className="activation-weight">{percentage.toFixed(1)}%</div>
                     </div>
                   ))}
                 </div>

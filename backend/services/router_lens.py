@@ -44,7 +44,8 @@ class RouterInspector:
         self.current_session = {
             "start_time": datetime.utcnow().isoformat() + "Z",
             "tokens": [],  # Per-token expert selections
-            "total_tokens": 0,  # Counter for token indexing
+            "total_tokens": 0,  # Counter for unique tokens (not layer decisions)
+            "generation_token_idx": 0,  # Current token being generated
             "expert_usage_count": {i: 0 for i in range(self.num_experts)},
             "gate_logits_history": [],  # Raw gate logits for analysis
             "entropy_history": [],  # Router entropy per token
@@ -90,7 +91,7 @@ class RouterInspector:
                 "token": input_token  # Will be filled in by token decoding later
             }
             self.current_session["tokens"].append(token_entry)
-            self.current_session["total_tokens"] += 1
+            self.current_session["total_tokens"] = len(self.current_session["tokens"])
 
         # Add this layer's routing decision
         layer_data = {
@@ -128,7 +129,19 @@ class RouterInspector:
         usage_entropy = self._entropy(self._normalize(usage_values))
 
         # Compute expert co-occurrence patterns
-        expert_sequences = [t["selected_experts"] for t in self.current_session["tokens"]]
+        # Need to handle both old flat structure and new layered structure
+        expert_sequences = []
+        for t in self.current_session["tokens"]:
+            if "layers" in t:
+                # New layered structure - aggregate experts across all layers
+                all_experts = set()
+                for layer in t["layers"]:
+                    all_experts.update(layer.get("selected_experts", []))
+                expert_sequences.append(list(all_experts))
+            else:
+                # Old flat structure (backwards compatibility)
+                expert_sequences.append(t.get("selected_experts", []))
+
         co_occurrence = self._compute_co_occurrence(expert_sequences)
 
         return {
@@ -207,7 +220,17 @@ class RouterInspector:
 
             # Aggregate co-occurrence
             for token_data in session.get("tokens", []):
-                experts = token_data.get("selected_experts", [])
+                # Handle both old and new structure
+                if "layers" in token_data:
+                    # New layered structure
+                    all_experts_in_token = set()
+                    for layer in token_data["layers"]:
+                        all_experts_in_token.update(layer.get("selected_experts", []))
+                    experts = list(all_experts_in_token)
+                else:
+                    # Old flat structure
+                    experts = token_data.get("selected_experts", [])
+
                 for i in range(len(experts)):
                     for j in range(i + 1, len(experts)):
                         pair = tuple(sorted([experts[i], experts[j]]))

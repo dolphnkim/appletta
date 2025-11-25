@@ -836,7 +836,7 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
     num_experts = session_data.get("metadata", {}).get("num_experts", 128)
 
     # Build heatmap matrix: [num_tokens x num_experts]
-    # Each cell is the activation weight for that expert at that token
+    # Each cell represents the expert's contribution to that token
     heatmap_matrix = []
     token_texts = []  # Actual token strings
 
@@ -846,15 +846,16 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
 
         # Handle new layered structure (each token has multiple layer decisions)
         if "layers" in token_data:
-            # New format: aggregate expert weights across all layers
+            # New approach: Calculate what % of layers each expert appeared in
+            # This shows which experts were consistently selected for this token
+            total_layers = len(token_data["layers"])
+
             for layer_data in token_data["layers"]:
                 selected_experts = layer_data.get("selected_experts", [])
-                expert_weights = layer_data.get("expert_weights", [])
-
-                for expert_id, weight in zip(selected_experts, expert_weights):
+                # Each selected expert gets 1/total_layers contribution
+                for expert_id in selected_experts:
                     if expert_id < num_experts:
-                        # Accumulate weights across layers (could also use max, mean, etc.)
-                        row[expert_id] += weight
+                        row[expert_id] += 1.0 / total_layers
         else:
             # Old format: single decision per token (backwards compatibility)
             selected_experts = token_data.get("selected_experts", [])

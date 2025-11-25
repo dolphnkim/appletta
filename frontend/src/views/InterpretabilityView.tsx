@@ -20,7 +20,7 @@ import './InterpretabilityView.css';
 export default function InterpretabilityView() {
   const navigate = useNavigate();
   const agentId = localStorage.getItem('selectedAgentId') || '';
-  const [activeTab, setActiveTab] = useState<'expert' | 'brain' | 'welfare'>('brain');
+  const [activeTab, setActiveTab] = useState<'expert' | 'brain' | 'welfare'>('expert');
 
   // Router Lens state
   const [routerStatus, setRouterStatus] = useState<RouterLensStatus | null>(null);
