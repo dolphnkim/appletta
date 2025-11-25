@@ -327,7 +327,7 @@
 /* Cognitive Heatmap */
 .cognitive-heatmap-container {
   background: #111;
-  border: 2px solid #ff8800;
+  border: 2px solid #6366f1;
   border-radius: 10px;
   padding: 20px;
 }
@@ -338,14 +338,14 @@
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 15px;
-  border-bottom: 2px solid #ff8800;
+  border-bottom: 2px solid #6366f1;
 }
 
 .heatmap-header h4 {
   margin: 0;
-  color: #ff8800;
+  color: #818cf8;
   font-size: 1.2em;
-  text-shadow: 0 0 10px rgba(255, 136, 0, 0.5);
+  text-shadow: 0 0 10px rgba(129, 140, 248, 0.5);
 }
 
 .heatmap-legend {
@@ -360,9 +360,10 @@
   width: 150px;
   height: 20px;
   background: linear-gradient(90deg,
-    rgba(255, 255, 0, 0.2),
-    rgba(255, 200, 0, 0.5),
-    rgba(255, 100, 0, 0.8),
+    rgba(30, 60, 150, 0.6),
+    rgba(50, 200, 200, 0.7),
+    rgba(255, 200, 0, 0.8),
+    rgba(255, 70, 0, 0.9),
     rgba(255, 0, 0, 1)
   );
   border-radius: 4px;
@@ -388,9 +389,9 @@
   cursor: pointer;
   transition: all 0.2s;
   display: inline-block;
-  color: #000;
+  color: #fff;
   font-weight: 500;
-  text-shadow: 0 0 2px rgba(255, 255, 255, 0.5);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
 .heatmap-token:hover {
@@ -410,7 +411,11 @@
 .heatmap-prompt-message {
   color: #888;
   text-align: center;
-  padding: 40px;
+  padding: 20px;
+}
+
+.heatmap-prompt-message p {
+  margin-bottom: 15px;
   font-style: italic;
 }
 
@@ -419,11 +424,11 @@
   background: #0a0a0a;
   border-radius: 8px;
   padding: 20px;
-  border: 1px solid #ff8800;
+  border: 1px solid #6366f1;
 }
 
 .selected-token-details h5 {
-  color: #ff8800;
+  color: #818cf8;
   margin: 0 0 15px 0;
   font-size: 1.1em;
 }
@@ -457,7 +462,7 @@
 }
 
 .metric-value {
-  color: #ff8800;
+  color: #818cf8;
   font-size: 1.1em;
   font-weight: bold;
 }
@@ -598,10 +603,11 @@
 
 /* Token Expert Activations */
 .token-expert-activations {
-  margin-bottom: 30px;
+  margin-bottom: 20px;
 }
 
-.token-expert-activations h5 {
+.token-expert-activations h5,
+.token-expert-activations h6 {
   color: #00cc99;
   margin: 0 0 15px 0;
   font-size: 1em;
@@ -668,6 +674,18 @@
   color: #888;
   font-size: 0.85em;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+/* Percentage Note - NEW */
+.percentage-note {
+  margin-top: 12px;
+  padding: 10px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  border-left: 3px solid #00cc99;
+  color: #888;
+  font-size: 0.8em;
+  font-style: italic;
 }
 
 /* Activation Legend */

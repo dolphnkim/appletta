@@ -3,22 +3,41 @@
  *
  * The "AI MRI Machine" - Navigate through each token to see which experts activate!
  * Shows expert activation patterns for individual tokens with full context.
+ * 
+ * METRICS EXPLAINED:
+ * - Routing Confidence: How concentrated the expert selection is (high = model is "certain")
+ * - Expert Contribution: Actual softmax weight sum across layers (how much work each expert did)
+ * - Top-K Coverage: What % of total weight the top-k experts captured
  */
 
 import { useState, useEffect } from 'react';
 import './BrainScan.css';
 
+interface LayerData {
+  layer_idx: number;
+  selected_experts: number[];
+  expert_weights: number[];
+  entropy: number;
+}
+
+interface TokenData {
+  idx: number;
+  token: string;
+  layers: LayerData[];
+}
+
 interface HeatmapData {
   filename: string;
   num_tokens: number;
   num_experts: number;
-  heatmap_matrix: number[][]; // [tokens x experts]
-  token_texts: string[]; // Actual token strings
+  heatmap_matrix: number[][]; // [tokens x experts] - NOW: actual weight sums
+  token_texts: string[];
+  token_details: TokenData[]; // Full layer-by-layer data
   metadata: {
     start_time: string;
     end_time: string;
-    prompt: string; // Full prompt
-    response: string; // Full response
+    prompt: string;
+    response: string;
     prompt_preview: string;
     response_preview: string;
   };
@@ -44,12 +63,12 @@ export default function BrainScan({ agentId }: BrainScanProps) {
   const [heatmapData, setHeatmapData] = useState<HeatmapData | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentTokenIndex, setCurrentTokenIndex] = useState(0);
-  const [showPrompt, setShowPrompt] = useState(true); // For navigation mode only
+  const [showPrompt, setShowPrompt] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState('');
   const [editedResponse, setEditedResponse] = useState('');
   const [viewMode, setViewMode] = useState<'navigation' | 'heatmap'>('heatmap');
-  const [intensityMetric, setIntensityMetric] = useState<'cognitive_load' | 'max_weight' | 'entropy'>('cognitive_load');
+  const [intensityMetric, setIntensityMetric] = useState<'routing_confidence' | 'top_expert_dominance' | 'expert_diversity'>('routing_confidence');
 
   // Fetch available sessions
   useEffect(() => {
@@ -67,14 +86,9 @@ export default function BrainScan({ agentId }: BrainScanProps) {
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       if (!heatmapData) return;
-
-      if (e.key === 'ArrowRight') {
-        goToNextToken();
-      } else if (e.key === 'ArrowLeft') {
-        goToPreviousToken();
-      }
+      if (e.key === 'ArrowRight') goToNextToken();
+      else if (e.key === 'ArrowLeft') goToPreviousToken();
     };
-
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [heatmapData, currentTokenIndex]);
@@ -84,7 +98,6 @@ export default function BrainScan({ agentId }: BrainScanProps) {
       const url = agentId
         ? `/api/v1/router-lens/sessions?agent_id=${agentId}&limit=20`
         : '/api/v1/router-lens/sessions?limit=20';
-
       const response = await fetch(url);
       const data = await response.json();
       setSessions(data.sessions || []);
@@ -95,17 +108,15 @@ export default function BrainScan({ agentId }: BrainScanProps) {
 
   const loadHeatmap = async (filename: string) => {
     setLoading(true);
-    setIsEditing(false); // Reset edit mode when loading new session
+    setIsEditing(false);
     try {
       const url = agentId
         ? `/api/v1/router-lens/sessions/${filename}/heatmap?agent_id=${agentId}`
         : `/api/v1/router-lens/sessions/${filename}/heatmap`;
-
       const response = await fetch(url);
       const data = await response.json();
       setHeatmapData(data);
       setSelectedSession(filename);
-      // Initialize edited text with current values
       setEditedPrompt(data.metadata.prompt || data.metadata.prompt_preview || '');
       setEditedResponse(data.metadata.response || data.metadata.response_preview || '');
     } catch (err) {
@@ -115,39 +126,30 @@ export default function BrainScan({ agentId }: BrainScanProps) {
     }
   };
 
-  // Toggle edit mode
   const toggleEditMode = () => {
     if (!isEditing) {
-      // Entering edit mode - initialize with current text
       setEditedPrompt(heatmapData?.metadata.prompt || heatmapData?.metadata.prompt_preview || '');
       setEditedResponse(heatmapData?.metadata.response || heatmapData?.metadata.response_preview || '');
     }
     setIsEditing(!isEditing);
   };
 
-  // Save edits
   const saveEdits = () => {
     if (heatmapData) {
       setHeatmapData({
         ...heatmapData,
-        metadata: {
-          ...heatmapData.metadata,
-          prompt: editedPrompt,
-          response: editedResponse
-        }
+        metadata: { ...heatmapData.metadata, prompt: editedPrompt, response: editedResponse }
       });
     }
     setIsEditing(false);
   };
 
-  // Cancel edits
   const cancelEdits = () => {
     setEditedPrompt(heatmapData?.metadata.prompt || heatmapData?.metadata.prompt_preview || '');
     setEditedResponse(heatmapData?.metadata.response || heatmapData?.metadata.response_preview || '');
     setIsEditing(false);
   };
 
-  // Navigate to next/previous token
   const goToNextToken = () => {
     if (heatmapData && currentTokenIndex < heatmapData.num_tokens - 1) {
       setCurrentTokenIndex(currentTokenIndex + 1);
@@ -160,120 +162,180 @@ export default function BrainScan({ agentId }: BrainScanProps) {
     }
   };
 
-  // Get expert activations for current token
+  /**
+   * Get expert activations for current token
+   * Returns the top 8 experts with their actual contribution percentages
+   * These percentages WILL sum to 100% (of the shown experts' contributions)
+   */
   const getCurrentTokenActivations = () => {
     if (!heatmapData) return [];
 
-    const activations: { expertId: number; weight: number; percentage: number }[] = [];
     const tokenRow = heatmapData.heatmap_matrix[currentTokenIndex];
+    if (!tokenRow) return [];
 
-    if (tokenRow) {
-      // Calculate total weight for normalization
-      const totalWeight = tokenRow.reduce((sum, w) => sum + w, 0);
+    // Collect all non-zero activations
+    const activations: { expertId: number; weight: number; percentage: number }[] = [];
+    
+    tokenRow.forEach((weight, expertId) => {
+      if (weight > 0) {
+        activations.push({ expertId, weight, percentage: 0 });
+      }
+    });
 
-      tokenRow.forEach((weight, expertId) => {
-        if (weight > 0) {
-          // Convert to percentage of total
-          const percentage = totalWeight > 0 ? (weight / totalWeight) * 100 : 0;
-          activations.push({ expertId, weight, percentage });
-        }
-      });
-    }
+    // Sort by weight descending
+    activations.sort((a, b) => b.weight - a.weight);
 
-    // Sort by percentage descending and take only top 8
-    return activations.sort((a, b) => b.percentage - a.percentage).slice(0, 8);
+    // Take top 8
+    const top8 = activations.slice(0, 8);
+
+    // Calculate percentage relative to top 8 total (so they sum to 100%)
+    const top8Total = top8.reduce((sum, a) => sum + a.weight, 0);
+    top8.forEach(a => {
+      a.percentage = top8Total > 0 ? (a.weight / top8Total) * 100 : 0;
+    });
+
+    return top8;
   };
 
-  // Get color for activation weight (0-1)
-  const getActivationColor = (weight: number): string => {
-    if (weight === 0) return '#111';
-
-    // Heat map: blue (low) -> yellow -> red (high)
-    const hue = (1 - weight) * 240; // 240 = blue, 0 = red
-    const saturation = 100;
-    const lightness = 30 + (weight * 40);
-
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  };
-
-  // Format token text for display
-  const formatTokenText = (text: string): string => {
-    // Show whitespace characters
-    return text.replace(/ /g, '·').replace(/\n/g, '↵').replace(/\t/g, '→');
-  };
-
-  // Get current token text with fallback
-  const getCurrentTokenText = (): string => {
-    if (!heatmapData) return '';
-    const tokenText = heatmapData.token_texts[currentTokenIndex] || '';
-
-    // If it's a placeholder like "layer_0", show the token index instead
-    if (tokenText.startsWith('layer_')) {
-      return `Token #${currentTokenIndex}`;
-    }
-
-    return tokenText;
-  };
-
-  // Calculate cognitive intensity for a token
+  /**
+   * Calculate token intensity based on selected metric
+   * All metrics return 0-1 range for color mapping
+   */
   const calculateTokenIntensity = (tokenIndex: number): number => {
     if (!heatmapData || tokenIndex >= heatmapData.heatmap_matrix.length) return 0;
 
     const tokenRow = heatmapData.heatmap_matrix[tokenIndex];
+    const activeWeights = tokenRow.filter(w => w > 0);
+    
+    if (activeWeights.length === 0) return 0;
+
+    const totalWeight = activeWeights.reduce((a, b) => a + b, 0);
+    const sortedWeights = [...activeWeights].sort((a, b) => b - a);
 
     switch (intensityMetric) {
-      case 'cognitive_load':
-        // Number of active experts / total experts
-        const activeExperts = tokenRow.filter(w => w > 0).length;
-        return activeExperts / heatmapData.num_experts;
+      case 'routing_confidence': {
+        // Higher confidence = top expert takes larger share
+        // Measured as: how much of total weight is in top expert
+        // Normalized: if top expert has 50%+ of weight, that's high confidence
+        const topWeight = sortedWeights[0] || 0;
+        const confidence = topWeight / totalWeight;
+        // Scale: 0.125 (equal 8-way split) to 1.0 (single expert dominance)
+        // Normalize to 0-1 range
+        return Math.min((confidence - 0.125) / 0.875, 1);
+      }
 
-      case 'max_weight':
-        // Maximum activation weight for this token
-        return Math.max(...tokenRow);
+      case 'top_expert_dominance': {
+        // How much the top 2 experts dominate vs others
+        const top2Weight = (sortedWeights[0] || 0) + (sortedWeights[1] || 0);
+        const dominance = top2Weight / totalWeight;
+        // Normalize: 0.25 (equal 8-way) to 1.0 (top 2 dominate)
+        return Math.min((dominance - 0.25) / 0.75, 1);
+      }
 
-      case 'entropy':
-        // Calculate entropy of expert distribution (higher = more uncertain/complex)
-        const activeWeights = tokenRow.filter(w => w > 0);
-        if (activeWeights.length === 0) return 0;
-
-        const sum = activeWeights.reduce((a, b) => a + b, 0);
-        const probs = activeWeights.map(w => w / sum);
+      case 'expert_diversity': {
+        // Entropy-based: higher = more experts contributing equally (more "uncertain")
+        // Lower = fewer experts doing the work (more "decisive")
+        // We INVERT this so red = decisive, cool = uncertain
+        const probs = activeWeights.map(w => w / totalWeight);
         const entropy = -probs.reduce((acc, p) => acc + (p > 0 ? p * Math.log2(p) : 0), 0);
-
-        // Normalize entropy to 0-1 range (max entropy for 8 experts ≈ 3)
-        return Math.min(entropy / 3, 1);
+        // Max entropy for 8 experts = log2(8) = 3
+        const normalizedEntropy = Math.min(entropy / 3, 1);
+        // Invert: high entropy (uncertain) = low intensity (cool colors)
+        return 1 - normalizedEntropy;
+      }
 
       default:
         return 0;
     }
   };
 
-  // Get color for intensity heatmap
+  /**
+   * Get color for intensity heatmap
+   * Cool (blue/green) = low intensity, Warm (yellow/red) = high intensity
+   */
   const getIntensityColor = (intensity: number): string => {
-    // Gradient from transparent -> yellow -> orange -> red
-    if (intensity < 0.2) return `rgba(255, 255, 0, ${intensity * 2})`; // Yellow
-    if (intensity < 0.5) return `rgba(255, 200, 0, ${intensity})`; // Orange-yellow
-    if (intensity < 0.8) return `rgba(255, 100, 0, ${intensity})`; // Orange
-    return `rgba(255, 0, 0, ${Math.min(intensity, 1)})`; // Red
+    if (intensity < 0.01) return 'rgba(40, 40, 40, 0.3)'; // Nearly transparent for no data
+    
+    // Gradient: dark blue -> teal -> yellow -> orange -> red
+    if (intensity < 0.25) {
+      // Blue to teal
+      const t = intensity / 0.25;
+      return `rgba(${Math.round(30 + t * 20)}, ${Math.round(60 + t * 140)}, ${Math.round(150 + t * 50)}, ${0.5 + intensity})`;
+    } else if (intensity < 0.5) {
+      // Teal to yellow
+      const t = (intensity - 0.25) / 0.25;
+      return `rgba(${Math.round(50 + t * 205)}, ${Math.round(200 - t * 50)}, ${Math.round(200 - t * 180)}, ${0.6 + intensity * 0.3})`;
+    } else if (intensity < 0.75) {
+      // Yellow to orange
+      const t = (intensity - 0.5) / 0.25;
+      return `rgba(255, ${Math.round(150 - t * 80)}, ${Math.round(20 - t * 20)}, ${0.8 + intensity * 0.15})`;
+    } else {
+      // Orange to red
+      const t = (intensity - 0.75) / 0.25;
+      return `rgba(255, ${Math.round(70 - t * 70)}, 0, ${0.9 + intensity * 0.1})`;
+    }
+  };
+
+  /**
+   * Get color for activation bar (expert contribution)
+   * Uses a professional gradient from blue to purple to indicate strength
+   */
+  const getActivationColor = (normalizedWeight: number): string => {
+    // Blue to purple gradient for expert contribution bars
+    const hue = 240 - (normalizedWeight * 60); // 240 (blue) to 180 (cyan) or to purple
+    const saturation = 70 + (normalizedWeight * 30);
+    const lightness = 45 + (normalizedWeight * 15);
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  };
+
+  const formatTokenText = (text: string): string => {
+    return text.replace(/ /g, '·').replace(/\n/g, '↵').replace(/\t/g, '→');
+  };
+
+  const getCurrentTokenText = (): string => {
+    if (!heatmapData) return '';
+    const tokenText = heatmapData.token_texts[currentTokenIndex] || '';
+    if (tokenText.startsWith('layer_')) return `Token #${currentTokenIndex}`;
+    return tokenText;
   };
 
   const currentTokenText = getCurrentTokenText();
   const activations = getCurrentTokenActivations();
 
+  // Calculate aggregate stats for current token
+  const currentTokenStats = () => {
+    if (!heatmapData) return { activeCount: 0, totalWeight: 0, topExpertShare: 0 };
+    const tokenRow = heatmapData.heatmap_matrix[currentTokenIndex];
+    if (!tokenRow) return { activeCount: 0, totalWeight: 0, topExpertShare: 0 };
+    
+    const activeWeights = tokenRow.filter(w => w > 0);
+    const totalWeight = activeWeights.reduce((a, b) => a + b, 0);
+    const sortedWeights = [...activeWeights].sort((a, b) => b - a);
+    const topExpertShare = totalWeight > 0 ? (sortedWeights[0] || 0) / totalWeight : 0;
+    
+    return {
+      activeCount: activeWeights.length,
+      totalWeight,
+      topExpertShare
+    };
+  };
+
+  const stats = currentTokenStats();
+
   return (
     <div className="brain-scan">
       <div className="brain-scan-header">
-        <h2>🧠 AI MRI Scanner - Token Navigation</h2>
-        <p>Step through each token to see which neural experts activate in real-time</p>
+        <h2>🧠 Neural Router Analysis</h2>
+        <p>Visualize which expert networks activate for each token during generation</p>
       </div>
 
       {/* Session Selector */}
       <div className="session-selector">
-        <h4>Select Brain Scan Session:</h4>
+        <h4>Select Analysis Session:</h4>
         {sessions.length === 0 ? (
           <div className="no-sessions">
             <p>No router logging sessions found.</p>
-            <p>Enable router logging on an agent to capture brain activity!</p>
+            <p>Run a diagnostic inference to capture expert routing data.</p>
           </div>
         ) : (
           <div className="sessions-list">
@@ -292,10 +354,8 @@ export default function BrainScan({ agentId }: BrainScanProps) {
         )}
       </div>
 
-      {/* Loading State */}
-      {loading && <div className="loading">Loading brain scan...</div>}
+      {loading && <div className="loading">Loading analysis data...</div>}
 
-      {/* Token Navigation View */}
       {heatmapData && !loading && (
         <div className="token-navigation-container">
           {/* View Mode Switcher */}
@@ -304,64 +364,58 @@ export default function BrainScan({ agentId }: BrainScanProps) {
               className={viewMode === 'heatmap' ? 'active' : ''}
               onClick={() => setViewMode('heatmap')}
             >
-              🔥 Cognitive Heatmap
+              🔥 Token Heatmap
             </button>
             <button
               className={viewMode === 'navigation' ? 'active' : ''}
               onClick={() => setViewMode('navigation')}
             >
-              🧭 Token Navigator
+              🧭 Context View
             </button>
           </div>
 
-          {/* Metric Selector (only in heatmap mode) */}
+          {/* Metric Selector */}
           {viewMode === 'heatmap' && (
             <div className="metric-selector">
-              <label>Intensity Metric:</label>
+              <label>Color by:</label>
               <select
                 value={intensityMetric}
                 onChange={(e) => setIntensityMetric(e.target.value as any)}
                 className="metric-dropdown"
               >
-                <option value="cognitive_load">Cognitive Load (# of experts)</option>
-                <option value="max_weight">Maximum Activation</option>
-                <option value="entropy">Uncertainty/Complexity (entropy)</option>
+                <option value="routing_confidence">Routing Confidence (top expert share)</option>
+                <option value="top_expert_dominance">Top-2 Dominance</option>
+                <option value="expert_diversity">Decisiveness (inverse entropy)</option>
               </select>
             </div>
           )}
 
           {/* Context Switcher */}
           <div className="context-switcher">
-            <button
-              className={showPrompt ? 'active' : ''}
-              onClick={() => setShowPrompt(true)}
-            >
+            <button className={showPrompt ? 'active' : ''} onClick={() => setShowPrompt(true)}>
               Prompt
             </button>
-            <button
-              className={!showPrompt ? 'active' : ''}
-              onClick={() => setShowPrompt(false)}
-            >
+            <button className={!showPrompt ? 'active' : ''} onClick={() => setShowPrompt(false)}>
               Response ({heatmapData.num_tokens} tokens)
             </button>
           </div>
 
-          {/* Cognitive Intensity Heatmap View */}
+          {/* Heatmap View */}
           {viewMode === 'heatmap' && (
             <div className="cognitive-heatmap-container">
               <div className="heatmap-header">
-                <h4>Cognitive Intensity Heatmap</h4>
+                <h4>Token Routing Heatmap</h4>
                 <div className="heatmap-legend">
-                  <span>Low</span>
+                  <span>Uncertain</span>
                   <div className="legend-gradient" />
-                  <span>High</span>
+                  <span>Decisive</span>
                 </div>
               </div>
 
               <div className="heatmap-text">
                 {showPrompt ? (
                   <div className="heatmap-prompt-message">
-                    <p>Prompt text (expert activations not captured during prefill):</p>
+                    <p>Prompt text (routing data captured during response generation only):</p>
                     <div className="context-text">
                       {heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'}
                     </div>
@@ -370,14 +424,13 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                   heatmapData.token_texts.map((token, idx) => {
                     const intensity = calculateTokenIntensity(idx);
                     const color = getIntensityColor(intensity);
-
                     return (
                       <span
                         key={idx}
                         className={`heatmap-token ${currentTokenIndex === idx ? 'selected' : ''}`}
                         style={{ backgroundColor: color }}
                         onClick={() => setCurrentTokenIndex(idx)}
-                        title={`Token ${idx}: ${token}\nIntensity: ${(intensity * 100).toFixed(1)}%`}
+                        title={`Token ${idx}: "${token}"\n${intensityMetric}: ${(intensity * 100).toFixed(1)}%`}
                       >
                         {token}
                       </span>
@@ -386,20 +439,20 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                 )}
               </div>
 
-              {/* Selected Token Details */}
+              {/* Selected Token Details - SINGLE PANEL */}
               <div className="selected-token-details">
-                <h5>Selected Token: "{currentTokenText}"</h5>
+                <h5>Token Analysis: "{currentTokenText}"</h5>
                 <div className="token-metrics">
                   <div className="metric">
-                    <span className="metric-label">Cognitive Load:</span>
+                    <span className="metric-label">Routing Confidence:</span>
                     <span className="metric-value">
-                      {(calculateTokenIntensity(currentTokenIndex) * 100).toFixed(1)}%
+                      {(stats.topExpertShare * 100).toFixed(1)}%
                     </span>
                   </div>
                   <div className="metric">
-                    <span className="metric-label">Active Experts:</span>
+                    <span className="metric-label">Experts Activated:</span>
                     <span className="metric-value">
-                      {activations.length} / {heatmapData.num_experts}
+                      {stats.activeCount}
                     </span>
                   </div>
                   <div className="metric">
@@ -411,12 +464,12 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                 </div>
 
                 <div className="token-expert-activations">
-                  <h6>Top Expert Activations:</h6>
+                  <h6>Expert Contributions (Top 8):</h6>
                   {activations.length === 0 ? (
-                    <div className="no-activations">No expert activations</div>
+                    <div className="no-activations">No expert activations recorded</div>
                   ) : (
                     <div className="activations-list">
-                      {activations.map(({ expertId, percentage }) => (
+                      {activations.map(({ expertId, percentage }, idx) => (
                         <div key={expertId} className="activation-row">
                           <div className="expert-label">Expert {expertId}</div>
                           <div className="activation-bar-container">
@@ -433,41 +486,35 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                       ))}
                     </div>
                   )}
+                  <div className="percentage-note">
+                    Percentages show relative contribution among top 8 experts (sums to 100%)
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Original Context Display (for navigation mode and editing) */}
+          {/* Context Display (navigation mode) */}
           {viewMode === 'navigation' && (
             <div className="context-display">
               <div className="context-display-header">
                 <h4>{showPrompt ? 'Prompt' : 'Model Response'}</h4>
                 <div className="context-edit-controls">
                   {!isEditing ? (
-                    <button className="edit-button" onClick={toggleEditMode}>
-                      ✏️ Edit
-                    </button>
+                    <button className="edit-button" onClick={toggleEditMode}>✏️ Edit</button>
                   ) : (
                     <>
-                      <button className="save-button" onClick={saveEdits}>
-                        ✓ Save
-                      </button>
-                      <button className="cancel-button" onClick={cancelEdits}>
-                        ✕ Cancel
-                      </button>
+                      <button className="save-button" onClick={saveEdits}>✓ Save</button>
+                      <button className="cancel-button" onClick={cancelEdits}>✕ Cancel</button>
                     </>
                   )}
                 </div>
               </div>
-
               {!isEditing ? (
                 <div className="context-text">
-                  {showPrompt ? (
-                    heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'
-                  ) : (
-                    heatmapData.metadata.response || heatmapData.metadata.response_preview || 'No response available'
-                  )}
+                  {showPrompt
+                    ? heatmapData.metadata.prompt || heatmapData.metadata.prompt_preview || 'No prompt available'
+                    : heatmapData.metadata.response || heatmapData.metadata.response_preview || 'No response available'}
                 </div>
               ) : (
                 <textarea
@@ -481,16 +528,15 @@ export default function BrainScan({ agentId }: BrainScanProps) {
             </div>
           )}
 
-          {/* Token Navigator */}
+          {/* Token Navigator - Slider and controls */}
           <div className="token-navigator">
             <div className="navigator-header">
-              <h4>Token-by-Token Expert Activation</h4>
+              <h4>Token Navigation</h4>
               <div className="token-counter">
                 Token {currentTokenIndex + 1} of {heatmapData.num_tokens}
               </div>
             </div>
 
-            {/* Current Token Display */}
             <div className="current-token-display">
               <div className="token-label">Current Token:</div>
               <div className="token-text" title={currentTokenText}>
@@ -498,7 +544,6 @@ export default function BrainScan({ agentId }: BrainScanProps) {
               </div>
             </div>
 
-            {/* Navigation Controls */}
             <div className="navigation-controls">
               <button
                 className="nav-button prev"
@@ -508,7 +553,6 @@ export default function BrainScan({ agentId }: BrainScanProps) {
               >
                 ← Previous
               </button>
-
               <div className="token-slider">
                 <input
                   type="range"
@@ -519,7 +563,6 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                   className="slider"
                 />
               </div>
-
               <button
                 className="nav-button next"
                 onClick={goToNextToken}
@@ -529,57 +572,12 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                 Next →
               </button>
             </div>
-
-            {/* Expert Activations for Current Token */}
-            <div className="token-expert-activations">
-              <h5>Top 8 Expert Activations for This Token</h5>
-              {activations.length === 0 ? (
-                <div className="no-activations">No expert activations recorded</div>
-              ) : (
-                <div className="activations-list">
-                  {activations.map(({ expertId, percentage }) => (
-                    <div key={expertId} className="activation-row">
-                      <div className="expert-label">Expert {expertId}</div>
-                      <div className="activation-bar-container">
-                        <div
-                          className="activation-bar"
-                          style={{
-                            width: `${percentage}%`,
-                            backgroundColor: getActivationColor(percentage / 100)
-                          }}
-                        />
-                      </div>
-                      <div className="activation-weight">{percentage.toFixed(1)}%</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Activation Weight Legend */}
-            <div className="activation-legend">
-              <div className="legend-title">Activation Weight Scale:</div>
-              <div className="legend-info">
-                Higher weights = stronger expert activation for this token.
-                The model routes tokens to specialized "expert" networks based on the content.
-              </div>
-              <div className="legend-gradient-bar">
-                <div className="gradient" style={{
-                  background: 'linear-gradient(90deg, hsl(240, 100%, 30%), hsl(120, 100%, 50%), hsl(60, 100%, 50%), hsl(0, 100%, 50%))'
-                }} />
-                <div className="gradient-labels">
-                  <span>0.0 (inactive)</span>
-                  <span>0.5</span>
-                  <span>1.0 (max)</span>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Session Summary */}
           {heatmapData.summary && heatmapData.summary.top_experts && (
             <div className="session-summary">
-              <h4>Overall Session Statistics</h4>
+              <h4>Session Overview</h4>
               <div className="summary-stats">
                 <div className="stat">
                   <span className="stat-label">Total Tokens:</span>
@@ -591,14 +589,11 @@ export default function BrainScan({ agentId }: BrainScanProps) {
                 </div>
                 <div className="stat">
                   <span className="stat-label">Mean Entropy:</span>
-                  <span className="stat-value">
-                    {heatmapData.summary.mean_token_entropy?.toFixed(3) || 'N/A'}
-                  </span>
+                  <span className="stat-value">{heatmapData.summary.mean_token_entropy?.toFixed(3) || 'N/A'}</span>
                 </div>
               </div>
-
               <div className="top-experts-summary">
-                <h5>Most Active Experts (Overall)</h5>
+                <h5>Most Active Experts (Session Total)</h5>
                 <div className="experts-grid">
                   {heatmapData.summary.top_experts.slice(0, 8).map((expert: any) => (
                     <div key={expert.expert_id} className="expert-summary-item">
@@ -613,7 +608,6 @@ export default function BrainScan({ agentId }: BrainScanProps) {
         </div>
       )}
 
-      {/* Keyboard Navigation Hint */}
       {heatmapData && (
         <div className="keyboard-hint">
           💡 Tip: Use ← and → arrow keys to navigate between tokens

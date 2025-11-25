@@ -804,10 +804,14 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
 
     Returns data formatted for 2D heatmap:
     - X-axis: Token position (time)
-    - Y-axis: Expert ID
-    - Color: Activation weight (0-1)
+    - Y-axis: Expert ID  
+    - Color: Actual routing weight (sum of softmax weights across layers)
 
-    This is the "AI MRI scan" - watch the brain light up!
+    FIXED: Now uses actual expert weights instead of just layer frequency.
+    
+    For each token, we sum the softmax weights that each expert received
+    across all layers. This gives the true "contribution" of each expert
+    to that token's processing.
     """
     # Determine file path
     if agent_id:
@@ -836,34 +840,43 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
     num_experts = session_data.get("metadata", {}).get("num_experts", 128)
 
     # Build heatmap matrix: [num_tokens x num_experts]
-    # Each cell represents the expert's contribution to that token
+    # FIXED: Now accumulates actual softmax weights, not just layer frequency
     heatmap_matrix = []
-    token_texts = []  # Actual token strings
+    token_texts = []
 
     for token_data in tokens:
         # Create a row for this token (one value per expert)
         row = [0.0] * num_experts
 
-        # Handle new layered structure (each token has multiple layer decisions)
         if "layers" in token_data:
-            # New approach: Calculate what % of layers each expert appeared in
-            # This shows which experts were consistently selected for this token
-            total_layers = len(token_data["layers"])
-
+            # Sum actual expert weights across all layers
             for layer_data in token_data["layers"]:
                 selected_experts = layer_data.get("selected_experts", [])
-                # Each selected expert gets 1/total_layers contribution
-                for expert_id in selected_experts:
-                    if expert_id < num_experts:
-                        row[expert_id] += 1.0 / total_layers
+                expert_weights = layer_data.get("expert_weights", [])
+                
+                # Use actual weights if available, otherwise fall back to equal contribution
+                if expert_weights and len(expert_weights) == len(selected_experts):
+                    for expert_id, weight in zip(selected_experts, expert_weights):
+                        if expert_id < num_experts:
+                            row[expert_id] += weight
+                else:
+                    # Fallback: equal contribution if no weights recorded
+                    for expert_id in selected_experts:
+                        if expert_id < num_experts:
+                            row[expert_id] += 1.0 / len(selected_experts) if selected_experts else 0
         else:
             # Old format: single decision per token (backwards compatibility)
             selected_experts = token_data.get("selected_experts", [])
             expert_weights = token_data.get("expert_weights", [])
 
-            for expert_id, weight in zip(selected_experts, expert_weights):
-                if expert_id < num_experts:
-                    row[expert_id] = weight
+            if expert_weights and len(expert_weights) == len(selected_experts):
+                for expert_id, weight in zip(selected_experts, expert_weights):
+                    if expert_id < num_experts:
+                        row[expert_id] = weight
+            else:
+                for expert_id in selected_experts:
+                    if expert_id < num_experts:
+                        row[expert_id] = 1.0 / len(selected_experts) if selected_experts else 0
 
         heatmap_matrix.append(row)
 
@@ -875,13 +888,14 @@ async def get_session_heatmap(filename: str, agent_id: Optional[str] = None):
         "filename": filename,
         "num_tokens": len(tokens),
         "num_experts": num_experts,
-        "heatmap_matrix": heatmap_matrix,  # [tokens x experts] matrix
-        "token_texts": token_texts,  # Actual token strings for each position
+        "heatmap_matrix": heatmap_matrix,  # [tokens x experts] - actual weight sums
+        "token_texts": token_texts,
+        "token_details": tokens,  # Full layer-by-layer data for detailed analysis
         "metadata": {
             "start_time": session_data.get("start_time"),
             "end_time": session_data.get("end_time"),
-            "prompt": session_data.get("metadata", {}).get("prompt", ""),  # Full prompt
-            "response": session_data.get("metadata", {}).get("response", ""),  # Full response
+            "prompt": session_data.get("metadata", {}).get("prompt", ""),
+            "response": session_data.get("metadata", {}).get("response", ""),
             "prompt_preview": session_data.get("metadata", {}).get("prompt", "")[:200],
             "response_preview": session_data.get("metadata", {}).get("response", "")[:200]
         },
