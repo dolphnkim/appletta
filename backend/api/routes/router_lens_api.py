@@ -496,7 +496,7 @@ async def get_expert_clusters(agent_id: Optional[str] = None, category: Optional
 
     inspector = get_router_inspector()
     analysis = inspector.analyze_expert_specialization(sessions)
-    
+
     return {
         "clusters": analysis.get("expert_clusters", []),
         "co_occurrence_pairs": analysis.get("co_occurrence_pairs", [])[:20],
@@ -504,6 +504,94 @@ async def get_expert_clusters(agent_id: Optional[str] = None, category: Optional
         "least_used": analysis.get("least_used", []),
         "num_sessions": len(sessions),
         "category": category
+    }
+
+
+@router.get("/analyze/prompt-type-leaderboard")
+async def get_prompt_type_leaderboard(agent_id: Optional[str] = None, top_n: int = 10):
+    """Get expert leaderboards across all prompt types for comparison
+
+    Returns the top experts for each category/prompt type so you can see
+    which experts specialize in which types of tasks!
+    """
+    if agent_id:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "agents" / agent_id
+    else:
+        log_dir = Path.home() / ".appletta" / "router_lens" / "general"
+
+    if not log_dir.exists():
+        return {"error": "No sessions found"}
+
+    # Group sessions by category
+    category_sessions: Dict[str, List[Dict]] = {}
+
+    for filepath in log_dir.glob("router_session_*.json"):
+        try:
+            with open(filepath) as f:
+                session_data = json.load(f)
+                category = session_data.get("metadata", {}).get("category", "uncategorized")
+                if category not in category_sessions:
+                    category_sessions[category] = []
+                category_sessions[category].append(session_data)
+        except Exception:
+            continue
+
+    if not category_sessions:
+        return {"error": "No categorized sessions found"}
+
+    # Analyze each category
+    inspector = get_router_inspector()
+    leaderboard = {}
+
+    for category, sessions in category_sessions.items():
+        analysis = inspector.analyze_expert_specialization(sessions)
+
+        # Get top experts with normalized scores
+        top_experts = analysis.get("most_used", [])[:top_n]
+        total_activations = sum(count for _, count in top_experts) if top_experts else 1
+
+        leaderboard[category] = {
+            "num_sessions": len(sessions),
+            "total_activations": total_activations,
+            "top_experts": [
+                {
+                    "expert_id": expert_id,
+                    "count": count,
+                    "percentage": (count / total_activations) * 100 if total_activations > 0 else 0,
+                    "avg_per_session": count / len(sessions)
+                }
+                for expert_id, count in top_experts
+            ],
+            "prefill_top": sorted(
+                analysis.get("prefill_usage", {}).items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:top_n],
+            "generation_top": sorted(
+                analysis.get("generation_usage", {}).items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:top_n],
+        }
+
+    # Find "champion" experts (highest activation in each category)
+    champions = {}
+    for category, data in leaderboard.items():
+        if data["top_experts"]:
+            champion = data["top_experts"][0]
+            if champion["expert_id"] not in champions:
+                champions[champion["expert_id"]] = []
+            champions[champion["expert_id"]].append({
+                "category": category,
+                "count": champion["count"],
+                "percentage": champion["percentage"]
+            })
+
+    return {
+        "leaderboard": leaderboard,
+        "champions": champions,
+        "categories": list(category_sessions.keys()),
+        "total_sessions": sum(len(sessions) for sessions in category_sessions.values())
     }
 
 

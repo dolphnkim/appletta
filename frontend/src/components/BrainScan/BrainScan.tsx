@@ -79,7 +79,7 @@ interface BrainScanProps {
   agentId?: string;
 }
 
-type ViewMode = 'heatmap' | 'expert-tracking';
+type ViewMode = 'heatmap' | 'expert-tracking' | 'leaderboard';
 type PhaseFilter = 'all' | 'prefill' | 'generation';
 
 export default function BrainScan({ agentId }: BrainScanProps) {
@@ -105,6 +105,9 @@ export default function BrainScan({ agentId }: BrainScanProps) {
   const [expertClusters, setExpertClusters] = useState<any>(null);
   const [layerExpertHeatmap, setLayerExpertHeatmap] = useState<any>(null);
   const [analysisScope, setAnalysisScope] = useState<'session' | 'aggregate'>('aggregate');
+
+  // Leaderboard state
+  const [leaderboardData, setLeaderboardData] = useState<any>(null);
 
   // Fetch sessions and categories
   useEffect(() => {
@@ -214,13 +217,13 @@ export default function BrainScan({ agentId }: BrainScanProps) {
 
   const loadAllCategoriesComparison = async () => {
     if (categories.length === 0) return;
-    
+
     setLoading(true);
     try {
       const url = agentId
         ? `/api/v1/router-lens/analyze/category-comparison?agent_id=${agentId}`
         : '/api/v1/router-lens/analyze/category-comparison';
-      
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -230,6 +233,22 @@ export default function BrainScan({ agentId }: BrainScanProps) {
       setCategoryAnalysis(data.categories);
     } catch (err) {
       console.error('Failed to compare categories:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadLeaderboard = async () => {
+    setLoading(true);
+    try {
+      const url = agentId
+        ? `/api/v1/router-lens/analyze/prompt-type-leaderboard?agent_id=${agentId}&top_n=10`
+        : '/api/v1/router-lens/analyze/prompt-type-leaderboard?top_n=10';
+      const response = await fetch(url);
+      const data = await response.json();
+      setLeaderboardData(data);
+    } catch (err) {
+      console.error('Failed to load leaderboard:', err);
     } finally {
       setLoading(false);
     }
@@ -407,38 +426,51 @@ export default function BrainScan({ agentId }: BrainScanProps) {
         >
           🧬 Expert Tracking
         </button>
+        <button
+          className={viewMode === 'leaderboard' ? 'active' : ''}
+          onClick={() => {
+            setViewMode('leaderboard');
+            if (!leaderboardData) {
+              loadLeaderboard();
+            }
+          }}
+        >
+          🏆 Prompt Type Leaderboard
+        </button>
       </div>
 
-      {/* Session Selector */}
-      <div className="session-selector">
-        <h4>Analysis Sessions:</h4>
-        {sessions.length === 0 ? (
-          <div className="no-sessions">
-            <p>No router logging sessions found.</p>
-            <p>Run a diagnostic inference to capture expert routing data.</p>
-          </div>
-        ) : (
-          <div className="sessions-list">
-            {sessions.map((session) => (
-              <button
-                key={session.filename}
-                className={`session-item ${selectedSession === session.filename ? 'active' : ''}`}
-                onClick={() => loadHeatmap(session.filename)}
-              >
-                <div className="session-time">{new Date(session.start_time).toLocaleString()}</div>
-                <div className="session-preview">{session.prompt_preview}</div>
-                <div className="session-meta">
-                  {session.category && <span className="session-category">{session.category}</span>}
-                  <span className="session-stats">
-                    {session.prefill_tokens ? `${session.prefill_tokens}p` : ''} 
-                    {session.generation_tokens ? ` ${session.generation_tokens}g` : ` ${session.total_tokens}t`}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Session Selector - Only show for heatmap view */}
+      {viewMode === 'heatmap' && (
+        <div className="session-selector">
+          <h4>Analysis Sessions:</h4>
+          {sessions.length === 0 ? (
+            <div className="no-sessions">
+              <p>No router logging sessions found.</p>
+              <p>Run a diagnostic inference to capture expert routing data.</p>
+            </div>
+          ) : (
+            <div className="sessions-list">
+              {sessions.map((session) => (
+                <button
+                  key={session.filename}
+                  className={`session-item ${selectedSession === session.filename ? 'active' : ''}`}
+                  onClick={() => loadHeatmap(session.filename)}
+                >
+                  <div className="session-time">{new Date(session.start_time).toLocaleString()}</div>
+                  <div className="session-preview">{session.prompt_preview}</div>
+                  <div className="session-meta">
+                    {session.category && <span className="session-category">{session.category}</span>}
+                    <span className="session-stats">
+                      {session.prefill_tokens ? `${session.prefill_tokens}p` : ''}
+                      {session.generation_tokens ? ` ${session.generation_tokens}g` : ` ${session.total_tokens}t`}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading && <div className="loading">Loading analysis data...</div>}
 
@@ -746,6 +778,130 @@ export default function BrainScan({ agentId }: BrainScanProps) {
             <div className="no-categories">
               <p>No categorized sessions found.</p>
               <p>Save diagnostic sessions with category tags to enable expert tracking.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============ LEADERBOARD VIEW ============ */}
+      {viewMode === 'leaderboard' && !loading && leaderboardData && (
+        <div className="leaderboard-container">
+          <div className="leaderboard-header">
+            <h3>🏆 Expert Leaderboard by Prompt Type</h3>
+            <p className="leaderboard-subtitle">
+              See which experts dominate each category - your MoE specialists revealed!
+            </p>
+            <div className="leaderboard-stats">
+              <span className="stat-item">
+                <strong>{leaderboardData.categories?.length || 0}</strong> Categories
+              </span>
+              <span className="stat-item">
+                <strong>{leaderboardData.total_sessions || 0}</strong> Sessions Analyzed
+              </span>
+            </div>
+          </div>
+
+          {/* Champion Experts Section */}
+          {leaderboardData.champions && Object.keys(leaderboardData.champions).length > 0 && (
+            <div className="champions-section">
+              <h4>🥇 Champion Experts</h4>
+              <p className="section-description">
+                Experts that rank #1 in at least one category
+              </p>
+              <div className="champions-grid">
+                {Object.entries(leaderboardData.champions).map(([expertId, categories]: [string, any]) => (
+                  <div key={expertId} className="champion-card">
+                    <div className="champion-header">
+                      <span className="champion-id">Expert {expertId}</span>
+                      <span className="champion-badge">🥇 {categories.length}×</span>
+                    </div>
+                    <div className="champion-categories">
+                      {categories.map((cat: any, idx: number) => (
+                        <div key={idx} className="champion-category">
+                          <span className="category-name">{cat.category}</span>
+                          <span className="category-stat">{cat.percentage.toFixed(1)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Category Leaderboards */}
+          <div className="category-leaderboards">
+            <h4>📊 Top Experts by Prompt Type</h4>
+            <div className="leaderboards-grid">
+              {leaderboardData.leaderboard && Object.entries(leaderboardData.leaderboard).map(([category, data]: [string, any]) => (
+                <div key={category} className="category-leaderboard">
+                  <div className="category-leaderboard-header">
+                    <h5>{category}</h5>
+                    <span className="session-count">{data.num_sessions} sessions</span>
+                  </div>
+
+                  <div className="expert-rankings">
+                    {data.top_experts?.map((expert: any, idx: number) => {
+                      const maxPercentage = data.top_experts[0]?.percentage || 100;
+                      const barWidth = (expert.percentage / maxPercentage) * 100;
+
+                      return (
+                        <div key={expert.expert_id} className="ranking-row">
+                          <div className="ranking-position">
+                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`}
+                          </div>
+                          <div className="expert-id-label">E{expert.expert_id}</div>
+                          <div className="ranking-bar-container">
+                            <div
+                              className="ranking-bar"
+                              style={{
+                                width: `${barWidth}%`,
+                                backgroundColor: getActivationColor(barWidth / 100)
+                              }}
+                            />
+                          </div>
+                          <div className="ranking-stats">
+                            <span className="stat-percentage">{expert.percentage.toFixed(1)}%</span>
+                            <span className="stat-count">{expert.count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Phase breakdown */}
+                  <div className="phase-breakdown">
+                    <div className="phase-column">
+                      <span className="phase-label">📥 Prefill Top 3</span>
+                      <div className="phase-experts">
+                        {data.prefill_top?.slice(0, 3).map(([expertId, count]: [number, number]) => (
+                          <span key={expertId} className="phase-expert">
+                            E{expertId} ({count})
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="phase-column">
+                      <span className="phase-label">📤 Generation Top 3</span>
+                      <div className="phase-experts">
+                        {data.generation_top?.slice(0, 3).map(([expertId, count]: [number, number]) => (
+                          <span key={expertId} className="phase-expert">
+                            E{expertId} ({count})
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* No Data State */}
+          {(!leaderboardData.leaderboard || Object.keys(leaderboardData.leaderboard).length === 0) && (
+            <div className="no-categories">
+              <p>No categorized sessions found.</p>
+              <p>Save diagnostic sessions with category tags to see the leaderboard.</p>
             </div>
           )}
         </div>
