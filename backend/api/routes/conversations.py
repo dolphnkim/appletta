@@ -127,15 +127,24 @@ async def get_context_window(
 
     system_tokens = count_tokens(system_content)
 
+    # Count tool instructions tokens (if tools are enabled)
+    tool_instructions_tokens = 0
+    tool_instructions_text = ""
+    if agent.enabled_tools and len(agent.enabled_tools) > 0:
+        from backend.services.tools import get_tools_description
+        tool_instructions_text = get_tools_description(agent.enabled_tools, agent.id, db)
+        tool_instructions_tokens = count_tokens(tool_instructions_text)
+
     # Count tool overhead from messages in context (not all history)
     tool_overhead_tokens = 0
     for msg in messages_in_context:
         if msg.role == "assistant" and msg.metadata_:
             tool_overhead_tokens += msg.metadata_.get("wizard_overhead_tokens", 0)
+            tool_overhead_tokens += msg.metadata_.get("inline_tools_used", 0) * 50  # Estimate for inline tool results
 
     # Calculate totals
     messages_tokens = current_tokens
-    total_tokens = system_tokens + messages_tokens + tool_overhead_tokens
+    total_tokens = system_tokens + tool_instructions_tokens + messages_tokens + tool_overhead_tokens
 
     sections = [
         {
@@ -143,21 +152,30 @@ async def get_context_window(
             "tokens": system_tokens,
             "percentage": round((system_tokens / max_context) * 100, 1) if max_context > 0 else 0,
             "content": f"Project instructions + {len(pinned_blocks)} pinned blocks" + (" + memory estimate" if memory_estimate else "")
-        },
-        {
-            "name": "Messages in Context",
-            "tokens": messages_tokens,
-            "percentage": round((messages_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": f"{len(messages_in_context)} messages ({messages_dropped} dropped by shifting window)"
         }
     ]
+
+    if tool_instructions_tokens > 0:
+        sections.append({
+            "name": "Tool Instructions",
+            "tokens": tool_instructions_tokens,
+            "percentage": round((tool_instructions_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": tool_instructions_text[:300] + "..." if len(tool_instructions_text) > 300 else tool_instructions_text
+        })
+
+    sections.append({
+        "name": "Messages in Context",
+        "tokens": messages_tokens,
+        "percentage": round((messages_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+        "content": f"{len(messages_in_context)} messages ({messages_dropped} dropped by shifting window)"
+    })
 
     if tool_overhead_tokens > 0:
         sections.append({
             "name": "Tool Execution Overhead",
             "tokens": tool_overhead_tokens,
             "percentage": round((tool_overhead_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": "Wizard menus + results from messages in context"
+            "content": "Tool results injected during conversation"
         })
 
     return {
@@ -1131,33 +1149,44 @@ async def _chat_stream_internal(
     # === ROUTER LOGGING CHECK ===
     use_router_logging = getattr(agent, 'router_logging_enabled', False)
 
-    # === TOOL WIZARD CHECK ===
-    # If tools are enabled, use the NEW wizard system: stream response first, then wizard
-    from backend.services.tool_wizard import get_wizard_state, process_wizard_step, show_main_menu, WizardState, clean_llm_response, parse_command
+    # === INLINE TOOL SYSTEM ===
+    # If tools are enabled, use inline tool parsing (LLM includes tools in response)
+    from backend.services.tool_wizard import (
+        # Legacy wizard imports (kept for compatibility)
+        get_wizard_state, process_wizard_step, show_main_menu, WizardState, clean_llm_response, parse_command,
+        # New inline tool imports
+        process_response_with_inline_tools, get_inline_tool_instructions, format_inline_tool_results
+    )
 
     if agent.enabled_tools and len(agent.enabled_tools) > 0:
-        # NEW FLOW: Stream response FIRST, then wizard menu appears
-        # 1. Stream initial LLM response to user in real-time
-        # 2. After streaming, show wizard menu (send_message_to_user, continue_chatting, tools...)
-        # 3. If tool selected, execute tool, show menu again
-        # 4. If continue_chatting, stream more response, show menu again
-        # 5. If send_message_to_user, finalize and save to DB
-        # 6. Max 5 tool uses per turn
+        # INLINE TOOL FLOW:
+        # 1. Add tool instructions to context
+        # 2. LLM generates response (may include inline tool calls)
+        # 3. Parse and execute any tool calls found
+        # 4. If tools were used, inject results and let LLM continue
+        # 5. Filter tool syntax from final response
+        # 6. Save clean response to database
 
-        max_tool_calls = 5
+        max_tool_iterations = 3  # Max loops for tool execution
         tool_call_count = 0
-        accumulated_response = ""  # All streamed content so far
-        wizard_messages = []  # Track wizard conversation (not saved to DB)
-        invalid_command_count = 0  # Track invalid wizard commands
-        max_invalid_commands = 2  # Auto-finalize after 2 invalid commands
+        accumulated_response = ""  # Clean response for user (tool syntax filtered out)
 
-        print(f"\n🧙 WIZARD: NEW FLOW - Stream first, then wizard menu\n")
+        print(f"\n🔧 INLINE TOOLS: Enabled for agent {agent.name}")
         print(f"   User's message: {message[:100]}...")
-        print(f"   Will stream response first, then show tool options\n")
 
-        # Streaming generator that implements the new flow
-        async def generate_stream_with_wizard():
-            nonlocal tool_call_count, accumulated_response, wizard_messages, invalid_command_count, mlx_process, mlx_manager, skip_mlx_server
+        # Add tool instructions to context (only for enabled tools)
+        tool_instructions = get_inline_tool_instructions(str(agent.id), db, agent.enabled_tools)
+        messages_with_tools = []
+        tool_instructions_added = False
+        for msg in base_messages:
+            messages_with_tools.append(msg)
+            if msg.get("role") == "system" and not tool_instructions_added:
+                messages_with_tools.append({"role": "system", "content": tool_instructions})
+                tool_instructions_added = True
+
+        # Streaming generator that implements inline tool flow
+        async def generate_stream_with_inline_tools():
+            nonlocal tool_call_count, accumulated_response, mlx_process, mlx_manager, skip_mlx_server
 
             # Send raw memory narrative first so user can see what the memory agent said
             if memory_narrative:
@@ -1195,17 +1224,16 @@ async def _chat_stream_internal(
                     yield f"data: {json.dumps({'type': 'status', 'content': f'⚠️ Router logging failed to initialize: {str(e)}'})}\n\n"
                     diagnostic_service = None
 
-            wizard_loop_active = True
-            wizard_state = WizardState()
+            # Initialize for inline tool loop
+            current_messages = messages_with_tools.copy()
+            router_analysis_data = None
+            iteration = 0
 
-            while wizard_loop_active:
-                # STEP 1: Stream LLM response to user
+            while iteration < max_tool_iterations:
+                iteration += 1
                 print(f"\n{'='*80}")
-                print(f"🧙 WIZARD: Streaming LLM response (tool calls so far: {tool_call_count}/{max_tool_calls})")
+                print(f"🔧 INLINE TOOLS: Generation iteration {iteration} (tools used: {tool_call_count})")
                 print(f"{'='*80}")
-
-                # Build context: base + wizard conversation
-                current_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages]
 
                 request_payload = {
                     "messages": current_messages,
@@ -1215,23 +1243,40 @@ async def _chat_stream_internal(
                     "stream": True
                 }
 
-                print(f"\n📤 STREAMING LLM CALL:")
+                print(f"\n📤 LLM CALL (Iteration {iteration}):")
                 if use_router_logging:
                     print(f"Mode: Router Logging (Diagnostic Service)")
                 else:
                     print(f"Port: {mlx_process.port if mlx_process else 'None (MLX not started)'}")
                 print(f"Temperature: {agent.temperature}")
                 print(f"Messages: {len(current_messages)}")
+                
+                # VERBOSE: Show tool instructions and recent messages
+                print(f"\n{'─'*60}")
+                print(f"📋 TOOL INSTRUCTIONS SENT TO LLM:")
+                print(f"{'─'*60}")
+                print(tool_instructions)
+                print(f"{'─'*60}")
+                
+                # Show full message array sent to LLM
+                print(f"\n📨 FULL MESSAGE ARRAY SENT TO LLM ({len(current_messages)} messages total):")
+                for i, msg in enumerate(current_messages):
+                    role = msg.get("role", "?")
+                    content = msg.get("content", "")
+                    print(f"\n  ┌─ [{i}] [{role}] ─────────────────────────────────────")
+                    # Show full content for all messages
+                    for line in content.split('\n'):
+                        print(f"  │ {line}")
+                    print(f"  └{'─'*50}")
+                print(f"{'─'*60}")
 
-                streamed_content = ""
-                router_analysis_data = None
+                raw_response = ""
 
                 try:
                     if use_router_logging and diagnostic_service:
                         # Use diagnostic inference with router logging (non-streaming)
                         print(f"🔬 Using router logging for this response")
 
-                        # Build prompt from current_messages
                         prompt_parts = []
                         for msg in current_messages:
                             role = msg.get("role", "")
@@ -1244,17 +1289,9 @@ async def _chat_stream_internal(
                                 prompt_parts.append(f"Assistant: {content}")
 
                         conversation_prompt = "\n\n".join(prompt_parts)
+                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Running inference with router logging...'})}\n\n"
 
-                        # Show status that inference is running
-                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Running inference with router logging... (this may take a while for long contexts)'})}\n\n"
-
-                        # Run diagnostic inference in thread to not block event loop
-                        # This is critical for large models where generation can take minutes
                         max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
-
-                        print(f"[Router Logging] About to start inference - {len(current_messages)} messages, max_tokens={max_tokens}, temp={agent.temperature}")
-                        print(f"[Router Logging] Prompt length: {len(conversation_prompt)} chars")
-
                         result_dict = await asyncio.to_thread(
                             diagnostic_service.run_inference,
                             prompt=conversation_prompt,
@@ -1263,26 +1300,15 @@ async def _chat_stream_internal(
                             log_routing=True
                         )
 
-                        print(f"[Router Logging] Inference complete, got result_dict with keys: {result_dict.keys()}")
-
-                        streamed_content = result_dict["response"]
+                        raw_response = result_dict["response"]
                         router_analysis_data = result_dict["router_analysis"]
-
-                        print(f"[Router Logging] Response length: {len(streamed_content)} chars")
-
-                        # "Fake stream" the response by yielding it in chunks
-                        chunk_size = 20  # characters per chunk
-                        for i in range(0, len(streamed_content), chunk_size):
-                            content_chunk = streamed_content[i:i+chunk_size]
-                            yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
-                            await asyncio.sleep(0.01)  # Small delay to simulate streaming
-
                         print(f"🔬 Router logging captured: {router_analysis_data.get('unique_experts_used', 0)} experts used")
 
                     else:
-                        # Standard MLX server streaming
+                        # Standard MLX server (collect full response for tool parsing)
                         if not mlx_process:
                             raise Exception("MLX server not available - mlx_process is None")
+                        
                         async with httpx.AsyncClient(timeout=120.0) as client:
                             async with client.stream(
                                 "POST",
@@ -1297,300 +1323,99 @@ async def _chat_stream_internal(
                                         try:
                                             chunk = json.loads(data)
                                             delta = chunk["choices"][0]["delta"]
-
                                             if "content" in delta and delta["content"]:
-                                                content_chunk = delta["content"]
-                                                streamed_content += content_chunk
-                                                # Stream to user in real-time
-                                                yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
+                                                raw_response += delta["content"]
                                         except json.JSONDecodeError:
                                             continue
 
-                    # Clean the streamed content (remove thinking tags)
-                    cleaned_content = clean_llm_response(streamed_content)
-                    accumulated_response += cleaned_content
+                    print(f"\n{'═'*60}")
+                    print(f"📥 FULL LLM RESPONSE ({len(raw_response)} chars):")
+                    print(f"{'═'*60}")
+                    print(raw_response)
+                    print(f"{'═'*60}")
 
-                    print(f"\n📥 STREAMED RESPONSE:")
-                    print(f"{'-'*40}")
-                    print(f"{cleaned_content}")
-                    print(f"{'-'*40}")
-                    log_debug("llm_response", "Streamed response", data={"content": cleaned_content}, conversation_id=str(conversation_id), agent_id=str(agent.id))
+                    # Parse and execute inline tools, get cleaned response
+                    cleaned_response, tool_results = process_response_with_inline_tools(
+                        raw_response, str(agent.id), db
+                    )
 
-                    # Add assistant response to wizard conversation
-                    wizard_messages.append({
-                        "role": "assistant",
-                        "content": streamed_content
-                    })
+                    # Show what was parsed
+                    if tool_results:
+                        print(f"\n🔧 TOOLS DETECTED AND EXECUTED:")
+                        for tr in tool_results:
+                            print(f"   {'✅' if tr.success else '❌'} {tr.message}")
+                    
+                    print(f"\n📤 CLEANED RESPONSE (sent to user, {len(cleaned_response)} chars):")
+                    print(f"{'─'*60}")
+                    print(cleaned_response if cleaned_response else "(empty)")
+                    print(f"{'─'*60}")
 
-                    # Store router analysis for later (will be saved with message)
-                    if router_analysis_data:
-                        wizard_state.context["router_analysis"] = router_analysis_data
+                    # Stream cleaned response to user (tool syntax filtered out)
+                    if cleaned_response:
+                        chunk_size = 20
+                        for i in range(0, len(cleaned_response), chunk_size):
+                            content_chunk = cleaned_response[i:i+chunk_size]
+                            yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
+                            await asyncio.sleep(0.01)
+                        accumulated_response += cleaned_response
+
+                    log_debug("llm_response", "Response processed", data={"raw_len": len(raw_response), "clean_len": len(cleaned_response), "tools": len(tool_results)}, conversation_id=str(conversation_id), agent_id=str(agent.id))
+
+                    # If tools were executed, inject results and continue loop
+                    if tool_results:
+                        tool_call_count += len(tool_results)
+                        print(f"🔧 Executed {len(tool_results)} tool(s), total: {tool_call_count}")
+
+                        # Add raw response to conversation
+                        current_messages.append({"role": "assistant", "content": raw_response})
+
+                        # Inject tool results for next iteration
+                        results_text = format_inline_tool_results(tool_results)
+                        current_messages.append({"role": "system", "content": results_text})
+
+                        # Add spacing
+                        if accumulated_response and not accumulated_response.endswith("\n"):
+                            accumulated_response += "\n\n"
+                            yield f"data: {json.dumps({'type': 'content', 'content': chr(10) + chr(10)})}\n\n"
+
+                        continue  # Let LLM respond to tool results
+                    else:
+                        break  # No tools, we're done
 
                 except Exception as e:
                     import traceback
-                    print(f"🧙 WIZARD STREAMING ERROR: {traceback.format_exc()}")
+                    print(f"🔧 INLINE TOOLS ERROR: {traceback.format_exc()}")
                     yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
                     return
 
-                # STEP 2: Show wizard menu (after streaming)
-                if tool_call_count >= max_tool_calls:
-                    # Hit tool limit, auto-finalize
-                    print(f"\n🧙 WIZARD: Hit {max_tool_calls} tool call limit, auto-finalizing")
-                    wizard_loop_active = False
-                    continue
-
-                # Show post-response wizard menu
-                wizard_prompt = show_main_menu(str(agent.id), db, post_response=True)
-
-                print(f"\n📤 POST-RESPONSE WIZARD MENU:")
-                print(f"{'-'*40}")
-                print(wizard_prompt)
-                print(f"{'-'*40}")
-
-                # Add wizard menu as system message
-                wizard_messages.append({
-                    "role": "system",
-                    "content": f"[TOOL WIZARD]\n{wizard_prompt}"
-                })
-
-                # STEP 3: Get LLM's choice (non-streaming, short response)
-                # Use reasonable timeout (60s) - if LLM takes too long, auto-finalize
-                choice_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages]
-
-                try:
-                    async with httpx.AsyncClient(timeout=60.0) as client:  # 60 second timeout for wizard choice
-                        response = await client.post(
-                            f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                            json={
-                                "messages": choice_messages,
-                                "temperature": agent.temperature,
-                                "max_tokens": 100,  # Short response for menu choice
-                            }
-                        )
-                        response.raise_for_status()
-                        result = response.json()
-
-                    llm_choice = result["choices"][0]["message"].get("content", "")
-                    cleaned_choice = clean_llm_response(llm_choice)
-                    command, target = parse_command(cleaned_choice)
-
-                    print(f"\n📥 LLM WIZARD CHOICE: {cleaned_choice}")
-                    print(f"🎯 PARSED COMMAND: {command}" + (f" (target: {target})" if target else ""))
-                    log_debug("wizard_choice", f"LLM chose: {command}", data={"raw_choice": cleaned_choice, "command": command, "target": target}, conversation_id=str(conversation_id), agent_id=str(agent.id))
-
-                    # Add LLM choice to conversation
-                    wizard_messages.append({
-                        "role": "assistant",
-                        "content": llm_choice
-                    })
-
-                except httpx.TimeoutException:
-                    # Timeout - auto-finalize with send_message_to_user
-                    print(f"⏰ WIZARD CHOICE TIMEOUT - auto-finalizing message")
-                    log_debug("wizard_error", "Wizard choice timeout - auto-finalizing", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                    wizard_loop_active = False
-                    continue
-                except Exception as e:
-                    print(f"🧙 WIZARD CHOICE ERROR: {e}")
-                    log_debug("wizard_error", f"Wizard choice error: {e}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                    # On error, auto-finalize
-                    wizard_loop_active = False
-                    continue
-
-                # STEP 4: Process the choice
-                if command == "send_message_to_user":
-                    # Finalize - exit loop
-                    print(f"   ➡️  LLM chose to finalize message")
-                    log_debug("wizard_action", "LLM finalized message", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                    wizard_loop_active = False
-
-                elif command == "continue_chatting" or command == "chat_normally":
-                    # Continue - loop back to stream more
-                    action = "continue chatting" if command == "continue_chatting" else "chat normally"
-                    print(f"   ➡️  LLM chose to {action} (will stream more)")
-                    log_debug("wizard_action", f"LLM chose to {action}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                    # Add newlines between chunks and stream them to user
-                    if accumulated_response and not accumulated_response.endswith("\n"):
-                        accumulated_response += "\n\n"
-                        newline_data = json.dumps({'type': 'content', 'content': '\n\n'})
-                        yield f"data: {newline_data}\n\n"
-                    # Loop continues, will stream more
-
-                else:
-                    # Tool operation - process through wizard
-                    wizard_prompt_result, wizard_state, continue_wizard = await process_wizard_step(
-                        user_message=cleaned_choice,
-                        wizard_state=wizard_state,
-                        agent_id=str(agent.id),
-                        db=db
-                    )
-
-                    # Check if tool was executed first - reset invalid counter
-                    if wizard_state.iteration > 0:
-                        tool_call_count = wizard_state.iteration
-                        invalid_command_count = 0
-                        print(f"   ➡️  Tool executed (total: {tool_call_count}/{max_tool_calls})")
-                        log_debug("wizard_action", f"Tool executed (total: {tool_call_count}/{max_tool_calls})", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                    # Check if this was an invalid command (only if tool wasn't executed)
-                    elif continue_wizard and "didn't understand that command" in wizard_prompt_result:
-                        invalid_command_count += 1
-                        print(f"   ⚠️  Invalid command #{invalid_command_count}/{max_invalid_commands}")
-                        log_debug("wizard_invalid", f"Invalid command #{invalid_command_count}/{max_invalid_commands}", data={"wizard_prompt_result": wizard_prompt_result}, conversation_id=str(conversation_id), agent_id=str(agent.id))
-
-                        # CRITICAL: Restart MLX server after invalid command to clear poisoned KV cache
-                        # MLX server caches prompts, and after an invalid command the cache is corrupted
-                        # causing the model to repeat the same output on subsequent requests
-                        if mlx_process and not skip_mlx_server:
-                            print(f"   🔄 Restarting MLX server to clear KV cache after invalid command")
-                            log_debug("mlx_restart", "Restarting MLX server to clear KV cache after invalid command", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                            try:
-                                await mlx_manager.stop_agent_server(agent.id)
-                                mlx_process = await mlx_manager.start_agent_server(agent)
-                                print(f"   ✅ MLX server restarted on port {mlx_process.port}")
-                                log_debug("mlx_restart", f"MLX server restarted on port {mlx_process.port}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                            except Exception as e:
-                                print(f"   ⚠️  Failed to restart MLX server: {e}")
-                                log_debug("mlx_restart", f"Failed to restart MLX server: {e}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-
-                        if invalid_command_count >= max_invalid_commands:
-                            print(f"   🛑 Too many invalid commands - auto-finalizing")
-                            log_debug("wizard_invalid", f"Too many invalid commands ({invalid_command_count}) - auto-finalizing", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                            wizard_loop_active = False
-                            continue
-
-                    if continue_wizard and wizard_prompt_result:
-                        # Tool needs more input (multi-step), add prompt and get response
-                        wizard_messages.append({
-                            "role": "system",
-                            "content": f"[TOOL WIZARD]\n{wizard_prompt_result}"
-                        })
-
-                        # Loop to get more input for multi-step tool
-                        inner_loop_count = 0
-                        max_inner_loop = 20  # Prevent infinite loops
-                        while continue_wizard and wizard_prompt_result and inner_loop_count < max_inner_loop:
-                            inner_loop_count += 1
-                            print(f"\n📤 WIZARD SUB-PROMPT (iteration {inner_loop_count}):")
-                            print(f"{wizard_prompt_result}")
-
-                            sub_messages = base_messages + [{"role": msg["role"], "content": msg["content"]} for msg in wizard_messages]
-
-                            async with httpx.AsyncClient(timeout=120.0) as client:
-                                response = await client.post(
-                                    f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                                    json={
-                                        "messages": sub_messages,
-                                        "temperature": agent.temperature,
-                                        "max_tokens": 2000,  # Longer for content
-                                    }
-                                )
-                                response.raise_for_status()
-                                result = response.json()
-
-                            sub_response = result["choices"][0]["message"].get("content", "")
-                            print(f"📥 LLM SUB-RESPONSE: {clean_llm_response(sub_response)}")
-
-                            wizard_messages.append({
-                                "role": "assistant",
-                                "content": sub_response
-                            })
-
-                            # Track iteration before processing
-                            previous_iteration = wizard_state.iteration
-
-                            wizard_prompt_result, wizard_state, continue_wizard = await process_wizard_step(
-                                user_message=sub_response,
-                                wizard_state=wizard_state,
-                                agent_id=str(agent.id),
-                                db=db
-                            )
-
-                            # Check if tool was executed or invalid command
-                            if wizard_state.iteration > previous_iteration:
-                                tool_call_count = wizard_state.iteration
-                                invalid_command_count = 0  # Reset on successful tool execution
-                                print(f"   ➡️  Tool executed (total: {tool_call_count}/{max_tool_calls})")
-                            elif continue_wizard and "didn't understand that command" in wizard_prompt_result:
-                                invalid_command_count += 1
-                                print(f"   ⚠️  Invalid command in inner loop #{invalid_command_count}/{max_invalid_commands}")
-
-                                # CRITICAL: Restart MLX server after invalid command to clear poisoned KV cache
-                                if mlx_process and not skip_mlx_server:
-                                    print(f"   🔄 Restarting MLX server to clear KV cache after invalid command (inner loop)")
-                                    try:
-                                        await mlx_manager.stop_agent_server(agent.id)
-                                        mlx_process = await mlx_manager.start_agent_server(agent)
-                                        print(f"   ✅ MLX server restarted on port {mlx_process.port}")
-                                    except Exception as e:
-                                        print(f"   ⚠️  Failed to restart MLX server: {e}")
-
-                                if invalid_command_count >= max_invalid_commands:
-                                    print(f"   🛑 Too many invalid commands in inner loop - breaking out")
-                                    wizard_loop_active = False
-                                    break
-
-                            if continue_wizard and wizard_prompt_result:
-                                wizard_messages.append({
-                                    "role": "system",
-                                    "content": f"[TOOL WIZARD]\n{wizard_prompt_result}"
-                                })
-
-                    # After tool completes, add result context to conversation
-                    if wizard_state.tool_use_log:
-                        tool_summary = wizard_state.get_tool_use_summary()
-                        wizard_messages.append({
-                            "role": "system",
-                            "content": f"Tool operation complete.\n{tool_summary}"
-                        })
-                        # Add newlines before next chunk and stream to user
-                        if accumulated_response and not accumulated_response.endswith("\n"):
-                            accumulated_response += "\n\n"
-                            newline_data = json.dumps({'type': 'content', 'content': '\n\n'})
-                            yield f"data: {newline_data}\n\n"
-
-                    # Reset wizard state for next iteration
-                    wizard_state.reset_to_menu()
-
-                    # Check if we've hit the tool limit
-                    if tool_call_count >= max_tool_calls:
-                        print(f"\n🧙 WIZARD: Hit {max_tool_calls} tool call limit, auto-finalizing")
-                        wizard_loop_active = False
-
-                    # Otherwise, loop continues (will stream more if LLM wants to)
+            # End of inline tool loop - now finalize
 
             # FINALIZE: Save accumulated response to database
-            print(f"\n🧙 WIZARD: Finalizing message to database")
-            print(f"Accumulated response length: {len(accumulated_response)}")
-            print(f"Tool calls made: {tool_call_count}")
-
-            # Count actual wizard overhead tokens
-            wizard_overhead_tokens = 0
-            if wizard_messages:
-                wizard_overhead_tokens = count_messages_tokens(wizard_messages)
-                print(f"Wizard overhead: {wizard_overhead_tokens} tokens")
+            print(f"\n🔧 INLINE TOOLS: Finalizing message to database")
+            print(f"   Response length: {len(accumulated_response)}")
+            print(f"   Tools executed: {tool_call_count}")
 
             # Save to database
             assistant_tags = extract_keywords(accumulated_response, max_keywords=5)
             assistant_metadata = {
                 "model": agent.model_path,
-                "wizard_tools_used": tool_call_count,
-                "wizard_overhead_tokens": wizard_overhead_tokens,
+                "inline_tools_used": tool_call_count,
                 "tags": assistant_tags
             }
+
             # Include memory narrative if present
             if memory_narrative:
                 assistant_metadata["memory_narrative"] = memory_narrative
 
             # Include router analysis if present
-            router_analysis = wizard_state.context.get("router_analysis")
-            if router_analysis:
+            if router_analysis_data:
                 assistant_metadata["router_logging"] = {
-                    "total_tokens": router_analysis.get("total_tokens", 0),
-                    "unique_experts_used": router_analysis.get("unique_experts_used", 0),
-                    "usage_entropy": router_analysis.get("usage_entropy", 0),
-                    "mean_token_entropy": router_analysis.get("mean_token_entropy", 0)
+                    "total_tokens": router_analysis_data.get("total_tokens", 0),
+                    "unique_experts_used": router_analysis_data.get("unique_experts_used", 0),
+                    "usage_entropy": router_analysis_data.get("usage_entropy", 0),
+                    "mean_token_entropy": router_analysis_data.get("mean_token_entropy", 0)
                 }
-                print(f"🔬 Router analysis added to metadata: {router_analysis.get('unique_experts_used', 0)} experts")
+                print(f"🔬 Router analysis added to metadata: {router_analysis_data.get('unique_experts_used', 0)} experts")
 
                 # Save router session to file for analytics
                 if use_router_logging and diagnostic_service:
@@ -1624,18 +1449,17 @@ async def _chat_stream_internal(
                 content=accumulated_response,
                 metadata={
                     "model": agent.model_path,
-                    "wizard_tools_used": tool_call_count,
+                    "inline_tools_used": tool_call_count,
                     "tags": assistant_tags
                 }
             )
 
             yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
 
-            print(f"✅ WIZARD FLOW COMPLETE - Message saved to DB")
-            print(f"{'='*80}\n")
+            print(f"✅ INLINE TOOLS COMPLETE - Message saved to DB")
 
         return StreamingResponse(
-            generate_stream_with_wizard(),
+            generate_stream_with_inline_tools(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

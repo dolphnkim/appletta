@@ -245,6 +245,32 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     setEditContent('');
   };
 
+  const handleResend = async (message: Message) => {
+    if (!conversationId) return;
+
+    try {
+      const contentToResend = message.content;
+      
+      // Find all messages from this one onwards and delete them
+      const messageIndex = messages.findIndex(m => m.id === message.id);
+      const messagesToDelete = messages.slice(messageIndex);
+      
+      // Delete messages in reverse order (newest first)
+      for (const msg of messagesToDelete.reverse()) {
+        await conversationAPI.deleteMessage(conversationId, msg.id);
+      }
+      
+      // Reload messages to clear the UI, then resend
+      await loadMessages(conversationId);
+      
+      // Directly call the streaming message function with the content
+      await sendStreamingMessage(conversationId, contentToResend);
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to resend message');
+    }
+  };
+
   const handleRegenerate = async (messageId: string) => {
     if (!conversationId) return;
 
@@ -466,14 +492,26 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
                       </div>
                       <div className="message-content">{message.content}</div>
                     <div className="message-actions">
+                      {/* Edit button - available for both user and assistant messages */}
+                      <button
+                        onClick={() => handleEditMessage(message)}
+                        className="action-button"
+                        title="Edit message"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M17.263 2.177a1.75 1.75 0 0 1 2.474 0l2.586 2.586a1.75 1.75 0 0 1 0 2.474L19.53 10.03l-.012.013L8.69 20.378a1.753 1.753 0 0 1-.699.409l-5.523 1.68a.748.748 0 0 1-.747-.188.748.748 0 0 1-.188-.747l1.673-5.5a1.75 1.75 0 0 1 .466-.756L14.476 4.963ZM4.708 16.361a.26.26 0 0 0-.067.108l-1.264 4.154 4.177-1.271a.253.253 0 0 0 .1-.059l10.273-9.806-2.94-2.939-10.279 9.813ZM19 8.44l2.263-2.262a.25.25 0 0 0 0-.354l-2.586-2.586a.25.25 0 0 0-.354 0L16.061 5.5Z" />
+                        </svg>
+                      </button>
+                      {/* Resend button - only for user messages */}
                       {message.role === 'user' && (
                         <button
-                          onClick={() => handleEditMessage(message)}
+                          onClick={() => handleResend(message)}
                           className="action-button"
-                          title="Edit message"
+                          title="Resend message (deletes this and any responses, then resends)"
+                          disabled={streaming}
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M17.263 2.177a1.75 1.75 0 0 1 2.474 0l2.586 2.586a1.75 1.75 0 0 1 0 2.474L19.53 10.03l-.012.013L8.69 20.378a1.753 1.753 0 0 1-.699.409l-5.523 1.68a.748.748 0 0 1-.747-.188.748.748 0 0 1-.188-.747l1.673-5.5a1.75 1.75 0 0 1 .466-.756L14.476 4.963ZM4.708 16.361a.26.26 0 0 0-.067.108l-1.264 4.154 4.177-1.271a.253.253 0 0 0 .1-.059l10.273-9.806-2.94-2.939-10.279 9.813ZM19 8.44l2.263-2.262a.25.25 0 0 0 0-.354l-2.586-2.586a.25.25 0 0 0-.354 0L16.061 5.5Z" />
+                            <path d="M1.946 9.315c-.522-.174-.527-.455.01-.634l19.087-6.362c.529-.176.832.12.684.638l-5.454 19.086c-.15.529-.455.547-.679.045L12 14l6-8-8 6-8.054-2.685Z" />
                           </svg>
                         </button>
                       )}

@@ -250,30 +250,161 @@ def get_enabled_tools(enabled_tool_names: Optional[List[str]] = None) -> List[Di
     return filtered_tools
 
 
-def get_tools_description(enabled_tool_names: Optional[List[str]] = None) -> str:
-    """Generate a human-readable description of enabled tools
-
+def get_tools_description(enabled_tool_names: Optional[List[str]] = None, agent_id: Optional[UUID] = None, db: Optional[Session] = None) -> str:
+    """Generate inline tool instructions based on enabled tools
+    
     Args:
         enabled_tool_names: List of enabled tool names. If None/empty, describes all tools.
-
+        agent_id: Agent ID to get current journal blocks (optional)
+        db: Database session (optional, needed for journal block list)
+    
     Returns:
-        Formatted string describing the tools
+        Formatted string with tool instructions in XML format
     """
     tools = get_enabled_tools(enabled_tool_names)
-
+    
     if not tools:
         return "No tools enabled"
+    
+    # Get tool names for easy checking
+    tool_names = {t["function"]["name"] for t in tools}
+    
+    instructions = """
+═══════════════════════════════════════════════════════════════════════════════
+📝 YOUR MEMORY & TOOLS SYSTEM
+═══════════════════════════════════════════════════════════════════════════════
 
-    # Compact format to save tokens - just list tools with brief descriptions
-    descriptions = ["Call tools using: \n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {...}}\n</tool_call>\n For example: \n<tool_call> {\"name\": \"create_journal_block\", \"arguments\": {\"label\": \"AI Self Reflection\", \"value\": \"Today I realized X about myself\"}}\n</tool_call>\n" ]
+You have tools you can use by including them anywhere in your response.
+Tool calls are filtered from what the user sees - use them freely!
 
-    for tool in tools:
-        tool_func = tool["function"]
-        name = tool_func["name"]
-        desc = tool_func["description"]
-        descriptions.append(f"• {name}: {desc}")
+"""
+    
+    # Show current journal blocks if we have db access
+    if agent_id and db and any(t in tool_names for t in ["list_journal_blocks", "read_journal_block", "create_journal_block", "update_journal_block", "delete_journal_block"]):
+        blocks_info = list_journal_blocks(agent_id, db)
+        blocks = blocks_info.get("blocks", [])
+        
+        instructions += "YOUR CURRENT JOURNAL BLOCKS:\n"
+        if blocks:
+            for block in blocks:
+                instructions += f"  • {block['label']}\n"
+        else:
+            instructions += "  (none yet)\n"
+        instructions += "\n"
+    
+    # Show RAG folders if we have db access and that tool is enabled
+    if agent_id and db and "list_rag_files" in tool_names:
+        rag_info = list_rag_files(agent_id, db)
+        folders = rag_info.get("folders", [])
+        
+        instructions += "YOUR RAG FOLDERS:\n"
+        if folders:
+            for folder in folders:
+                instructions += f"  • {folder['folder_name']}\n"
+        else:
+            instructions += "  (none)\n"
+        instructions += "\n"
+    
+    instructions += """───────────────────────────────────────────────────────────────────────────────
+AVAILABLE TOOLS (include these anywhere in your response)
+───────────────────────────────────────────────────────────────────────────────
+"""
+    
+    # Journal block tools
+    if "create_journal_block" in tool_names:
+        instructions += """
+CREATE A NEW JOURNAL BLOCK:
+<create_journal_block>
+label: Title Here (max 50 chars)
+content: Your content here
+</create_journal_block>
+"""
+    
+    if "read_journal_block" in tool_names:
+        instructions += """
+READ A JOURNAL BLOCK:
+<read_journal_block>
+block_name: Title of Block
+</read_journal_block>
+"""
+    
+    if "update_journal_block" in tool_names:
+        instructions += """
+EDIT A JOURNAL BLOCK (3 options):
 
-    return "\n".join(descriptions)
+  Option 1 - Append to existing content:
+  <edit_journal_block>
+  block_name: Title of Block
+  append: New info to add at the end
+  </edit_journal_block>
+
+  Option 2 - Find and replace text:
+  <edit_journal_block>
+  block_name: Title of Block
+  find: text to find
+  replace: replacement text
+  </edit_journal_block>
+
+  Option 3 - Completely rewrite:
+  <edit_journal_block>
+  block_name: Title of Block
+  new_content: The complete new content
+  </edit_journal_block>
+"""
+    
+    if "delete_journal_block" in tool_names:
+        instructions += """
+DELETE A JOURNAL BLOCK:
+<delete_journal_block>
+block_name: Title of Block
+</delete_journal_block>
+"""
+    
+    if "search_memories" in tool_names:
+        instructions += """
+SEARCH YOUR MEMORIES:
+<search_memories>
+query: what to search for
+</search_memories>
+"""
+    
+    if "list_journal_blocks" in tool_names:
+        instructions += """
+LIST ALL JOURNAL BLOCKS:
+<list_journal_blocks>
+</list_journal_blocks>
+"""
+    
+    if "list_rag_files" in tool_names:
+        instructions += """
+LIST RAG FILES:
+<list_rag_files>
+</list_rag_files>
+"""
+    
+    # Web tools
+    if "web_search" in tool_names:
+        instructions += """
+SEARCH THE WEB:
+<web_search>
+query: what to search for
+max_results: 5
+</web_search>
+"""
+    
+    if "fetch_url" in tool_names:
+        instructions += """
+FETCH A WEB PAGE:
+<fetch_url>
+url: https://example.com/page
+</fetch_url>
+"""
+    
+    instructions += """
+═══════════════════════════════════════════════════════════════════════════════
+"""
+    
+    return instructions
 
 
 # ============================================================================

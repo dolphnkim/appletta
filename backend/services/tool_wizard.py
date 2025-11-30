@@ -720,3 +720,545 @@ RESPOND WITH ONLY THE NUMBER (1, 2, or 3). No other text."""
     else:
         wizard_state = WizardState()
         return ("Something went wrong. " + show_main_menu(agent_id, db), wizard_state, True)
+
+
+# ============================================================================
+# INLINE TOOL PARSING (NEW - Alternative to wizard flow)
+# ============================================================================
+# These functions allow LLMs to use tools inline within their response,
+# rather than going through the step-by-step wizard menu system.
+# The wizard flow above is preserved and still works.
+
+from dataclasses import dataclass
+
+
+@dataclass
+class InlineToolCall:
+    """Represents a parsed inline tool call"""
+    tool_name: str
+    params: Dict[str, str]
+    raw_text: str  # The original text that matched
+    start_pos: int
+    end_pos: int
+
+
+@dataclass
+class InlineToolResult:
+    """Result of executing an inline tool"""
+    success: bool
+    message: str
+    data: Optional[Dict[str, Any]] = None
+
+
+def parse_inline_tool_calls(text: str) -> List[InlineToolCall]:
+    """
+    Parse inline tool calls from LLM output.
+    Supports multiple formats that LLMs naturally produce.
+    
+    Returns list of InlineToolCall objects found in the text.
+    """
+    import re
+    tool_calls = []
+    
+    # Pattern 1: XML-style tags
+    # <create_journal_block>
+    # label: My Notes
+    # content: Some content here
+    # </create_journal_block>
+    xml_pattern = r'<(create_journal_block|edit_journal_block|read_journal_block|delete_journal_block|search_memories|list_journal_blocks|list_rag_files|web_search|fetch_url)>(.*?)</\1>'
+    for match in re.finditer(xml_pattern, text, re.DOTALL | re.IGNORECASE):
+        tool_name = match.group(1).lower()
+        content = match.group(2).strip()
+        params = _parse_key_value_content(content)
+        tool_calls.append(InlineToolCall(
+            tool_name=tool_name,
+            params=params,
+            raw_text=match.group(0),
+            start_pos=match.start(),
+            end_pos=match.end()
+        ))
+    
+    # Pattern 2: Markdown code blocks with tool name
+    # ```create_journal_block
+    # label: My Notes
+    # content: Some content
+    # ```
+    markdown_pattern = r'```(create_journal_block|edit_journal_block|read_journal_block|delete_journal_block|search_memories|list_journal_blocks|list_rag_files|web_search|fetch_url)\s*\n(.*?)```'
+    for match in re.finditer(markdown_pattern, text, re.DOTALL | re.IGNORECASE):
+        tool_name = match.group(1).lower()
+        content = match.group(2).strip()
+        params = _parse_key_value_content(content)
+        # Check if this overlaps with an already-found tool call
+        if not any(tc.start_pos <= match.start() < tc.end_pos for tc in tool_calls):
+            tool_calls.append(InlineToolCall(
+                tool_name=tool_name,
+                params=params,
+                raw_text=match.group(0),
+                start_pos=match.start(),
+                end_pos=match.end()
+            ))
+    
+    # Pattern 3: Bracketed style
+    # [CREATE_JOURNAL_BLOCK]
+    # label: My Notes
+    # content: Some content
+    # [/CREATE_JOURNAL_BLOCK]
+    bracket_pattern = r'\[(CREATE_JOURNAL_BLOCK|EDIT_JOURNAL_BLOCK|READ_JOURNAL_BLOCK|DELETE_JOURNAL_BLOCK|SEARCH_MEMORIES|LIST_JOURNAL_BLOCKS|LIST_RAG_FILES|WEB_SEARCH|FETCH_URL)\](.*?)\[/\1\]'
+    for match in re.finditer(bracket_pattern, text, re.DOTALL | re.IGNORECASE):
+        tool_name = match.group(1).lower()
+        content = match.group(2).strip()
+        params = _parse_key_value_content(content)
+        if not any(tc.start_pos <= match.start() < tc.end_pos for tc in tool_calls):
+            tool_calls.append(InlineToolCall(
+                tool_name=tool_name,
+                params=params,
+                raw_text=match.group(0),
+                start_pos=match.start(),
+                end_pos=match.end()
+            ))
+    
+    # Pattern 4: Function call style
+    # create_journal_block(label="My Notes", content="Some content")
+    func_pattern = r'(create_journal_block|edit_journal_block|read_journal_block|delete_journal_block|search_memories|list_journal_blocks|list_rag_files|web_search|fetch_url)\s*\((.*?)\)'
+    for match in re.finditer(func_pattern, text, re.DOTALL | re.IGNORECASE):
+        tool_name = match.group(1).lower()
+        args_str = match.group(2).strip()
+        params = _parse_function_args(args_str)
+        if not any(tc.start_pos <= match.start() < tc.end_pos for tc in tool_calls):
+            tool_calls.append(InlineToolCall(
+                tool_name=tool_name,
+                params=params,
+                raw_text=match.group(0),
+                start_pos=match.start(),
+                end_pos=match.end()
+            ))
+    
+    # Pattern 5: Simple labeled format (fallback for simpler models)
+    # TOOL: create_journal_block
+    # LABEL: My Notes
+    # CONTENT: Some content
+    # END_TOOL
+    simple_pattern = r'TOOL:\s*(create_journal_block|edit_journal_block|read_journal_block|delete_journal_block|search_memories|list_journal_blocks|list_rag_files|web_search|fetch_url)\s*\n(.*?)END_TOOL'
+    for match in re.finditer(simple_pattern, text, re.DOTALL | re.IGNORECASE):
+        tool_name = match.group(1).lower()
+        content = match.group(2).strip()
+        params = _parse_key_value_content(content)
+        if not any(tc.start_pos <= match.start() < tc.end_pos for tc in tool_calls):
+            tool_calls.append(InlineToolCall(
+                tool_name=tool_name,
+                params=params,
+                raw_text=match.group(0),
+                start_pos=match.start(),
+                end_pos=match.end()
+            ))
+    
+    # Sort by position in text
+    tool_calls.sort(key=lambda tc: tc.start_pos)
+    
+    return tool_calls
+
+
+def _parse_key_value_content(content: str) -> Dict[str, str]:
+    """
+    Parse key: value style content.
+    Handles multi-line values.
+    """
+    import re
+    params = {}
+    lines = content.split('\n')
+    current_key = None
+    current_value_lines = []
+    
+    # Known keys for our tools
+    known_keys = {'label', 'content', 'block_name', 'block', 'name', 'query', 
+                  'new_content', 'find', 'replace', 'append', 'search',
+                  'url', 'max_results', 'include_links'}
+    
+    for line in lines:
+        # Check if this line starts a new key
+        key_match = re.match(r'^(\w+)\s*:\s*(.*)$', line)
+        if key_match and key_match.group(1).lower() in known_keys:
+            # Save previous key-value if exists
+            if current_key:
+                params[current_key] = '\n'.join(current_value_lines).strip()
+            
+            current_key = key_match.group(1).lower()
+            current_value_lines = [key_match.group(2)]
+        elif current_key:
+            # Continue multi-line value
+            current_value_lines.append(line)
+    
+    # Save final key-value
+    if current_key:
+        params[current_key] = '\n'.join(current_value_lines).strip()
+    
+    # Normalize key names
+    if 'block_name' not in params and 'block' in params:
+        params['block_name'] = params.pop('block')
+    if 'block_name' not in params and 'name' in params:
+        params['block_name'] = params.pop('name')
+    if 'query' not in params and 'search' in params:
+        params['query'] = params.pop('search')
+    
+    return params
+
+
+def _parse_function_args(args_str: str) -> Dict[str, str]:
+    """
+    Parse function-style arguments.
+    Example: label="My Notes", content="Some content"
+    """
+    import re
+    params = {}
+    
+    # Match key="value" or key='value' patterns
+    pattern = r'(\w+)\s*=\s*["\'](.+?)["\'](?:\s*,|\s*$)'
+    
+    for match in re.finditer(pattern, args_str, re.DOTALL):
+        key = match.group(1).lower()
+        value = match.group(2)
+        params[key] = value
+    
+    # If no matches, try without quotes
+    if not params:
+        simple_pattern = r'(\w+)\s*=\s*([^,]+)'
+        for match in re.finditer(simple_pattern, args_str):
+            key = match.group(1).lower()
+            value = match.group(2).strip().strip('"\'')
+            params[key] = value
+    
+    return params
+
+
+def execute_inline_tool(tool_call: InlineToolCall, agent_id: str, db: Session) -> InlineToolResult:
+    """
+    Execute a parsed inline tool call and return the result.
+    Uses the same underlying functions as the wizard flow.
+    """
+    from uuid import UUID as UUIDType
+    from backend.services.tools import (
+        list_journal_blocks, create_journal_block, update_journal_block,
+        read_journal_block, delete_journal_block, list_rag_files
+    )
+    
+    tool_name = tool_call.tool_name
+    params = tool_call.params
+    
+    print(f"\n🔧 EXECUTING INLINE TOOL: {tool_name}")
+    print(f"   Params: {params}")
+    
+    try:
+        if tool_name == "create_journal_block":
+            label = params.get("label", "").strip()
+            content = params.get("content", "").strip()
+            
+            if not label:
+                return InlineToolResult(False, "Missing 'label' parameter")
+            if not content:
+                return InlineToolResult(False, "Missing 'content' parameter")
+            if len(label) > 50:
+                return InlineToolResult(False, f"Label too long ({len(label)} chars, max 50)")
+            
+            result = create_journal_block(UUIDType(agent_id), label, content, db)
+            
+            if "error" in result:
+                return InlineToolResult(False, f"Failed: {result['error']}")
+            
+            return InlineToolResult(True, f"✅ Created journal block '{label}'", data=result)
+        
+        elif tool_name == "read_journal_block":
+            block_name = params.get("block_name", params.get("label", "")).strip()
+            
+            if not block_name:
+                return InlineToolResult(False, "Missing 'block_name' parameter")
+            
+            # Find block by name
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+            blocks = blocks_info.get("blocks", [])
+            
+            target_block = None
+            for block in blocks:
+                if block["label"].lower() == block_name.lower():
+                    target_block = block
+                    break
+            
+            if not target_block:
+                available = ", ".join([b["label"] for b in blocks]) if blocks else "none"
+                return InlineToolResult(False, f"Block '{block_name}' not found. Available: {available}")
+            
+            full_block = read_journal_block(target_block["id"], db)
+            
+            if "error" in full_block:
+                return InlineToolResult(False, f"Failed: {full_block['error']}")
+            
+            return InlineToolResult(
+                True,
+                f"📖 {full_block['label']}:\n{full_block['value']}",
+                data=full_block
+            )
+        
+        elif tool_name == "edit_journal_block":
+            block_name = params.get("block_name", params.get("label", "")).strip()
+            
+            if not block_name:
+                return InlineToolResult(False, "Missing 'block_name' parameter")
+            
+            # Find block by name
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+            blocks = blocks_info.get("blocks", [])
+            
+            target_block = None
+            for block in blocks:
+                if block["label"].lower() == block_name.lower():
+                    target_block = block
+                    break
+            
+            if not target_block:
+                available = ", ".join([b["label"] for b in blocks]) if blocks else "none"
+                return InlineToolResult(False, f"Block '{block_name}' not found. Available: {available}")
+            
+            # Read current content
+            full_block = read_journal_block(target_block["id"], db)
+            if "error" in full_block:
+                return InlineToolResult(False, f"Failed to read: {full_block['error']}")
+            
+            current_content = full_block["value"]
+            
+            # Determine edit mode
+            if "new_content" in params:
+                new_content = params["new_content"]
+                edit_mode = "rewrite"
+            elif "find" in params and "replace" in params:
+                new_content = current_content.replace(params["find"], params["replace"])
+                edit_mode = "search/replace"
+            elif "append" in params:
+                new_content = current_content + "\n" + params["append"]
+                edit_mode = "append"
+            elif "content" in params:
+                new_content = params["content"]
+                edit_mode = "rewrite"
+            else:
+                return InlineToolResult(False, "Missing edit params. Use 'new_content', 'find'+'replace', or 'append'")
+            
+            result = update_journal_block(target_block["id"], None, new_content, db)
+            
+            if "error" in result:
+                return InlineToolResult(False, f"Failed: {result['error']}")
+            
+            return InlineToolResult(True, f"✅ Updated '{block_name}' ({edit_mode})", data=result)
+        
+        elif tool_name == "delete_journal_block":
+            block_name = params.get("block_name", params.get("label", "")).strip()
+            
+            if not block_name:
+                return InlineToolResult(False, "Missing 'block_name' parameter")
+            
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+            blocks = blocks_info.get("blocks", [])
+            
+            target_block = None
+            for block in blocks:
+                if block["label"].lower() == block_name.lower():
+                    target_block = block
+                    break
+            
+            if not target_block:
+                return InlineToolResult(False, f"Block '{block_name}' not found")
+            
+            result = delete_journal_block(target_block["id"], db)
+            
+            if "error" in result:
+                return InlineToolResult(False, f"Failed: {result['error']}")
+            
+            return InlineToolResult(True, f"✅ Deleted '{block_name}'", data=result)
+        
+        elif tool_name == "search_memories":
+            query = params.get("query", params.get("search", "")).strip()
+            
+            if not query:
+                return InlineToolResult(False, "Missing 'query' parameter")
+            
+            results = search_memories(query_text=query, agent_id=agent_id, db=db, limit=5)
+            
+            if not results:
+                return InlineToolResult(True, f"🔍 '{query}': No memories found", data={"results": []})
+            
+            result_text = f"🔍 '{query}': Found {len(results)} memories\n\n"
+            for i, r in enumerate(results, 1):
+                result_text += f"{i}. {r.get('content', '')[:200]}...\n\n"
+            
+            return InlineToolResult(True, result_text, data={"results": results})
+        
+        elif tool_name == "list_journal_blocks":
+            blocks_info = list_journal_blocks(UUIDType(agent_id), db)
+            blocks = blocks_info.get("blocks", [])
+            
+            if not blocks:
+                return InlineToolResult(True, "📋 No journal blocks yet", data={"blocks": []})
+            
+            result_text = f"📋 Your journal blocks ({len(blocks)}):\n"
+            for block in blocks:
+                result_text += f"  • {block['label']}\n"
+            
+            return InlineToolResult(True, result_text, data=blocks_info)
+        
+        elif tool_name == "list_rag_files":
+            rag_info = list_rag_files(agent_id, db)
+            folders = rag_info.get("folders", [])
+            
+            if not folders:
+                return InlineToolResult(True, "📁 No RAG folders yet", data={"folders": []})
+            
+            result_text = f"📁 Your RAG folders ({len(folders)}):\n"
+            for folder in folders:
+                result_text += f"  • {folder['folder_name']}\n"
+            
+            return InlineToolResult(True, result_text, data=rag_info)
+        
+        elif tool_name == "web_search":
+            from backend.services.tools import web_search
+            
+            query = params.get("query", params.get("search", "")).strip()
+            if not query:
+                return InlineToolResult(False, "Missing 'query' parameter")
+            
+            max_results = 5
+            if "max_results" in params:
+                try:
+                    max_results = int(params["max_results"])
+                except ValueError:
+                    pass
+            
+            result = web_search(query, max_results)
+            
+            if "error" in result:
+                return InlineToolResult(False, f"Web search failed: {result['error']}")
+            
+            results = result.get("results", [])
+            if not results:
+                return InlineToolResult(True, f"🌐 '{query}': No results found", data=result)
+            
+            result_text = f"🌐 Web search '{query}': {len(results)} results\n\n"
+            for i, r in enumerate(results, 1):
+                result_text += f"{i}. **{r.get('title', 'Untitled')}**\n"
+                result_text += f"   {r.get('url', '')}\n"
+                result_text += f"   {r.get('snippet', '')[:200]}\n\n"
+            
+            return InlineToolResult(True, result_text, data=result)
+        
+        elif tool_name == "fetch_url":
+            from backend.services.tools import fetch_url
+            
+            url = params.get("url", "").strip()
+            if not url:
+                return InlineToolResult(False, "Missing 'url' parameter")
+            
+            include_links = params.get("include_links", "").lower() in ("true", "yes", "1")
+            
+            result = fetch_url(url, include_links)
+            
+            if "error" in result:
+                return InlineToolResult(False, f"Fetch failed: {result['error']}")
+            
+            title = result.get("title", "Unknown")
+            content = result.get("content", "")
+            
+            # Truncate for display in tool result
+            preview = content[:2000] if len(content) > 2000 else content
+            truncated = len(content) > 2000
+            
+            result_text = f"🌐 Fetched: {title}\n\n{preview}"
+            if truncated:
+                result_text += f"\n\n[Content truncated - {len(content)} chars total]"
+            
+            return InlineToolResult(True, result_text, data=result)
+        
+        else:
+            return InlineToolResult(False, f"Unknown tool: {tool_name}")
+    
+    except Exception as e:
+        import traceback
+        print(f"🔧 INLINE TOOL ERROR: {traceback.format_exc()}")
+        return InlineToolResult(False, f"Error: {str(e)}")
+
+
+def process_response_with_inline_tools(response: str, agent_id: str, db: Session) -> Tuple[str, List[InlineToolResult]]:
+    """
+    Process an LLM response that may contain inline tool calls.
+    
+    1. Parse out any tool calls
+    2. Execute the tools
+    3. Return cleaned response + tool results
+    
+    Returns:
+        (cleaned_response, list_of_tool_results)
+    """
+    import re
+    
+    # Clean thinking tags first
+    cleaned = response
+    cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r'<thinking>.*?</thinking>', '', cleaned, flags=re.DOTALL)
+    
+    # Parse tool calls
+    tool_calls = parse_inline_tool_calls(cleaned)
+    
+    if not tool_calls:
+        return (cleaned.strip(), [])
+    
+    print(f"\n🔧 FOUND {len(tool_calls)} INLINE TOOL CALL(S)")
+    
+    # Execute tools and collect results
+    tool_results = []
+    for tc in tool_calls:
+        result = execute_inline_tool(tc, agent_id, db)
+        tool_results.append(result)
+        print(f"   → {tc.tool_name}: {'✅' if result.success else '❌'} {result.message[:50]}...")
+    
+    # Remove tool call syntax from response
+    filtered_response = cleaned
+    for tc in sorted(tool_calls, key=lambda x: x.start_pos, reverse=True):
+        filtered_response = filtered_response[:tc.start_pos] + filtered_response[tc.end_pos:]
+    
+    # Clean up extra whitespace
+    filtered_response = re.sub(r'\n{3,}', '\n\n', filtered_response)
+    filtered_response = filtered_response.strip()
+    
+    return (filtered_response, tool_results)
+
+
+def format_inline_tool_results(results: List[InlineToolResult]) -> str:
+    """Format tool results to inject back into the generation context."""
+    if not results:
+        return ""
+    
+    injection = "\n[TOOL RESULTS]\n"
+    for result in results:
+        status = "SUCCESS" if result.success else "FAILED"
+        injection += f"{status}: {result.message}\n"
+    injection += "[/TOOL RESULTS]\n"
+    
+    return injection
+
+
+def get_inline_tool_instructions(agent_id: str, db: Session, enabled_tools: Optional[List[str]] = None) -> str:
+    """
+    Generate tool usage instructions for inline mode.
+    Delegates to tools.py for the actual instruction generation.
+    
+    Args:
+        agent_id: Agent ID as string
+        db: Database session
+        enabled_tools: Optional list of enabled tool names
+    
+    Returns:
+        Formatted tool instructions string
+    """
+    from uuid import UUID as UUIDType
+    from backend.services.tools import get_tools_description
+    
+    return get_tools_description(
+        enabled_tool_names=enabled_tools,
+        agent_id=UUIDType(agent_id),
+        db=db
+    )

@@ -373,13 +373,11 @@ async def get_agent_context_window(
 
 
 
-    # Count tool descriptions tokens
-
-    enabled_tools = get_enabled_tools(agent.enabled_tools)
-
-    tools_json = json.dumps(enabled_tools)
-
-    tools_tokens = count_tokens(tools_json)
+    # Count tool descriptions tokens (using the actual text instructions sent to LLM)
+    from backend.services.tools import get_tools_description
+    
+    tools_text = get_tools_description(agent.enabled_tools, agent.id, db)
+    tools_tokens = count_tokens(tools_text)
 
 
 
@@ -443,13 +441,13 @@ async def get_agent_context_window(
 
             {
 
-                "name": "Tools descriptions",
+                "name": "Tool Instructions",
 
                 "tokens": tools_tokens,
 
                 "percentage": (tools_tokens / max_tokens * 100) if max_tokens > 0 else 0,
 
-                "content": tools_json[:500]
+                "content": tools_text[:500] if tools_text else ""
 
             },
 
@@ -745,7 +743,7 @@ async def get_agent_tools_description(
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
 
-    description = get_tools_description(agent.enabled_tools)
+    description = get_tools_description(agent.enabled_tools, agent.id, db)
 
     return {
         "agent_id": str(agent_id),
