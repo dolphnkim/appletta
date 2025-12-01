@@ -133,19 +133,14 @@ export default function VSCodeIntegrationView() {
       ? status.model_path.split('/').pop() || 'mlx-model'
       : 'mlx-model';
 
-    const config = {
-      models: [
-        {
-          title: `Appletta - ${modelName}`,
-          provider: "openai",
-          model: modelName,
-          apiBase: "http://localhost:8000/v1",
-          apiKey: "appletta"
-        }
-      ]
-    };
+    // Generate YAML format for Continue.dev config.yaml
+    const yaml = `- name: Appletta - ${modelName}
+  provider: openai
+  model: ${modelName}
+  apiBase: http://localhost:8000/v1
+  apiKey: appletta`;
 
-    return JSON.stringify(config, null, 2);
+    return yaml;
   };
 
   const copyConfig = async () => {
