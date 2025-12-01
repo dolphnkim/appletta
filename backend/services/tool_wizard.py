@@ -1085,7 +1085,7 @@ def execute_inline_tool(tool_call: InlineToolCall, agent_id: str, db: Session) -
             
             result_text = f"🔍 '{query}': Found {len(results)} memories\n\n"
             for i, r in enumerate(results, 1):
-                result_text += f"{i}. {r.get('content', '')[:200]}...\n\n"
+                result_text += f"{i}. {r.content[:200]}...\n\n"
             
             return InlineToolResult(True, result_text, data={"results": results})
         
