@@ -137,19 +137,20 @@ async def generate_stream(
     model: str,
     request_id: str,
     max_tokens: int = 2048,
-    temperature: float = 0.7
+    temperature: float = 0.7,
+    top_p: float = 1.0
 ):
     """Generate streaming response chunks"""
     created = int(datetime.utcnow().timestamp())
 
     try:
-        from backend.services.diagnostic_inference import get_diagnostic_service
-        service = get_diagnostic_service()
+        from backend.services.vscode_inference import get_vscode_service
+        service = get_vscode_service()
 
-        if service.model is None:
+        if not service.is_loaded():
             raise HTTPException(
                 status_code=503,
-                detail="No model loaded. Load a model first via the Analytics panel."
+                detail="No model loaded. Load a model first via the VS Code Integration panel."
             )
 
         # First chunk - role
@@ -170,7 +171,7 @@ async def generate_stream(
             prompt=prompt,
             max_tokens=max_tokens,
             temperature=temperature,
-            log_routing=False  # Don't log for production use
+            top_p=top_p
         )
 
         generated_text = response.get("response", "")
@@ -243,7 +244,8 @@ async def chat_completions(request: ChatCompletionRequest):
                 model=request.model,
                 request_id=request_id,
                 max_tokens=request.max_tokens or 2048,
-                temperature=request.temperature or 0.7
+                temperature=request.temperature or 0.7,
+                top_p=request.top_p or 1.0
             ),
             media_type="text/event-stream",
             headers={
@@ -255,13 +257,13 @@ async def chat_completions(request: ChatCompletionRequest):
 
     # Non-streaming response
     try:
-        from backend.services.diagnostic_inference import get_diagnostic_service
-        service = get_diagnostic_service()
+        from backend.services.vscode_inference import get_vscode_service
+        service = get_vscode_service()
 
-        if service.model is None:
+        if not service.is_loaded():
             raise HTTPException(
                 status_code=503,
-                detail="No model loaded. Load a model first via the Analytics panel."
+                detail="No model loaded. Load a model first via the VS Code Integration panel."
             )
 
         # Run inference
@@ -269,7 +271,7 @@ async def chat_completions(request: ChatCompletionRequest):
             prompt=prompt,
             max_tokens=request.max_tokens or 2048,
             temperature=request.temperature or 0.7,
-            log_routing=False
+            top_p=request.top_p or 1.0
         )
 
         generated_text = result.get("response", "")
@@ -311,12 +313,12 @@ async def chat_completions(request: ChatCompletionRequest):
 async def list_models():
     """List available models (OpenAI-compatible endpoint)"""
     try:
-        from backend.services.diagnostic_inference import get_diagnostic_service
-        service = get_diagnostic_service()
+        from backend.services.vscode_inference import get_vscode_service
+        service = get_vscode_service()
 
         models = []
 
-        if service.model is not None:
+        if service.is_loaded():
             models.append({
                 "id": service.model_path or "mlx-model",
                 "object": "model",
@@ -340,13 +342,14 @@ async def load_model_for_vscode(
 ):
     """Load a model for VS Code integration
 
-    This prepares the model for use with Claude Code via claude-code-router.
+    This prepares the model for use with Continue.dev via the OpenAI-compatible API.
+    Uses a lightweight loader without router introspection for better performance.
     """
     global _loaded_model_path, _loaded_adapter_path
 
     try:
-        from backend.services.diagnostic_inference import get_diagnostic_service
-        service = get_diagnostic_service()
+        from backend.services.vscode_inference import get_vscode_service
+        service = get_vscode_service()
 
         result = service.load_model(model_path, adapter_path)
 
@@ -356,7 +359,7 @@ async def load_model_for_vscode(
         return {
             "status": "success",
             "model": result,
-            "message": f"Model loaded. You can now configure claude-code-router to use Appletta at http://localhost:8000/v1/chat/completions"
+            "message": f"Model loaded for VS Code. Configure Continue.dev to use http://localhost:8000/v1"
         }
 
     except ImportError as e:
@@ -369,14 +372,14 @@ async def load_model_for_vscode(
 async def get_vscode_integration_status():
     """Get current VS Code integration status"""
     try:
-        from backend.services.diagnostic_inference import get_diagnostic_service
-        service = get_diagnostic_service()
+        from backend.services.vscode_inference import get_vscode_service
+        service = get_vscode_service()
 
         return {
             "mlx_available": True,
-            "model_loaded": service.model is not None,
+            "model_loaded": service.is_loaded(),
             "model_path": service.model_path,
-            "is_moe": service.is_moe_model if service.model else False,
+            "is_moe": False,  # VS Code inference doesn't detect MoE (not needed)
             "endpoint": "http://localhost:8000/v1/chat/completions",
             "provider_config": {
                 "name": "appletta",
