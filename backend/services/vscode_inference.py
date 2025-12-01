@@ -109,8 +109,6 @@ class VSCodeInferenceService:
             self.tokenizer,
             prompt=prompt,
             max_tokens=max_tokens,
-            temp=temperature,
-            top_p=top_p,
             verbose=False
         )
 
