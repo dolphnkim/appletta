@@ -268,7 +268,7 @@ export default function VSCodeIntegrationView() {
         <section className="config-section">
           <h2>Continue.dev Configuration</h2>
           <p className="section-description">
-            Add this to your Continue.dev config file at <code>~/.continue/config.json</code> to use
+            Add this to your Continue.dev config file at <code>~/.continue/config.yaml</code> to use
             your local MLX model in VS Code.
           </p>
 
@@ -287,7 +287,7 @@ export default function VSCodeIntegrationView() {
             <ol>
               <li>Install <a href="https://marketplace.visualstudio.com/items?itemName=Continue.continue" target="_blank" rel="noopener noreferrer">Continue extension</a> in VS Code</li>
               <li>Load your MLX model in Appletta (above)</li>
-              <li>Open Continue config: <code>Cmd+Shift+P</code> → "Continue: Open Config"</li>
+              <li>Open Continue config.yaml: <code>Cmd+Shift+P</code> → "Continue: Open Config"</li>
               <li>Add the model config above to the <code>models</code> array</li>
               <li>Save and reload - your local model will appear in Continue's model selector</li>
             </ol>

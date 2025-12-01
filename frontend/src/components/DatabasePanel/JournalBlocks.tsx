@@ -33,6 +33,13 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
 
   useEffect(() => {
     loadBlocks();
+
+    // Poll for updates every 5 seconds to catch LLM edits
+    const pollInterval = setInterval(() => {
+      loadBlocks();
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
@@ -117,6 +124,14 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
       <div className="journal-header">
         <button onClick={() => setShowCreateModal(true)} className="new-block-button">
           + New Block
+        </button>
+        <button
+          onClick={() => loadBlocks()}
+          className="refresh-button"
+          disabled={loading}
+          title="Refresh journal blocks"
+        >
+          🔄
         </button>
       </div>
 

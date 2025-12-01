@@ -12,10 +12,13 @@ Journal blocks should not be automatically included in the context of the agent 
 .journal-header {
   padding: 16px;
   border-bottom: 1px solid #333;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .new-block-button {
-  width: 100%;
+  flex: 1;
   padding: 10px 16px;
   background-color: #7c3aed;
   color: white;
@@ -29,6 +32,27 @@ Journal blocks should not be automatically included in the context of the agent 
 
 .new-block-button:hover {
   background-color: #6d28d9;
+}
+
+.refresh-button {
+  padding: 10px 12px;
+  background-color: #333;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background-color: #444;
+  transform: rotate(180deg);
+}
+
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .journal-loading,
