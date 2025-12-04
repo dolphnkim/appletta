@@ -94,12 +94,12 @@ def clean_llm_response(response: str) -> str:
     cleaned = response.strip()
 
     # Remove thinking tags and everything before them
-    if "</think>" in cleaned:
+    #if "</think>" in cleaned:
         # Take only what's after the last </think> tag
-        cleaned = cleaned.split("</think>")[-1].strip()
+       # cleaned = cleaned.split("</think>")[-1].strip()
 
     # Remove <think> tags if they exist without closing
-    cleaned = re.sub(r'<think>.*', '', cleaned, flags=re.DOTALL)
+    #cleaned = re.sub(r'<think>.*', '', cleaned, flags=re.DOTALL)
 
     # Remove Python function definitions (def function_name...)
     # This handles models that try to use Python function call syntax

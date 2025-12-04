@@ -40,3 +40,4 @@ Thumbs.db
 
 # Alembic
 alembic/versions/__pycache__/
+test.py
