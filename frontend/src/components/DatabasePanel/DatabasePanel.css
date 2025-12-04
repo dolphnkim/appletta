@@ -10,6 +10,7 @@
 .database-panel-header {
   border-bottom: 1px solid #333;
   background: #1a1a1a;
+  padding-top: 40px; /* Add space for the home button */
 }
 
 .database-panel-label {
