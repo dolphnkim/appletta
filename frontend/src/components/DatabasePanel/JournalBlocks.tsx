@@ -34,12 +34,7 @@ export default function JournalBlocks({ agentId }: JournalBlocksProps) {
   useEffect(() => {
     loadBlocks();
 
-    // Poll for updates every 5 seconds to catch LLM edits
-    const pollInterval = setInterval(() => {
-      loadBlocks();
-    }, 5000);
 
-    return () => clearInterval(pollInterval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
