@@ -93,12 +93,14 @@ class EmbedBatchResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response"""
+    model_config = {"protected_namespaces": ()}
     status: str
     model_loaded: bool
 
 
 class InfoResponse(BaseModel):
     """Model info response"""
+    model_config = {"protected_namespaces": ()}
     model_path: str
     embedding_dim: int
     pooling: str

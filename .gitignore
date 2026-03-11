@@ -41,3 +41,5 @@ Thumbs.db
 # Alembic
 alembic/versions/__pycache__/
 test.py
+random code I yanked from elsewhere/inferencer_tools.py
+random code I yanked from elsewhere/inferencer_tools.json

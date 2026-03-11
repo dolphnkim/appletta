@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     )
 
     # Vector dimensions (must match embedding model)
-    EMBEDDING_DIMENSIONS: int = 768
+    EMBEDDING_DIMENSIONS: int = 4096
 
     # API
     API_V1_PREFIX: str = "/api/v1"

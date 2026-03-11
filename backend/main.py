@@ -6,6 +6,7 @@
 import os
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,10 +18,21 @@ from backend.db.session import engine
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown lifecycle."""
+    yield
+    # Shutdown: kill all MLX server subprocesses so they don't pile up
+    from backend.services.mlx_manager import get_mlx_manager
+    await get_mlx_manager().stop_all_servers()
+
+
 # Create FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+    lifespan=lifespan,
 )
 
 # Set up CORS
@@ -68,5 +80,5 @@ if __name__ == "__main__":
         "backend.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=False,
     )

@@ -1,32 +1,62 @@
 """Keyword extraction service for generating initial tags
 
-Uses KeyBERT to extract keywords from text that serve as initial tags
-for the memory agent to refine.
+Extracts candidate phrases from text and ranks them by cosine similarity
+to the full document embedding — same algorithm as KeyBERT, but using
+the Qwen3-Embedding-8B server that's already running. No separate BERT
+model needed.
 """
 
+import re
+import numpy as np
 from typing import List
-from keybert import KeyBERT
 
-# Initialize KeyBERT with the same model we use for embeddings
-# This ensures keywords are semantically aligned with our embedding space
-_kw_model = None
+# Common English stopwords (subset sufficient for keyword filtering)
+_STOPWORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an",
+    "and", "any", "are", "as", "at", "be", "because", "been", "before",
+    "being", "below", "between", "both", "but", "by", "can", "did", "do",
+    "does", "doing", "down", "during", "each", "few", "for", "from",
+    "further", "get", "got", "had", "has", "have", "having", "he", "her",
+    "here", "hers", "herself", "him", "himself", "his", "how", "i", "if",
+    "in", "into", "is", "it", "its", "itself", "just", "me", "more",
+    "most", "my", "myself", "no", "not", "now", "of", "off", "on", "once",
+    "only", "or", "other", "our", "ours", "ourselves", "out", "over",
+    "own", "s", "same", "she", "should", "so", "some", "such", "t",
+    "than", "that", "the", "their", "theirs", "them", "themselves", "then",
+    "there", "these", "they", "this", "those", "through", "to", "too",
+    "under", "until", "up", "us", "very", "was", "we", "were", "what",
+    "when", "where", "which", "while", "who", "whom", "why", "will",
+    "with", "would", "you", "your", "yours", "yourself", "yourselves",
+}
 
 
-def get_keyword_model():
-    """Get or initialize the KeyBERT model"""
-    global _kw_model
-    if _kw_model is None:
-        # Use same embedding model as our main embeddings for consistency
-        _kw_model = KeyBERT(model='thenlper/gte-base')
-    return _kw_model
+def _extract_candidates(text: str) -> List[str]:
+    """Extract 1- and 2-word candidate phrases, filtering stopwords."""
+    words = re.findall(r"\b[a-zA-Z][a-zA-Z'-]{1,}\b", text.lower())
+    words = [w for w in words if w not in _STOPWORDS and len(w) > 2]
+
+    candidates = list(dict.fromkeys(words))  # dedup, preserve order
+
+    # Add bigrams
+    bigrams = [
+        f"{words[i]} {words[i+1]}"
+        for i in range(len(words) - 1)
+        if words[i] not in _STOPWORDS and words[i+1] not in _STOPWORDS
+    ]
+    candidates += list(dict.fromkeys(bigrams))
+
+    return candidates[:100]  # cap to avoid huge batches
 
 
 def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
-    """Extract keywords from text to use as initial tags
+    """Extract keywords from text ranked by semantic similarity to the document.
+
+    Uses the running Qwen embedding server. Returns an empty list (silently)
+    if the server is unavailable — the memory agent will create tags itself.
 
     Args:
         text: The text to extract keywords from
-        max_keywords: Maximum number of keywords to extract
+        max_keywords: Maximum number of keywords to return
 
     Returns:
         List of keyword strings
@@ -35,26 +65,46 @@ def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
         return []
 
     try:
-        kw_model = get_keyword_model()
+        from backend.services.qwen_embedding_client import get_embedding_client
 
-        # Extract keywords using KeyBERT
-        # keyphrase_ngram_range=(1, 2) allows single words and 2-word phrases
-        # stop_words='english' removes common words
-        keywords = kw_model.extract_keywords(
-            text,
-            keyphrase_ngram_range=(1, 2),
-            stop_words='english',
-            top_n=max_keywords,
-            use_mmr=True,  # Maximal Marginal Relevance for diversity
-            diversity=0.5
-        )
+        client = get_embedding_client()
+        candidates = _extract_candidates(text)
+        if not candidates:
+            return []
 
-        # keywords is list of tuples: (keyword, score)
-        # Return just the keyword strings
-        return [kw[0] for kw in keywords]
+        # Embed document and all candidates in one round-trip
+        all_texts = [text] + candidates
+        all_embeddings = np.array(client.embed_batch(all_texts))
+
+        doc_emb = all_embeddings[0]          # shape (4096,)
+        cand_embs = all_embeddings[1:]        # shape (N, 4096)
+
+        # Qwen vectors are already L2-normalised — dot product == cosine sim
+        scores = cand_embs @ doc_emb
+
+        # Max-marginal-relevance: pick diverse top-k
+        selected: List[int] = []
+        remaining = list(range(len(candidates)))
+
+        for _ in range(min(max_keywords, len(candidates))):
+            if not remaining:
+                break
+            if not selected:
+                # First pick: highest document similarity
+                best = max(remaining, key=lambda i: scores[i])
+            else:
+                # Subsequent picks: maximise relevance - redundancy
+                sel_embs = cand_embs[selected]
+                def mmr_score(i):
+                    rel = scores[i]
+                    red = float(np.max(cand_embs[i] @ sel_embs.T))
+                    return 0.5 * rel - 0.5 * red
+                best = max(remaining, key=mmr_score)
+            selected.append(best)
+            remaining.remove(best)
+
+        return [candidates[i] for i in selected]
 
     except Exception as e:
-        # If keyword extraction fails, return empty list
-        # Memory agent will create tags from scratch
-        print(f"Keyword extraction failed: {e}")
+        print(f"Keyword extraction failed (embedding server may be down): {e}")
         return []

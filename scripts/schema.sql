@@ -41,7 +41,7 @@ CREATE TABLE agents (
     max_context_tokens INTEGER DEFAULT 4096,
 
     -- Embedding config
-    embedding_dimensions INTEGER DEFAULT 768,
+    embedding_dimensions INTEGER DEFAULT 4096,
     embedding_chunk_size INTEGER DEFAULT 300,
 
     -- Timestamps
@@ -155,8 +155,8 @@ CREATE TABLE rag_chunks (
     start_char INTEGER,
     end_char INTEGER,
 
-    -- Embedding (dimension based on agent's embedding_dimensions)
-    embedding vector(768), -- Default dimension, can be adjusted
+    -- Embedding (4096 dimensions for Qwen3-Embedding-8B)
+    embedding vector(4096),
 
     -- Metadata
     metadata JSONB, -- For storing extra context
@@ -192,8 +192,8 @@ CREATE TABLE journal_blocks (
     editable_by_main_agent BOOLEAN DEFAULT TRUE,
     editable_by_memory_agent BOOLEAN DEFAULT FALSE,
 
-    -- Embedding for semantic search
-    embedding vector(768),
+    -- Embedding for semantic search (4096 dimensions for Qwen3-Embedding-8B)
+    embedding vector(4096),
 
     -- Timestamps
     created_at TIMESTAMP DEFAULT NOW(),
@@ -232,8 +232,8 @@ CREATE TABLE messages (
     role VARCHAR(50) NOT NULL, -- 'user', 'assistant', 'system'
     content TEXT NOT NULL,
 
-    -- Embedding for semantic search
-    embedding vector(768),
+    -- Embedding for semantic search (4096 dimensions for Qwen3-Embedding-8B)
+    embedding vector(4096),
 
     -- Metadata
     metadata JSONB,

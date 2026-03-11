@@ -1105,11 +1105,6 @@ async def _chat_stream_internal(
     # Build system content with memories
     system_content = agent.project_instructions or ""
 
-    # Add current date and time
-    from datetime import datetime
-    current_datetime = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
-    system_content += f"\n\nCurrent date and time: {current_datetime}"
-
     # Add pinned journal blocks
     pinned_blocks = db.query(JournalBlock).filter(
         JournalBlock.agent_id == agent.id,
@@ -1135,9 +1130,12 @@ async def _chat_stream_internal(
             system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
 
     # Build base messages array (system + history + current user message)
+    # Timestamp goes in the user message (not system) so it doesn't bust the KV cache prefix
+    from datetime import datetime
+    current_datetime = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
     system_message = {"role": "system", "content": system_content}
     messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
-    current_user_msg = {"role": "user", "content": message}
+    current_user_msg = {"role": "user", "content": f"[{current_datetime}]\n{message}"}
     base_messages = [system_message] + messages_to_include + [current_user_msg]
 
     print(f"\n📦 CONTEXT WINDOW BUILT:")

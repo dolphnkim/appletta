@@ -11,6 +11,8 @@ import subprocess
 
 import signal
 
+import time
+
 import httpx
 
 from typing import Dict, Optional
@@ -43,7 +45,25 @@ class MLXServerProcess:
 
         self.port = port
 
-        self.started_at = None  # TODO: Add timestamp
+        self.started_at = time.time()
+
+        self.last_used_at = time.time()
+
+
+
+    def touch(self):
+
+        """Reset the inactivity timer."""
+
+        self.last_used_at = time.time()
+
+
+
+    def idle_seconds(self) -> float:
+
+        """Seconds since this server was last used."""
+
+        return time.time() - self.last_used_at
 
  
 
@@ -117,7 +137,7 @@ class MLXManager:
 
     """Manages MLX server processes for all agents
 
- 
+
 
     Singleton that tracks which agents have running servers.
 
@@ -125,7 +145,13 @@ class MLXManager:
 
     """
 
- 
+    # Unload a server after this many seconds of inactivity (default: 30 min)
+    INACTIVITY_TIMEOUT = 30 * 60
+
+    # How often to scan for idle servers
+    IDLE_CHECK_INTERVAL = 5 * 60
+
+
 
     def __init__(self):
 
@@ -136,6 +162,8 @@ class MLXManager:
         self._port_range_end = 8180    # Last port to try
 
         self._used_ports = set()
+
+        self._idle_watcher_task: Optional[asyncio.Task] = None
 
  
 
@@ -158,6 +186,50 @@ class MLXManager:
         raise RuntimeError("No available ports for MLX server")
 
  
+
+    async def _idle_watcher(self):
+
+        """Background task: stop servers that have exceeded INACTIVITY_TIMEOUT."""
+
+        while True:
+
+            await asyncio.sleep(self.IDLE_CHECK_INTERVAL)
+
+            to_stop = [
+
+                agent_id for agent_id, proc in list(self._processes.items())
+
+                if proc.is_running() and proc.idle_seconds() > self.INACTIVITY_TIMEOUT
+
+            ]
+
+            for agent_id in to_stop:
+
+                proc = self._processes[agent_id]
+
+                idle_min = proc.idle_seconds() / 60
+
+                print(f"[MLX Manager] Unloading idle server for agent {agent_id} "
+
+                      f"(idle {idle_min:.1f} min, threshold {self.INACTIVITY_TIMEOUT // 60} min)")
+
+                try:
+
+                    await self.stop_agent_server(agent_id)
+
+                except Exception as e:
+
+                    print(f"[MLX Manager] Error stopping idle server {agent_id}: {e}")
+
+            # If nothing is left, let the task exit — it restarts next time a server starts
+
+            if not self._processes:
+
+                self._idle_watcher_task = None
+
+                return
+
+
 
     async def start_agent_server(self, agent, port_override: int = None) -> MLXServerProcess:  # TODO: agent: Agent
 
@@ -359,10 +431,15 @@ class MLXManager:
  
 
         # Wait for server to be ready (not just started, but accepting connections)
+        # NOTE: mlx_lm.server loads the full model *before* the HTTP server
+        # starts listening (ModelProvider.__init__ -> httpd.serve_forever).
+        # Large MoE models (e.g. MiniMax-M2.5) can take several minutes, so
+        # we poll with a generous timeout and let the process-crash check bail
+        # early if something actually goes wrong.
 
-        max_wait_time = 60  # seconds
+        max_wait_time = 600  # seconds (10 min — large models need time)
 
-        check_interval = 2  # seconds
+        check_interval = 5  # seconds
 
         elapsed = 0
 
@@ -370,7 +447,7 @@ class MLXManager:
 
 
 
-        print(f"[MLX Manager] Waiting for MLX server on port {port} to be ready...")
+        print(f"[MLX Manager] Waiting for MLX server on port {port} to be ready (model loading can take several minutes)...")
 
 
 
@@ -412,13 +489,15 @@ class MLXManager:
 
                         server_ready = True
 
-                        print(f"[MLX Manager] MLX server ready on port {port}")
+                        print(f"[MLX Manager] MLX server ready on port {port} (loaded in {elapsed}s)")
 
                         break
 
             except (httpx.ConnectError, httpx.TimeoutException):
 
-                # Server not ready yet, keep waiting
+                # Server not ready yet — still loading model
+                if elapsed > 0 and elapsed % 30 == 0:
+                    print(f"[MLX Manager] Still loading model... ({elapsed}s elapsed, up to {max_wait_time}s)")
 
                 pass
 
@@ -462,7 +541,13 @@ class MLXManager:
 
         self._used_ports.add(port)
 
- 
+        # Ensure the idle watcher is running
+
+        if self._idle_watcher_task is None or self._idle_watcher_task.done():
+
+            self._idle_watcher_task = asyncio.create_task(self._idle_watcher())
+
+
 
         return mlx_process
 
@@ -522,6 +607,8 @@ class MLXManager:
 
         if mlx_process and mlx_process.is_running():
 
+            mlx_process.touch()
+
             return mlx_process
 
         return None
@@ -532,11 +619,15 @@ class MLXManager:
 
         """Stop all running MLX servers
 
- 
+
 
         Called during application shutdown
 
         """
+
+        if self._idle_watcher_task and not self._idle_watcher_task.done():
+
+            self._idle_watcher_task.cancel()
 
         agent_ids = list(self._processes.keys())
 
