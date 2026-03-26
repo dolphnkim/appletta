@@ -172,13 +172,11 @@ class StatefulInferenceEngine:
 
     def _tokenize_messages(self, messages: List[dict]) -> List[int]:
         """Apply the model's chat template and return a flat list of token IDs."""
-        tokenizer = self._tokenizer
-        # TokenizerWrapper delegates unknown attributes to the underlying HF tokenizer
-        underlying = getattr(tokenizer, "_tokenizer", tokenizer)
+        tokenizer = self._tokenizer  # mlx TokenizerWrapper — owns the chat_template
 
-        if hasattr(underlying, "apply_chat_template"):
+        if tokenizer.has_chat_template:
             try:
-                tokens = underlying.apply_chat_template(
+                tokens = tokenizer.apply_chat_template(
                     messages,
                     add_generation_prompt=True,
                     tokenize=True,
@@ -197,6 +195,7 @@ class StatefulInferenceEngine:
 
         # Last-resort fallback: no chat template — format as plain dialogue.
         # Note: this often produces poor results; the model may not follow instructions.
+        print("[StatefulInference] WARNING: no chat template found, falling back to plain text formatting")
         text = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
         return list(tokenizer.encode(text))
 
