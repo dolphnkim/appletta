@@ -23,9 +23,12 @@ Base.metadata.create_all(bind=engine)
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     yield
-    # Shutdown: kill all MLX server subprocesses so they don't pile up
-    from backend.services.mlx_manager import get_mlx_manager
-    await get_mlx_manager().stop_all_servers()
+    # Shutdown: unload the in-process model (frees unified memory)
+    try:
+        from backend.services.stateful_inference import get_inference_engine
+        await get_inference_engine().unload_model()
+    except Exception:
+        pass
 
 
 # Create FastAPI app

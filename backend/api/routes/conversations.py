@@ -23,7 +23,7 @@ from backend.schemas.conversation import (
     ChatRequest,
     ChatResponse,
 )
-from backend.services.mlx_manager import get_mlx_manager
+
 from backend.services.tools import execute_tool, list_journal_blocks
 from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
@@ -756,18 +756,18 @@ async def chat(
     # Check if router logging is enabled for this agent
     use_router_logging = getattr(agent, 'router_logging_enabled', False)
 
-    # Get or start MLX server (unless using router logging mode)
-    mlx_manager = get_mlx_manager()
-    mlx_process = None
-
+    # Load model via stateful inference engine (unless using router logging mode)
+    inference_engine = None
     if not use_router_logging:
-        mlx_process = mlx_manager.get_agent_server(agent.id)
-
-        if not mlx_process:
-            try:
-                mlx_process = await mlx_manager.start_agent_server(agent)
-            except Exception as e:
-                raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
+        from backend.services.stateful_inference import get_inference_engine
+        inference_engine = get_inference_engine()
+        try:
+            await inference_engine.ensure_model(
+                agent.model_path,
+                getattr(agent, "adapter_path", None) or None,
+            )
+        except Exception as e:
+            raise HTTPException(500, f"Failed to load model: {str(e)}")
 
     # Simple LLM call - no tool calling loop, wizard handles all tools
     print(f"\n{'='*80}")
@@ -839,50 +839,31 @@ async def chat(
             traceback.print_exc()
             raise HTTPException(500, f"Router logging inference failed: {str(e)}")
     else:
-        # Standard MLX server inference
-        # VERBOSE: Show exactly what we're sending to the LLM
-        request_payload = {
-            "messages": messages,
-            "temperature": agent.temperature,
-            "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-        }
-
+        # Standard inference via stateful engine
         print(f"\n📤 REQUEST TO MAIN LLM:")
-        print(f"Port: {mlx_process.port}")
+        print(f"Model: {agent.model_path}")
         print(f"Temperature: {agent.temperature}")
         print(f"Max Tokens: {agent.max_output_tokens if agent.max_output_tokens_enabled else 4096}")
-        print(f"\n📨 MESSAGES ARRAY ({len(messages)} messages):")
-        for i, msg in enumerate(messages):
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            print(f"\n  Message {i+1} [{role}]:")
-            # Show full content without truncation
-            print(f"  {content}")
+        print(f"Messages: {len(messages)}")
         print(f"{'='*80}\n")
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(
-                    f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                    json=request_payload
-                )
-                response.raise_for_status()
-                result = response.json()
+            async for chunk in inference_engine.stream_chat(
+                conversation_id=conversation_id,
+                messages=messages,
+                model_path=agent.model_path,
+                adapter_path=getattr(agent, "adapter_path", None) or None,
+                temperature=agent.temperature,
+                top_p=getattr(agent, "top_p", 1.0) or 1.0,
+                top_k=getattr(agent, "top_k", 100) or 100,
+                max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+            ):
+                final_response += chunk
+        except Exception as e:
+            print(f"\n❌ INFERENCE ERROR: {str(e)}\n")
+            raise HTTPException(500, f"Inference failed: {str(e)}")
 
-            # VERBOSE: Show exactly what the LLM responded with
-            print(f"\n📥 RESPONSE FROM MAIN LLM:")
-            assistant_msg = result.get("choices", [{}])[0].get("message", {})
-            print(f"Role: {assistant_msg.get('role', 'unknown')}")
-            content = assistant_msg.get("content", "")
-            # Show full content without truncation
-            print(f"Content:\n{content}")
-            print(f"{'='*80}\n")
-
-        except httpx.HTTPError as e:
-            print(f"\n❌ MLX SERVER ERROR: {str(e)}\n")
-            raise HTTPException(500, f"MLX server request failed: {str(e)}")
-
-        final_response = result["choices"][0]["message"].get("content", "")
+        print(f"\n📥 RESPONSE FROM MAIN LLM:\n{final_response}\n{'='*80}\n")
 
     # Save assistant message and embed it
     # Extract initial thematic tags for assistant message
@@ -984,53 +965,43 @@ async def _chat_stream_internal(
         metadata={"tags": initial_tags} if initial_tags else None
     )
 
-    # === GET MLX SERVER ===
-    # Start MLX server for wizard menu choices (unless using pure router logging mode)
-    # When router logging is enabled with loaded model, we skip MLX server to avoid loading model twice
-    mlx_manager = get_mlx_manager()
-    mlx_process = None
-
-    # Check if we should skip MLX server (router logging with loaded diagnostic model)
-    skip_mlx_server = False
+    # === LOAD INFERENCE MODEL ===
     router_logging_enabled = getattr(agent, 'router_logging_enabled', False)
+    skip_mlx_server = False  # used by downstream router-logging checks
+
     print(f"[MLX Setup] router_logging_enabled={router_logging_enabled}")
     log_debug("mlx_setup", f"router_logging_enabled={router_logging_enabled}", conversation_id=str(conversation_id), agent_id=str(agent.id))
+
     if router_logging_enabled:
         try:
             from backend.services.diagnostic_inference import get_diagnostic_service
             diag_service = get_diagnostic_service()
             if diag_service.model is not None and diag_service.agent_id == str(agent.id):
                 skip_mlx_server = True
-                logger.info(f"Skipping MLX server - using diagnostic service model for router logging")
         except:
             pass
 
     print(f"[MLX Setup] skip_mlx_server={skip_mlx_server}")
     log_debug("mlx_setup", f"skip_mlx_server={skip_mlx_server}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-    if not skip_mlx_server:
-        mlx_process = mlx_manager.get_agent_server(agent.id)
-        print(f"[MLX Setup] get_agent_server returned: {mlx_process}")
-        log_debug("mlx_setup", f"get_agent_server returned: {mlx_process}", conversation_id=str(conversation_id), agent_id=str(agent.id))
 
-        if not mlx_process:
-            try:
-                print(f"[MLX Setup] Starting new MLX server for agent {agent.name}...")
-                log_debug("mlx_setup", f"Starting new MLX server for agent {agent.name}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                mlx_process = await mlx_manager.start_agent_server(agent)
-                print(f"[MLX Setup] MLX server started on port {mlx_process.port}")
-                log_debug("mlx_setup", f"MLX server started on port {mlx_process.port}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                logger.info(f"MLX server started on port {mlx_process.port}")
-            except Exception as e:
-                print(f"[MLX Setup] FAILED to start MLX server: {e}")
-                log_debug("mlx_setup", f"FAILED to start MLX server: {e}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-                raise HTTPException(500, f"Failed to start MLX server: {str(e)}")
-        else:
-            print(f"[MLX Setup] Using existing MLX server on port {mlx_process.port}")
-            log_debug("mlx_setup", f"Using existing MLX server on port {mlx_process.port}", conversation_id=str(conversation_id), agent_id=str(agent.id))
-            logger.info(f"Using existing MLX server on port {mlx_process.port} for agent {agent.name}")
+    inference_engine = None
+    if not skip_mlx_server:
+        from backend.services.stateful_inference import get_inference_engine
+        inference_engine = get_inference_engine()
+        try:
+            await inference_engine.ensure_model(
+                agent.model_path,
+                getattr(agent, "adapter_path", None) or None,
+            )
+            print(f"[MLX Setup] Stateful inference engine ready for agent {agent.name}")
+            log_debug("mlx_setup", "Stateful inference engine ready", conversation_id=str(conversation_id), agent_id=str(agent.id))
+        except Exception as e:
+            print(f"[MLX Setup] FAILED to load model: {e}")
+            log_debug("mlx_setup", f"FAILED to load model: {e}", conversation_id=str(conversation_id), agent_id=str(agent.id))
+            raise HTTPException(500, f"Failed to load model: {str(e)}")
     else:
-        print(f"[MLX Setup] Skipping MLX server startup (using diagnostic service)")
-        log_debug("mlx_setup", "Skipping MLX server startup (using diagnostic service)", conversation_id=str(conversation_id), agent_id=str(agent.id))
+        print(f"[MLX Setup] Skipping model load (using diagnostic service)")
+        log_debug("mlx_setup", "Skipping model load (using diagnostic service)", conversation_id=str(conversation_id), agent_id=str(agent.id))
 
     # === BUILD CONTEXT WINDOW FIRST ===
     # We need to build the full context BEFORE wizard check so LLM sees everything
@@ -1184,7 +1155,7 @@ async def _chat_stream_internal(
 
         # Streaming generator that implements inline tool flow
         async def generate_stream_with_inline_tools():
-            nonlocal tool_call_count, accumulated_response, mlx_process, mlx_manager, skip_mlx_server
+            nonlocal tool_call_count, accumulated_response
 
             # Send raw memory narrative first so user can see what the memory agent said
             if memory_narrative:
@@ -1245,7 +1216,7 @@ async def _chat_stream_internal(
                 if use_router_logging:
                     print(f"Mode: Router Logging (Diagnostic Service)")
                 else:
-                    print(f"Port: {mlx_process.port if mlx_process else 'None (MLX not started)'}")
+                    print(f"Model: {agent.model_path}")
                 print(f"Temperature: {agent.temperature}")
                 print(f"Messages: {len(current_messages)}")
                 
@@ -1303,28 +1274,21 @@ async def _chat_stream_internal(
                         print(f"🔬 Router logging captured: {router_analysis_data.get('unique_experts_used', 0)} experts used")
 
                     else:
-                        # Standard MLX server (collect full response for tool parsing)
-                        if not mlx_process:
-                            raise Exception("MLX server not available - mlx_process is None")
-                        
-                        async with httpx.AsyncClient(timeout=120.0) as client:
-                            async with client.stream(
-                                "POST",
-                                f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                                json=request_payload
-                            ) as stream_response:
-                                async for line in stream_response.aiter_lines():
-                                    if line.startswith("data: "):
-                                        data = line[6:]
-                                        if data == "[DONE]":
-                                            break
-                                        try:
-                                            chunk = json.loads(data)
-                                            delta = chunk["choices"][0]["delta"]
-                                            if "content" in delta and delta["content"]:
-                                                raw_response += delta["content"]
-                                        except json.JSONDecodeError:
-                                            continue
+                        # Stateful in-process inference
+                        if inference_engine is None:
+                            raise Exception("Inference engine not available")
+
+                        async for chunk_text in inference_engine.stream_chat(
+                            conversation_id=conversation_id,
+                            messages=current_messages,
+                            model_path=agent.model_path,
+                            adapter_path=getattr(agent, "adapter_path", None) or None,
+                            temperature=agent.temperature,
+                            top_p=getattr(agent, "top_p", 1.0) or 1.0,
+                            top_k=getattr(agent, "top_k", 100) or 100,
+                            max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                        ):
+                            raw_response += chunk_text
 
                     print(f"\n{'═'*60}")
                     print(f"📥 FULL LLM RESPONSE ({len(raw_response)} chars):")
@@ -1492,50 +1456,26 @@ async def _chat_stream_internal(
             print(f"🤖 MAIN AGENT LLM CALL (STREAMING) - Agent: {agent.name}")
             print(f"{'='*80}")
 
-            request_payload = {
-                "messages": messages,
-                "temperature": agent.temperature,
-                "top_p": agent.top_p,
-                "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                "stream": True
-            }
-
             print(f"\n📤 REQUEST TO MAIN LLM:")
-            print(f"Port: {mlx_process.port}")
+            print(f"Model: {agent.model_path}")
             print(f"Temperature: {agent.temperature}")
             print(f"Max Tokens: {agent.max_output_tokens if agent.max_output_tokens_enabled else 4096}")
-            print(f"\n📨 MESSAGES ARRAY ({len(messages)} messages):")
-            for i, msg in enumerate(messages):
-                role = msg.get("role", "unknown")
-                content = msg.get("content", "")
-                print(f"\n  Message {i+1} [{role}]:")
-                print(f"  {content}")
+            print(f"Messages: {len(messages)}")
             print(f"{'='*80}\n")
 
-            # Stream the response
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"http://localhost:{mlx_process.port}/v1/chat/completions",
-                    json=request_payload
-                ) as stream_response:
-                    async for line in stream_response.aiter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                                delta = chunk["choices"][0]["delta"]
-
-                                # Stream content to user AND collect it
-                                if "content" in delta and delta["content"]:
-                                    content_chunk = delta["content"]
-                                    final_response += content_chunk
-                                    # Stream to user in real-time
-                                    yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
-                            except json.JSONDecodeError:
-                                continue
+            # Stream the response via stateful in-process inference
+            async for content_chunk in inference_engine.stream_chat(
+                conversation_id=conversation_id,
+                messages=messages,
+                model_path=agent.model_path,
+                adapter_path=getattr(agent, "adapter_path", None) or None,
+                temperature=agent.temperature,
+                top_p=getattr(agent, "top_p", 1.0) or 1.0,
+                top_k=getattr(agent, "top_k", 100) or 100,
+                max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+            ):
+                final_response += content_chunk
+                yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
 
             # VERBOSE: Show exactly what the LLM responded with
             print(f"\n📥 RESPONSE FROM MAIN LLM:")
@@ -1588,8 +1528,7 @@ async def _chat_stream_internal(
             import traceback
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Stream error for agent {agent.name} on port {mlx_process.port}")
-            logger.error(f"MLX server process running: {mlx_process.is_running()}")
+            logger.error(f"Stream error for agent {agent.name}: {e}")
             logger.error(f"Full error: {traceback.format_exc()}")
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
 
