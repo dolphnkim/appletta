@@ -45,7 +45,7 @@ def _extract_candidates(text: str) -> List[str]:
     ]
     candidates += list(dict.fromkeys(bigrams))
 
-    return candidates[:100]  # cap to avoid huge batches
+    return candidates[:99]  # cap to 99 — embed_batch receives [doc] + candidates (max 100 total)
 
 
 def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
