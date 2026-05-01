@@ -72,6 +72,45 @@
   flex-direction: column;
 }
 
+.file-picker-path-input {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  background: #252525;
+  border-bottom: 1px solid #333;
+}
+
+.file-picker-path-input input {
+  flex: 1;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 12px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.file-picker-path-input input:focus {
+  border-color: #007aff;
+}
+
+.file-picker-path-input button {
+  background: #3a3a3a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.file-picker-path-input button:hover {
+  background: #444;
+}
+
 .file-picker-path {
   display: flex;
   align-items: center;

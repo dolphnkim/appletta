@@ -24,6 +24,7 @@ export default function FilePicker({
 }: FilePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentPath, setCurrentPath] = useState('');
+  const [pathInput, setPathInput] = useState('');
   const [items, setItems] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,11 +52,19 @@ export default function FilePicker({
       setError(null);
       const response = await filesAPI.browse(path);
       setCurrentPath(response.current_path);
+      setPathInput(response.current_path);
       setItems(response.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load files');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePathInputSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pathInput.trim()) {
+      loadPath(pathInput.trim());
     }
   };
 
@@ -143,6 +152,16 @@ export default function FilePicker({
               <div className="file-picker-error">{error}</div>
             ) : (
               <>
+                <form className="file-picker-path-input" onSubmit={handlePathInputSubmit}>
+                  <input
+                    type="text"
+                    value={pathInput}
+                    onChange={(e) => setPathInput(e.target.value)}
+                    placeholder="/path/to/folder"
+                    spellCheck={false}
+                  />
+                  <button type="submit">Go</button>
+                </form>
                 <div className="file-picker-path">
                   {currentPath}
                   <div className="path-actions">

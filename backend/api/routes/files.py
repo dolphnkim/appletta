@@ -214,17 +214,24 @@ async def browse_files(
 
                 items.append(item)
 
-            except PermissionError:
+            except OSError:
 
-                # Skip files/directories we don't have permission to access
+                # Skip files/directories we don't have permission to access,
+                # or macOS special files that raise FileNotFoundError on stat()
 
                 continue
 
- 
+
 
     except PermissionError:
 
-        raise HTTPException(403, f"Permission denied: {path}")
+        raise HTTPException(
+            403,
+            f"Permission denied: {path}. "
+            "On macOS, the backend process may need Full Disk Access. "
+            "Go to System Settings > Privacy & Security > Full Disk Access "
+            "and add Terminal (or the app used to run the backend)."
+        )
 
  
 
@@ -396,7 +403,37 @@ async def get_suggested_model_paths():
 
     ]
 
- 
+
+
+    # Add any mounted external volumes on macOS
+
+    volumes_dir = Path("/Volumes")
+
+    if volumes_dir.exists():
+
+        try:
+
+            for volume in sorted(volumes_dir.iterdir()):
+
+                try:
+
+                    if volume.is_symlink():
+
+                        continue  # Skip "Macintosh HD" symlink that points to /
+
+                    if volume.is_dir():
+
+                        suggested.append(str(volume))
+
+                except OSError:
+
+                    continue
+
+        except OSError:
+
+            pass
+
+
 
     # Filter to only paths that exist
 

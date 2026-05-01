@@ -861,6 +861,7 @@ async def chat(
         print(f"{'='*80}\n")
 
         try:
+<<<<<<< Updated upstream
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"http://localhost:{mlx_process.port}/v1/chat/completions",
@@ -868,6 +869,23 @@ async def chat(
                 )
                 response.raise_for_status()
                 result = response.json()
+=======
+            async for chunk in inference_engine.stream_chat(
+                conversation_id=conversation_id,
+                messages=messages,
+                model_path=agent.model_path,
+                adapter_path=getattr(agent, "adapter_path", None) or None,
+                temperature=agent.temperature,
+                top_p=getattr(agent, "top_p", 1.0) or 1.0,
+                top_k=getattr(agent, "top_k", 100) or 100,
+                max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                reasoning_enabled=agent.reasoning_enabled,
+            ):
+                final_response += chunk
+        except Exception as e:
+            print(f"\n❌ INFERENCE ERROR: {str(e)}\n")
+            raise HTTPException(500, f"Inference failed: {str(e)}")
+>>>>>>> Stashed changes
 
             # VERBOSE: Show exactly what the LLM responded with
             print(f"\n📥 RESPONSE FROM MAIN LLM:")
@@ -1303,6 +1321,7 @@ async def _chat_stream_internal(
                         print(f"🔬 Router logging captured: {router_analysis_data.get('unique_experts_used', 0)} experts used")
 
                     else:
+<<<<<<< Updated upstream
                         # Standard MLX server (collect full response for tool parsing)
                         if not mlx_process:
                             raise Exception("MLX server not available - mlx_process is None")
@@ -1325,6 +1344,24 @@ async def _chat_stream_internal(
                                                 raw_response += delta["content"]
                                         except json.JSONDecodeError:
                                             continue
+=======
+                        # Stateful in-process inference
+                        if inference_engine is None:
+                            raise Exception("Inference engine not available")
+
+                        async for chunk_text in inference_engine.stream_chat(
+                            conversation_id=conversation_id,
+                            messages=current_messages,
+                            model_path=agent.model_path,
+                            adapter_path=getattr(agent, "adapter_path", None) or None,
+                            temperature=agent.temperature,
+                            top_p=getattr(agent, "top_p", 1.0) or 1.0,
+                            top_k=getattr(agent, "top_k", 100) or 100,
+                            max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                            reasoning_enabled=agent.reasoning_enabled,
+                        ):
+                            raw_response += chunk_text
+>>>>>>> Stashed changes
 
                     print(f"\n{'═'*60}")
                     print(f"📥 FULL LLM RESPONSE ({len(raw_response)} chars):")
@@ -1512,6 +1549,7 @@ async def _chat_stream_internal(
                 print(f"  {content}")
             print(f"{'='*80}\n")
 
+<<<<<<< Updated upstream
             # Stream the response
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(
@@ -1536,6 +1574,22 @@ async def _chat_stream_internal(
                                     yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
                             except json.JSONDecodeError:
                                 continue
+=======
+            # Stream the response via stateful in-process inference
+            async for content_chunk in inference_engine.stream_chat(
+                conversation_id=conversation_id,
+                messages=messages,
+                model_path=agent.model_path,
+                adapter_path=getattr(agent, "adapter_path", None) or None,
+                temperature=agent.temperature,
+                top_p=getattr(agent, "top_p", 1.0) or 1.0,
+                top_k=getattr(agent, "top_k", 100) or 100,
+                max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                reasoning_enabled=agent.reasoning_enabled,
+            ):
+                final_response += content_chunk
+                yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
+>>>>>>> Stashed changes
 
             # VERBOSE: Show exactly what the LLM responded with
             print(f"\n📥 RESPONSE FROM MAIN LLM:")
