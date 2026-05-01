@@ -170,18 +170,20 @@ class StatefulInferenceEngine:
     # Tokenization
     # -------------------------------------------------------------------------
 
-    def _tokenize_messages(self, messages: List[dict], reasoning_enabled: bool = True) -> List[int]:
+    def _tokenize_messages(self, messages: List[dict], reasoning_enabled: bool = True, tools: Optional[List[dict]] = None) -> List[int]:
         """Apply the model's chat template and return a flat list of token IDs."""
         tokenizer = self._tokenizer  # mlx TokenizerWrapper — owns the chat_template
 
         if tokenizer.has_chat_template:
             try:
-                tokens = tokenizer.apply_chat_template(
-                    messages,
+                kwargs = dict(
                     add_generation_prompt=True,
                     tokenize=True,
                     reasoning_enabled=reasoning_enabled,
                 )
+                if tools:
+                    kwargs["tools"] = tools
+                tokens = tokenizer.apply_chat_template(messages, **kwargs)
                 # Some tokenizers return a formatted string even with tokenize=True
                 if isinstance(tokens, str):
                     return list(tokenizer.encode(tokens))
@@ -215,6 +217,7 @@ class StatefulInferenceEngine:
         top_k: int = 100,
         max_tokens: int = 4096,
         reasoning_enabled: bool = True,
+        tools: Optional[List[dict]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Stream a chat response with stateful KV cache continuation.
@@ -235,7 +238,7 @@ class StatefulInferenceEngine:
         conv_cache, is_fresh = self._get_or_create_cache(conversation_id, system_hash)
 
         # Tokenize the full conversation as it stands now
-        full_tokens = self._tokenize_messages(messages, reasoning_enabled=reasoning_enabled)
+        full_tokens = self._tokenize_messages(messages, reasoning_enabled=reasoning_enabled, tools=tools)
 
         # Compute delta: tokens not yet in the cache
         cache_offset = conv_cache.offset

@@ -25,7 +25,7 @@ from backend.schemas.conversation import (
 )
 from backend.services.mlx_manager import get_mlx_manager
 from backend.services.stateful_inference import get_inference_engine
-from backend.services.tools import execute_tool, list_journal_blocks
+from backend.services.tools import execute_tool, get_enabled_tools, parse_minimax_tool_calls, format_tool_result_message
 from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
@@ -128,24 +128,9 @@ async def get_context_window(
 
     system_tokens = count_tokens(system_content)
 
-    # Count tool instructions tokens (if tools are enabled)
-    tool_instructions_tokens = 0
-    tool_instructions_text = ""
-    if agent.enabled_tools and len(agent.enabled_tools) > 0:
-        from backend.services.tools import get_tools_description
-        tool_instructions_text = get_tools_description(agent.enabled_tools, agent.id, db)
-        tool_instructions_tokens = count_tokens(tool_instructions_text)
-
-    # Count tool overhead from messages in context (not all history)
-    tool_overhead_tokens = 0
-    for msg in messages_in_context:
-        if msg.role == "assistant" and msg.metadata_:
-            tool_overhead_tokens += msg.metadata_.get("wizard_overhead_tokens", 0)
-            tool_overhead_tokens += msg.metadata_.get("inline_tools_used", 0) * 50  # Estimate for inline tool results
-
     # Calculate totals
     messages_tokens = current_tokens
-    total_tokens = system_tokens + tool_instructions_tokens + messages_tokens + tool_overhead_tokens
+    total_tokens = system_tokens + messages_tokens
 
     sections = [
         {
@@ -153,31 +138,14 @@ async def get_context_window(
             "tokens": system_tokens,
             "percentage": round((system_tokens / max_context) * 100, 1) if max_context > 0 else 0,
             "content": f"Project instructions + {len(pinned_blocks)} pinned blocks" + (" + memory estimate" if memory_estimate else "")
-        }
+        },
+        {
+            "name": "Messages in Context",
+            "tokens": messages_tokens,
+            "percentage": round((messages_tokens / max_context) * 100, 1) if max_context > 0 else 0,
+            "content": f"{len(messages_in_context)} messages ({messages_dropped} dropped by shifting window)"
+        },
     ]
-
-    if tool_instructions_tokens > 0:
-        sections.append({
-            "name": "Tool Instructions",
-            "tokens": tool_instructions_tokens,
-            "percentage": round((tool_instructions_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": tool_instructions_text[:300] + "..." if len(tool_instructions_text) > 300 else tool_instructions_text
-        })
-
-    sections.append({
-        "name": "Messages in Context",
-        "tokens": messages_tokens,
-        "percentage": round((messages_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-        "content": f"{len(messages_in_context)} messages ({messages_dropped} dropped by shifting window)"
-    })
-
-    if tool_overhead_tokens > 0:
-        sections.append({
-            "name": "Tool Execution Overhead",
-            "tokens": tool_overhead_tokens,
-            "percentage": round((tool_overhead_tokens / max_context) * 100, 1) if max_context > 0 else 0,
-            "content": "Tool results injected during conversation"
-        })
 
     return {
         "sections": sections,
@@ -745,8 +713,6 @@ async def chat(
         if sanitized:
             system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
 
-    # Tools are handled by the wizard system, not via OpenAI function calling
-
     # Build final messages array using the pre-calculated messages_in_context
     # IMPORTANT: Add the current user message at the end (it's not in history yet)
     system_message = {"role": "system", "content": system_content}
@@ -1082,281 +1048,91 @@ async def _chat_stream_internal(
     # === ROUTER LOGGING CHECK ===
     use_router_logging = getattr(agent, 'router_logging_enabled', False)
 
-    # === INLINE TOOL SYSTEM ===
-    # If tools are enabled, use inline tool parsing (LLM includes tools in response)
-    from backend.services.tool_wizard import (
-        # Legacy wizard imports (kept for compatibility)
-        get_wizard_state, process_wizard_step, show_main_menu, WizardState, clean_llm_response, parse_command,
-        # New inline tool imports
-        process_response_with_inline_tools, get_inline_tool_instructions, format_inline_tool_results
-    )
-
+    # === AGENTIC TOOL LOOP ===
+    # If tools are enabled, pass them to the model via chat template and run
+    # an agentic loop: generate → parse MiniMax XML tool calls → execute →
+    # inject results → repeat until no tool calls, then stream final response.
     if agent.enabled_tools and len(agent.enabled_tools) > 0:
-        # INLINE TOOL FLOW:
-        # 1. Add tool instructions to context
-        # 2. LLM generates response (may include inline tool calls)
-        # 3. Parse and execute any tool calls found
-        # 4. If tools were used, inject results and let LLM continue
-        # 5. Filter tool syntax from final response
-        # 6. Save clean response to database
+        tools = get_enabled_tools(agent.enabled_tools)
 
-        max_tool_iterations = 3  # Max loops for tool execution
-        tool_call_count = 0
-        accumulated_response = ""  # Clean response for user (tool syntax filtered out)
+        async def generate_stream_with_tools():
+            current_messages = base_messages.copy()
+            accumulated_response = ""
+            iteration = 0
+            max_iterations = 10
 
-        print(f"\n🔧 INLINE TOOLS: Enabled for agent {agent.name}")
-        print(f"   User's message: {message[:100]}...")
-
-        # Add tool instructions to context (only for enabled tools)
-        tool_instructions = get_inline_tool_instructions(str(agent.id), db, agent.enabled_tools)
-        messages_with_tools = []
-        tool_instructions_added = False
-        for msg in base_messages:
-            messages_with_tools.append(msg)
-            if msg.get("role") == "system" and not tool_instructions_added:
-                messages_with_tools.append({"role": "system", "content": tool_instructions})
-                tool_instructions_added = True
-
-        # Streaming generator that implements inline tool flow
-        async def generate_stream_with_inline_tools():
-            nonlocal tool_call_count, accumulated_response
-
-            # Send raw memory narrative first so user can see what the memory agent said
             if memory_narrative:
                 yield f"data: {json.dumps({'type': 'memory_narrative', 'content': memory_narrative})}\n\n"
 
-            # Initialize router logging if enabled
-            diagnostic_service = None
-            if use_router_logging:
-                print(f"🔬 ROUTER LOGGING ENABLED for agent {agent.name}")
-                from backend.services.diagnostic_inference import get_diagnostic_service
-
-                try:
-                    diagnostic_service = get_diagnostic_service()
-
-                    # Check if model is already loaded for this agent
-                    current_agent_id = getattr(diagnostic_service, 'agent_id', None)
-                    current_model_path = getattr(diagnostic_service, 'model_path', None)
-                    is_model_loaded = diagnostic_service.model is not None
-
-                    print(f"[Router Logging] Current state: agent_id={current_agent_id}, model_loaded={is_model_loaded}")
-                    print(f"[Router Logging] Target: agent_id={agent.id}")
-
-                    if not is_model_loaded or current_agent_id != str(agent.id):
-                        # Model not loaded or wrong agent - show helpful message but don't block
-                        print(f"[Router Logging] Model not loaded for this agent")
-                        yield f"data: {json.dumps({'type': 'status', 'content': '⚠️ Router logging enabled but model not loaded. Visit Analytics/Interpretability page to load the model for this agent first.'})}\n\n"
-                        diagnostic_service = None  # Disable for this request
-                    else:
-                        print(f"[Router Logging] Model already loaded, will use for routing analysis")
-                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Router logging active'})}\n\n"
-                except Exception as e:
-                    print(f"[Router Logging] Warning: Failed to initialize diagnostic service: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    yield f"data: {json.dumps({'type': 'status', 'content': f'⚠️ Router logging failed to initialize: {str(e)}'})}\n\n"
-                    diagnostic_service = None
-
-            # Initialize for inline tool loop
-            current_messages = messages_with_tools.copy()
-            router_analysis_data = None
-            iteration = 0
-
-            while iteration < max_tool_iterations:
+            while iteration < max_iterations:
                 iteration += 1
-                print(f"\n{'='*80}")
-                print(f"🔧 INLINE TOOLS: Generation iteration {iteration} (tools used: {tool_call_count})")
-                print(f"{'='*80}")
-
-                request_payload = {
-                    "messages": current_messages,
-                    "temperature": agent.temperature,
-                    "top_p": agent.top_p,
-                    "max_tokens": agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                    "stream": True
-                }
-
-                print(f"\n📤 LLM CALL (Iteration {iteration}):")
-                if use_router_logging:
-                    print(f"Mode: Router Logging (Diagnostic Service)")
-                else:
-                    print(f"Mode: Stateful in-process inference")
-                print(f"Temperature: {agent.temperature}")
-                print(f"Messages: {len(current_messages)}")
-                
-                # VERBOSE: Show tool instructions and recent messages
-                print(f"\n{'─'*60}")
-                print(f"📋 TOOL INSTRUCTIONS SENT TO LLM:")
-                print(f"{'─'*60}")
-                print(tool_instructions)
-                print(f"{'─'*60}")
-                
-                # Show full message array sent to LLM
-                print(f"\n📨 FULL MESSAGE ARRAY SENT TO LLM ({len(current_messages)} messages total):")
-                for i, msg in enumerate(current_messages):
-                    role = msg.get("role", "?")
-                    content = msg.get("content", "")
-                    print(f"\n  ┌─ [{i}] [{role}] ─────────────────────────────────────")
-                    # Show full content for all messages
-                    for line in content.split('\n'):
-                        print(f"  │ {line}")
-                    print(f"  └{'─'*50}")
-                print(f"{'─'*60}")
-
                 raw_response = ""
 
+                print(f"\n{'='*60}")
+                print(f"🔧 TOOL LOOP iteration {iteration} — agent: {agent.name}")
+                print(f"{'='*60}")
+
                 try:
-                    if use_router_logging and diagnostic_service:
-                        # Use diagnostic inference with router logging (non-streaming)
-                        print(f"🔬 Using router logging for this response")
-
-                        prompt_parts = []
-                        for msg in current_messages:
-                            role = msg.get("role", "")
-                            content = msg.get("content", "")
-                            if role == "system":
-                                prompt_parts.append(f"System: {content}")
-                            elif role == "user":
-                                prompt_parts.append(f"User: {content}")
-                            elif role == "assistant":
-                                prompt_parts.append(f"Assistant: {content}")
-
-                        conversation_prompt = "\n\n".join(prompt_parts)
-                        yield f"data: {json.dumps({'type': 'status', 'content': '🔬 Running inference with router logging...'})}\n\n"
-
-                        max_tokens = agent.max_output_tokens if agent.max_output_tokens_enabled else 4096
-                        result_dict = await asyncio.to_thread(
-                            diagnostic_service.run_inference,
-                            prompt=conversation_prompt,
-                            max_tokens=max_tokens,
-                            temperature=agent.temperature,
-                            log_routing=True
-                        )
-
-                        raw_response = result_dict["response"]
-                        router_analysis_data = result_dict["router_analysis"]
-                        print(f"🔬 Router logging captured: {router_analysis_data.get('unique_experts_used', 0)} experts used")
-
-                    else:
-                        # Stateful in-process inference
-                        async for chunk_text in inference_engine.stream_chat(
-                            conversation_id=conversation_id,
-                            messages=current_messages,
-                            model_path=agent.model_path,
-                            adapter_path=getattr(agent, "adapter_path", None) or None,
-                            temperature=agent.temperature,
-                            top_p=getattr(agent, "top_p", 1.0) or 1.0,
-                            top_k=getattr(agent, "top_k", 100) or 100,
-                            max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
-                            reasoning_enabled=agent.reasoning_enabled,
-                        ):
-                            raw_response += chunk_text
-
-                    print(f"\n{'═'*60}")
-                    print(f"📥 FULL LLM RESPONSE ({len(raw_response)} chars):")
-                    print(f"{'═'*60}")
-                    print(raw_response)
-                    print(f"{'═'*60}")
-
-                    # Parse and execute inline tools, get cleaned response
-                    cleaned_response, tool_results = process_response_with_inline_tools(
-                        raw_response, str(agent.id), db
-                    )
-
-                    # Show what was parsed
-                    if tool_results:
-                        print(f"\n🔧 TOOLS DETECTED AND EXECUTED:")
-                        for tr in tool_results:
-                            print(f"   {'✅' if tr.success else '❌'} {tr.message}")
-                    
-                    print(f"\n📤 CLEANED RESPONSE (sent to user, {len(cleaned_response)} chars):")
-                    print(f"{'─'*60}")
-                    print(cleaned_response if cleaned_response else "(empty)")
-                    print(f"{'─'*60}")
-
-                    # Stream cleaned response to user (tool syntax filtered out)
-                    if cleaned_response:
-                        chunk_size = 20
-                        for i in range(0, len(cleaned_response), chunk_size):
-                            content_chunk = cleaned_response[i:i+chunk_size]
-                            yield f"data: {json.dumps({'type': 'content', 'content': content_chunk})}\n\n"
-                            await asyncio.sleep(0.01)
-                        accumulated_response += cleaned_response
-
-                    log_debug("llm_response", "Response processed", data={"raw_len": len(raw_response), "clean_len": len(cleaned_response), "tools": len(tool_results)}, conversation_id=str(conversation_id), agent_id=str(agent.id))
-
-                    # If tools were executed, inject results and continue loop
-                    if tool_results:
-                        tool_call_count += len(tool_results)
-                        print(f"🔧 Executed {len(tool_results)} tool(s), total: {tool_call_count}")
-
-                        # Add raw response to conversation
-                        current_messages.append({"role": "assistant", "content": raw_response})
-
-                        # Inject tool results for next iteration
-                        results_text = format_inline_tool_results(tool_results)
-                        current_messages.append({"role": "system", "content": results_text})
-
-                        # Add spacing
-                        if accumulated_response and not accumulated_response.endswith("\n"):
-                            accumulated_response += "\n\n"
-                            yield f"data: {json.dumps({'type': 'content', 'content': chr(10) + chr(10)})}\n\n"
-
-                        continue  # Let LLM respond to tool results
-                    else:
-                        break  # No tools, we're done
-
+                    async for chunk in inference_engine.stream_chat(
+                        conversation_id=conversation_id,
+                        messages=current_messages,
+                        model_path=agent.model_path,
+                        adapter_path=getattr(agent, "adapter_path", None) or None,
+                        temperature=agent.temperature,
+                        top_p=getattr(agent, "top_p", 1.0) or 1.0,
+                        top_k=getattr(agent, "top_k", 100) or 100,
+                        max_tokens=agent.max_output_tokens if agent.max_output_tokens_enabled else 4096,
+                        reasoning_enabled=agent.reasoning_enabled,
+                        tools=tools,
+                    ):
+                        raw_response += chunk
                 except Exception as e:
                     import traceback
-                    print(f"🔧 INLINE TOOLS ERROR: {traceback.format_exc()}")
+                    print(f"🔧 TOOL LOOP ERROR: {traceback.format_exc()}")
                     yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
                     return
 
-            # End of inline tool loop - now finalize
+                print(f"📥 Raw response ({len(raw_response)} chars):\n{raw_response}\n{'─'*60}")
 
-            # FINALIZE: Save accumulated response to database
-            print(f"\n🔧 INLINE TOOLS: Finalizing message to database")
-            print(f"   Response length: {len(accumulated_response)}")
-            print(f"   Tools executed: {tool_call_count}")
+                tool_calls = parse_minimax_tool_calls(raw_response, tools)
 
-            # Save to database
+                if not tool_calls:
+                    # Final response — stream it to the user
+                    chunk_size = 20
+                    for i in range(0, len(raw_response), chunk_size):
+                        yield f"data: {json.dumps({'type': 'content', 'content': raw_response[i:i+chunk_size]})}\n\n"
+                        await asyncio.sleep(0.01)
+                    accumulated_response += raw_response
+                    break
+
+                # Tool calls detected — execute them, then loop
+                print(f"🔧 Tool calls detected: {[tc['name'] for tc in tool_calls]}")
+                current_messages.append({"role": "assistant", "content": raw_response})
+
+                for tc in tool_calls:
+                    yield f"data: {json.dumps({'type': 'tool_call', 'name': tc['name'], 'arguments': tc['arguments']})}\n\n"
+
+                    result = execute_tool(tc["name"], tc["arguments"], agent.id, db)
+                    print(f"  ✅ {tc['name']} → {result}")
+
+                    yield f"data: {json.dumps({'type': 'tool_result', 'name': tc['name'], 'success': 'error' not in result})}\n\n"
+                    current_messages.append(format_tool_result_message(tc["name"], result))
+
+            # Save final accumulated response to DB
             assistant_tags = extract_keywords(accumulated_response, max_keywords=5)
             assistant_metadata = {
                 "model": agent.model_path,
-                "inline_tools_used": tool_call_count,
-                "tags": assistant_tags
+                "tool_iterations": iteration,
+                "tags": assistant_tags,
             }
-
-            # Include memory narrative if present
             if memory_narrative:
                 assistant_metadata["memory_narrative"] = memory_narrative
-
-            # Include router analysis if present
-            if router_analysis_data:
-                assistant_metadata["router_logging"] = {
-                    "total_tokens": router_analysis_data.get("total_tokens", 0),
-                    "unique_experts_used": router_analysis_data.get("unique_experts_used", 0),
-                    "usage_entropy": router_analysis_data.get("usage_entropy", 0),
-                    "mean_token_entropy": router_analysis_data.get("mean_token_entropy", 0)
-                }
-                print(f"🔬 Router analysis added to metadata: {router_analysis_data.get('unique_experts_used', 0)} experts")
-
-                # Save router session to file for analytics
-                if use_router_logging and diagnostic_service:
-                    try:
-                        prompt_preview = f"[Conversation] {message[:100]}"
-                        diagnostic_service.router_inspector.current_session["metadata"]["conversation_id"] = str(conversation_id)
-                        diagnostic_service.router_inspector.current_session["metadata"]["category"] = "conversation"
-                        filepath = diagnostic_service.save_session(prompt_preview, f"Turn in conversation {conversation_title}")
-                        print(f"🔬 Router session saved to: {filepath}")
-                    except Exception as e:
-                        print(f"🔬 Warning: Failed to save router session: {e}")
 
             assistant_message = Message(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=accumulated_response,
-                metadata_=assistant_metadata
+                metadata_=assistant_metadata,
             )
             assistant_embedding = embedding_service.embed_with_tags(accumulated_response, assistant_tags)
             assistant_message.embedding = assistant_embedding
@@ -1364,34 +1140,25 @@ async def _chat_stream_internal(
             db.commit()
             db.refresh(assistant_message)
 
-            # Log assistant message to JSONL
             log_message(
                 conversation_id=str(conversation_id),
                 agent_id=str(agent.id),
                 agent_name=agent.name,
                 role="assistant",
                 content=accumulated_response,
-                metadata={
-                    "model": agent.model_path,
-                    "inline_tools_used": tool_call_count,
-                    "tags": assistant_tags
-                }
+                metadata={"model": agent.model_path, "tool_iterations": iteration, "tags": assistant_tags},
             )
 
             yield f"data: {json.dumps({'type': 'done', 'user_message': user_message.to_dict(), 'assistant_message': assistant_message.to_dict()})}\n\n"
-
-            print(f"✅ INLINE TOOLS COMPLETE - Message saved to DB")
+            print(f"✅ TOOL LOOP COMPLETE — {iteration} iteration(s), response saved to DB")
 
         return StreamingResponse(
-            generate_stream_with_inline_tools(),
+            generate_stream_with_tools(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            }
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
-    # If tools not enabled, proceed to normal LLM call (no wizard)
+    # No tools — normal streaming path
 
     # Context window already built above as base_messages
     messages = base_messages

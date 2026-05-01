@@ -4,6 +4,8 @@ These tools are provided to the main LLM via function calling.
 The LLM can create, read, update, and delete journal blocks to maintain its memory.
 """
 
+import json
+import re
 from typing import Dict, List, Any, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
@@ -250,161 +252,104 @@ def get_enabled_tools(enabled_tool_names: Optional[List[str]] = None) -> List[Di
     return filtered_tools
 
 
-def get_tools_description(enabled_tool_names: Optional[List[str]] = None, agent_id: Optional[UUID] = None, db: Optional[Session] = None) -> str:
-    """Generate inline tool instructions based on enabled tools
-    
-    Args:
-        enabled_tool_names: List of enabled tool names. If None/empty, describes all tools.
-        agent_id: Agent ID to get current journal blocks (optional)
-        db: Database session (optional, needed for journal block list)
-    
-    Returns:
-        Formatted string with tool instructions in XML format
+# ============================================================================
+# MiniMax Tool Call Parsing
+# ============================================================================
+
+def _convert_param_value(value: str, param_type: str) -> Any:
+    """Convert a parameter value string to the appropriate Python type."""
+    if value.lower() == "null":
+        return None
+    param_type = param_type.lower()
+    if param_type in ("integer", "int"):
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return value
+    if param_type in ("number", "float"):
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return value
+    if param_type == "boolean":
+        return value.lower() in ("true", "1")
+    if param_type in ("object", "array"):
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            return value
+    return value
+
+
+def parse_minimax_tool_calls(model_output: str, tools: Optional[List[Dict]] = None) -> List[Dict]:
+    """Parse MiniMax XML tool calls from model output.
+
+    MiniMax-M2.5 emits tool calls as:
+        <minimax:tool_call>
+        <invoke name="function_name">
+        <parameter name="param1">value1</parameter>
+        </invoke>
+        </minimax:tool_call>
+
+    Returns a list of {"name": str, "arguments": dict} dicts.
     """
-    tools = get_enabled_tools(enabled_tool_names)
-    
-    if not tools:
-        return "No tools enabled"
-    
-    # Get tool names for easy checking
-    tool_names = {t["function"]["name"] for t in tools}
-    
-    instructions = """
-═══════════════════════════════════════════════════════════════════════════════
-📝 YOUR MEMORY & TOOLS SYSTEM
-═══════════════════════════════════════════════════════════════════════════════
+    if "<minimax:tool_call>" not in model_output:
+        return []
 
-You have tools you can use by including them anywhere in your response.
-Tool calls are filtered from what the user sees - use them freely!
+    # Build param-type map from tool definitions for correct type coercion
+    param_types: Dict[str, Dict[str, str]] = {}
+    if tools:
+        for tool in tools:
+            fn = tool.get("function", {})
+            name = fn.get("name", "")
+            props = fn.get("parameters", {}).get("properties", {})
+            param_types[name] = {k: v.get("type", "string") for k, v in props.items()}
 
-"""
-    
-    # Show current journal blocks if we have db access
-    if agent_id and db and any(t in tool_names for t in ["list_journal_blocks", "read_journal_block", "create_journal_block", "update_journal_block", "delete_journal_block"]):
-        blocks_info = list_journal_blocks(agent_id, db)
-        blocks = blocks_info.get("blocks", [])
-        
-        instructions += "YOUR CURRENT JOURNAL BLOCKS:\n"
-        if blocks:
-            for block in blocks:
-                instructions += f"  • {block['label']}\n"
-        else:
-            instructions += "  (none yet)\n"
-        instructions += "\n"
-    
-    # Show RAG folders if we have db access and that tool is enabled
-    if agent_id and db and "list_rag_files" in tool_names:
-        rag_info = list_rag_files(agent_id, db)
-        folders = rag_info.get("folders", [])
-        
-        instructions += "YOUR RAG FOLDERS:\n"
-        if folders:
-            for folder in folders:
-                instructions += f"  • {folder['folder_name']}\n"
-        else:
-            instructions += "  (none)\n"
-        instructions += "\n"
-    
-    instructions += """───────────────────────────────────────────────────────────────────────────────
-AVAILABLE TOOLS (include these anywhere in your response)
-───────────────────────────────────────────────────────────────────────────────
-"""
-    
-    # Journal block tools
-    if "create_journal_block" in tool_names:
-        instructions += """
-CREATE A NEW JOURNAL BLOCK:
-<create_journal_block>
-label: Title Here (max 50 chars)
-content: Your content here
-</create_journal_block>
-"""
-    
-    if "read_journal_block" in tool_names:
-        instructions += """
-READ A JOURNAL BLOCK:
-<read_journal_block>
-block_name: Title of Block
-</read_journal_block>
-"""
-    
-    if "update_journal_block" in tool_names:
-        instructions += """
-EDIT A JOURNAL BLOCK (3 options):
+    tool_call_re = re.compile(r"<minimax:tool_call>(.*?)</minimax:tool_call>", re.DOTALL)
+    invoke_re = re.compile(r"<invoke name=(.*?)</invoke>", re.DOTALL)
+    parameter_re = re.compile(r"<parameter name=(.*?)</parameter>", re.DOTALL)
 
-  Option 1 - Append to existing content:
-  <edit_journal_block>
-  block_name: Title of Block
-  append: New info to add at the end
-  </edit_journal_block>
+    results = []
+    try:
+        for tc_block in tool_call_re.findall(model_output):
+            for invoke_block in invoke_re.findall(tc_block):
+                name_match = re.search(r'^([^>]+)', invoke_block)
+                if not name_match:
+                    continue
+                fn_name = name_match.group(1).strip().strip('"')
+                fn_param_types = param_types.get(fn_name, {})
 
-  Option 2 - Find and replace text:
-  <edit_journal_block>
-  block_name: Title of Block
-  find: text to find
-  replace: replacement text
-  </edit_journal_block>
+                params: Dict[str, Any] = {}
+                for param_block in parameter_re.findall(invoke_block):
+                    pm = re.search(r'^([^>]+)>(.*)', param_block, re.DOTALL)
+                    if not pm:
+                        continue
+                    param_name = pm.group(1).strip().strip('"')
+                    param_value = pm.group(2).strip()
+                    param_type = fn_param_types.get(param_name, "string")
+                    params[param_name] = _convert_param_value(param_value, param_type)
 
-  Option 3 - Completely rewrite:
-  <edit_journal_block>
-  block_name: Title of Block
-  new_content: The complete new content
-  </edit_journal_block>
-"""
-    
-    if "delete_journal_block" in tool_names:
-        instructions += """
-DELETE A JOURNAL BLOCK:
-<delete_journal_block>
-block_name: Title of Block
-</delete_journal_block>
-"""
-    
-    if "search_memories" in tool_names:
-        instructions += """
-SEARCH YOUR MEMORIES:
-<search_memories>
-query: what to search for
-</search_memories>
-"""
-    
-    if "list_journal_blocks" in tool_names:
-        instructions += """
-LIST ALL JOURNAL BLOCKS:
-<list_journal_blocks>
-</list_journal_blocks>
-"""
-    
-    if "list_rag_files" in tool_names:
-        instructions += """
-LIST RAG FILES:
-<list_rag_files>
-</list_rag_files>
-"""
-    
-    # Web tools
-    if "web_search" in tool_names:
-        instructions += """
-SEARCH THE WEB:
-<web_search>
-query: what to search for
-max_results: 5
-</web_search>
-"""
-    
-    if "fetch_url" in tool_names:
-        instructions += """
-FETCH A WEB PAGE:
-<fetch_url>
-url: https://example.com/page
-</fetch_url>
-"""
-    
-    instructions += """
-═══════════════════════════════════════════════════════════════════════════════
-"""
-    
-    return instructions
+                results.append({"name": fn_name, "arguments": params})
+    except Exception as e:
+        print(f"[tools] Failed to parse tool calls: {e}")
+
+    return results
+
+
+def format_tool_result_message(tool_name: str, result: Dict[str, Any]) -> Dict:
+    """Wrap a tool result in the MiniMax tool-message format.
+
+    MiniMax expects:
+        {"role": "tool", "content": [{"name": fn, "type": "text", "text": json_str}]}
+    """
+    return {
+        "role": "tool",
+        "content": [{
+            "name": tool_name,
+            "type": "text",
+            "text": json.dumps(result, ensure_ascii=False)
+        }]
+    }
 
 
 # ============================================================================

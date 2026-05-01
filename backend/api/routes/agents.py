@@ -48,7 +48,7 @@ from backend.schemas.agent import (
 
 from backend.services.token_counter import count_tokens
 
-from backend.services.tools import JOURNAL_BLOCK_TOOLS, get_enabled_tools, get_tools_description, ALL_TOOLS
+from backend.services.tools import JOURNAL_BLOCK_TOOLS, get_enabled_tools, ALL_TOOLS
 
  
 
@@ -373,11 +373,9 @@ async def get_agent_context_window(
 
 
 
-    # Count tool descriptions tokens (using the actual text instructions sent to LLM)
-    from backend.services.tools import get_tools_description
-    
-    tools_text = get_tools_description(agent.enabled_tools, agent.id, db)
-    tools_tokens = count_tokens(tools_text)
+    # Estimate tool tokens (tools rendered into prompt via chat template)
+    import json as _json
+    tools_tokens = count_tokens(_json.dumps(get_enabled_tools(agent.enabled_tools))) if agent.enabled_tools else 0
 
 
 
@@ -743,12 +741,12 @@ async def get_agent_tools_description(
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
 
-    description = get_tools_description(agent.enabled_tools, agent.id, db)
+    tools_definitions = get_enabled_tools(agent.enabled_tools)
 
     return {
         "agent_id": str(agent_id),
         "enabled_tools": agent.enabled_tools if agent.enabled_tools else [],
-        "tools_description": description
+        "tools_definitions": tools_definitions,
     }
 
 
