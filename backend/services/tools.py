@@ -34,7 +34,12 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "list_journal_blocks",
-            "description": "List all journal blocks to see what topics/information you're currently tracking. Returns label and ID for each block.",
+            "description": (
+                "List all of your journal blocks — your named, persistent memory slots. "
+                "Each block has a label (topic) and an ID. "
+                "Use this first to discover what blocks exist and get their IDs before reading, updating, or deleting. "
+                "Returns: [{id, label, updated_at}]"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -46,13 +51,17 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_journal_block",
-            "description": "Read the full content of a specific journal block. Use this when you need detailed information from a block.",
+            "description": (
+                "Read the full content of one of your journal blocks by its ID. "
+                "Call list_journal_blocks first to get the ID you need. "
+                "Returns the label and full stored text."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "block_id": {
                         "type": "string",
-                        "description": "The ID of the journal block to read"
+                        "description": "The UUID of the journal block to read (from list_journal_blocks)"
                     }
                 },
                 "required": ["block_id"]
@@ -63,13 +72,20 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_journal_block",
-            "description": "Create a new journal block to track information about a specific topic (e.g., 'User Info', 'Project Notes', 'Reflections'). Use this to organize your memory.",
+            "description": (
+                "Create a new journal block to persistently remember something. "
+                "Journal blocks are your long-term memory — they persist across all conversations. "
+                "Use them to track anything worth remembering: facts about the user, ongoing projects, "
+                "preferences, notes, plans, or reflections. "
+                "Each block has a short label (its topic/title) and a value (the content to store). "
+                "Returns the new block's ID on success."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "label": {
                         "type": "string",
-                        "description": "A short label for this block (e.g., 'User Info', 'Project: Appletta')"
+                        "description": "Short topic name for this block, e.g. 'Kim — preferences', 'Project: Persist', 'My goals'"
                     },
                     "value": {
                         "type": "string",
@@ -84,21 +100,25 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "update_journal_block",
-            "description": "Update an existing journal block. You can change the label, value, or both.",
+            "description": (
+                "Update the label, content, or both of an existing journal block. "
+                "Call list_journal_blocks first to find the block's ID. "
+                "Only the fields you provide are changed; omit fields you want to leave as-is."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "block_id": {
                         "type": "string",
-                        "description": "The ID of the block to update"
+                        "description": "The UUID of the block to update (from list_journal_blocks)"
                     },
                     "label": {
                         "type": "string",
-                        "description": "New label for the block (optional)"
+                        "description": "New label/title for the block (omit to keep existing)"
                     },
                     "value": {
                         "type": "string",
-                        "description": "New content for the block (optional)"
+                        "description": "New full content for the block (omit to keep existing)"
                     }
                 },
                 "required": ["block_id"]
@@ -109,13 +129,17 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "delete_journal_block",
-            "description": "Delete a journal block. Use this to remove information you no longer need to track.",
+            "description": (
+                "Permanently delete one of your journal blocks. "
+                "Call list_journal_blocks first to find the block's ID. "
+                "Use this when information is no longer relevant and you want to keep your memory clean."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "block_id": {
                         "type": "string",
-                        "description": "The ID of the block to delete"
+                        "description": "The UUID of the block to delete (from list_journal_blocks)"
                     }
                 },
                 "required": ["block_id"]
@@ -126,17 +150,23 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "search_memories",
-            "description": "Search across all memories (journal blocks, uploaded files, and past conversations) using semantic similarity. Use this when you want to actively find relevant information.",
+            "description": (
+                "Semantically search across all your memories — journal blocks, uploaded documents, "
+                "and past conversation messages — using vector similarity. "
+                "Returns a ranked list of matching memory snippets with their IDs and similarity scores. "
+                "Use this when you want to find something you might remember but don't know which block it's in. "
+                "To get the full content of a result, pass its ID to fetch_memories."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The search query (what you're looking for)"
+                        "description": "What you're trying to recall or find"
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of results to return (default: 5)",
+                        "description": "Max results to return (default: 5)",
                         "default": 5
                     }
                 },
@@ -148,14 +178,18 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "fetch_memories",
-            "description": "Fetch full content of specific memories by their IDs. Use this to get complete details about memories you've identified.",
+            "description": (
+                "Fetch the full content of specific memories by their IDs. "
+                "Use this after search_memories to retrieve complete details for results you want to read in full. "
+                "Can fetch multiple memories in one call."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "memory_ids": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "List of memory IDs to fetch"
+                        "description": "List of memory IDs to fetch (from search_memories results)"
                     }
                 },
                 "required": ["memory_ids"]
@@ -166,7 +200,11 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "list_rag_files",
-            "description": "List all uploaded files/documents that are attached to your context. Use this to see what reference materials are available.",
+            "description": (
+                "List all documents and files that have been uploaded to your RAG (retrieval-augmented generation) store. "
+                "These are reference materials — PDFs, notes, docs — that have been chunked and indexed for semantic search. "
+                "Returns folder names, file names, and chunk counts."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -178,7 +216,11 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets. Use this to find current information or research topics.",
+            "description": (
+                "Search the web via DuckDuckGo and return titles, URLs, and snippets for the top results. "
+                "Use this to find current information, look up facts, research topics, or discover URLs "
+                "you can then fetch with fetch_url for full content."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -188,7 +230,7 @@ JOURNAL_BLOCK_TOOLS = [
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Maximum number of results to return (default: 5, max: 10)",
+                        "description": "Number of results to return (default: 5, max: 10)",
                         "default": 5
                     }
                 },
@@ -200,17 +242,21 @@ JOURNAL_BLOCK_TOOLS = [
         "type": "function",
         "function": {
             "name": "fetch_url",
-            "description": "Fetch and extract the main content from a web page URL. Returns the page title and content in markdown format. Use this to read specific web pages.",
+            "description": (
+                "Fetch a web page and extract its main content as markdown. "
+                "Use this to read the full text of a specific URL — documentation, articles, GitHub pages, etc. "
+                "Content is truncated at 50,000 characters for very long pages."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "The URL of the web page to fetch"
+                        "description": "The full URL to fetch"
                     },
                     "include_links": {
                         "type": "boolean",
-                        "description": "Whether to include links found on the page (default: false)",
+                        "description": "Whether to include hyperlinks found in the content (default: false)",
                         "default": False
                     }
                 },
