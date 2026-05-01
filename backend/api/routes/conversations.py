@@ -1105,18 +1105,39 @@ async def _chat_stream_internal(
                     accumulated_response += raw_response
                     break
 
-                # Tool calls detected — execute them, then loop
+                # Tool calls detected — build structured assistant message then execute
                 print(f"🔧 Tool calls detected: {[tc['name'] for tc in tool_calls]}")
-                current_messages.append({"role": "assistant", "content": raw_response})
 
-                for tc in tool_calls:
+                # The chat template requires tool_calls on the assistant message (not just raw XML
+                # in content) otherwise it rejects the following tool-role messages.
+                # Extract any text before the first tool call (think block etc.) as content.
+                pre_call_text = raw_response.split("<minimax:tool_call>")[0].strip() or None
+                tool_calls_structured = [
+                    {
+                        "id": f"call_{iteration}_{i}",
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["arguments"]),
+                        },
+                    }
+                    for i, tc in enumerate(tool_calls)
+                ]
+                current_messages.append({
+                    "role": "assistant",
+                    "content": pre_call_text,
+                    "tool_calls": tool_calls_structured,
+                })
+
+                for i, tc in enumerate(tool_calls):
+                    call_id = f"call_{iteration}_{i}"
                     yield f"data: {json.dumps({'type': 'tool_call', 'name': tc['name'], 'arguments': tc['arguments']})}\n\n"
 
                     result = execute_tool(tc["name"], tc["arguments"], agent.id, db)
                     print(f"  ✅ {tc['name']} → {result}")
 
                     yield f"data: {json.dumps({'type': 'tool_result', 'name': tc['name'], 'success': 'error' not in result})}\n\n"
-                    current_messages.append(format_tool_result_message(tc["name"], result))
+                    current_messages.append(format_tool_result_message(tc["name"], result, call_id))
 
             # Save final accumulated response to DB
             assistant_tags = extract_keywords(accumulated_response, max_keywords=5)

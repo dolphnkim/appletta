@@ -59,12 +59,12 @@ JOURNAL_BLOCK_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "block_id": {
+                    "id": {
                         "type": "string",
-                        "description": "The UUID of the journal block to read (from list_journal_blocks)"
+                        "description": "The UUID of the journal block to read (the 'id' field from list_journal_blocks)"
                     }
                 },
-                "required": ["block_id"]
+                "required": ["id"]
             }
         }
     },
@@ -108,9 +108,9 @@ JOURNAL_BLOCK_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "block_id": {
+                    "id": {
                         "type": "string",
-                        "description": "The UUID of the block to update (from list_journal_blocks)"
+                        "description": "The UUID of the block to update (the 'id' field from list_journal_blocks)"
                     },
                     "label": {
                         "type": "string",
@@ -121,7 +121,7 @@ JOURNAL_BLOCK_TOOLS = [
                         "description": "New full content for the block (omit to keep existing)"
                     }
                 },
-                "required": ["block_id"]
+                "required": ["id"]
             }
         }
     },
@@ -137,12 +137,12 @@ JOURNAL_BLOCK_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "block_id": {
+                    "id": {
                         "type": "string",
-                        "description": "The UUID of the block to delete (from list_journal_blocks)"
+                        "description": "The UUID of the block to delete (the 'id' field from list_journal_blocks)"
                     }
                 },
-                "required": ["block_id"]
+                "required": ["id"]
             }
         }
     },
@@ -382,14 +382,15 @@ def parse_minimax_tool_calls(model_output: str, tools: Optional[List[Dict]] = No
     return results
 
 
-def format_tool_result_message(tool_name: str, result: Dict[str, Any]) -> Dict:
+def format_tool_result_message(tool_name: str, result: Dict[str, Any], tool_call_id: str = "call_0") -> Dict:
     """Wrap a tool result in the MiniMax tool-message format.
 
     MiniMax expects:
-        {"role": "tool", "content": [{"name": fn, "type": "text", "text": json_str}]}
+        {"role": "tool", "tool_call_id": "...", "content": [{"name": fn, "type": "text", "text": json_str}]}
     """
     return {
         "role": "tool",
+        "tool_call_id": tool_call_id,
         "content": [{
             "name": tool_name,
             "type": "text",
@@ -424,7 +425,8 @@ def execute_tool(
         return list_journal_blocks(agent_id, db)
 
     elif tool_name == "read_journal_block":
-        return read_journal_block(arguments["block_id"], db)
+        block_id = arguments.get("id") or arguments.get("block_id")
+        return read_journal_block(block_id, db)
 
     elif tool_name == "create_journal_block":
         return create_journal_block(
@@ -435,15 +437,17 @@ def execute_tool(
         )
 
     elif tool_name == "update_journal_block":
+        block_id = arguments.get("id") or arguments.get("block_id")
         return update_journal_block(
-            arguments["block_id"],
+            block_id,
             arguments.get("label"),
             arguments.get("value"),
             db
         )
 
     elif tool_name == "delete_journal_block":
-        return delete_journal_block(arguments["block_id"], db)
+        block_id = arguments.get("id") or arguments.get("block_id")
+        return delete_journal_block(block_id, db)
 
     elif tool_name == "search_memories":
         return search_memories(
