@@ -1118,7 +1118,7 @@ async def _chat_stream_internal(
                         "type": "function",
                         "function": {
                             "name": tc["name"],
-                            "arguments": json.dumps(tc["arguments"]),
+                            "arguments": tc["arguments"],  # dict — MiniMax template calls .items() on this
                         },
                     }
                     for i, tc in enumerate(tool_calls)
