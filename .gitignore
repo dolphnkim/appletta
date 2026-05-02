@@ -1,3 +1,6 @@
+# Kevin's macOS sandbox profile (generated at runtime, contains local paths)
+.kevin_sandbox.sb
+
 # Database files
 *.db
 *.sqlite

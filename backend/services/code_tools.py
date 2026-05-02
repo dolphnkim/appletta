@@ -1,11 +1,14 @@
 """Code agent tools — file system, search, and shell access for Kevin.
 
 All file operations are sandboxed to WORKSPACE_ROOT. Paths outside the
-workspace are rejected with an error. Shell commands run with a timeout
-and a blocklist of destructive patterns.
+workspace are rejected with an error. Shell commands run inside a macOS
+seatbelt (sandbox-exec) that blocks writes outside the workspace and
+prevents malware from installing persistence mechanisms.
 """
 
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -16,6 +19,92 @@ from typing import Any, Dict, List, Optional
 
 # backend/services/code_tools.py  →  .parent.parent.parent  →  repo root
 WORKSPACE_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+
+# ---------------------------------------------------------------------------
+# macOS sandbox (seatbelt)
+# ---------------------------------------------------------------------------
+
+_SANDBOX_PROFILE_PATH: Optional[Path] = None
+
+
+def _build_sandbox_profile() -> str:
+    """Generate a macOS seatbelt profile for Kevin's shell.
+
+    Strategy:
+      - Allow everything by default (process execution, reads, network)
+      - Deny all file writes
+      - Re-allow writes only to: workspace, /tmp, SSH, package caches
+      - Hard-deny persistence locations (LaunchAgents/Daemons) last
+        so they can't be opened even by an earlier allow
+
+    The "most specific / last matching rule wins" behaviour of SBPL
+    means the final (deny ...) blocks for LaunchAgents override the
+    broader (allow ...) for ~/.config etc.
+    """
+    ws   = str(WORKSPACE_ROOT)
+    home = str(Path.home())
+    return f"""\
+(version 1)
+
+; ── Base ────────────────────────────────────────────────────────────────────
+(allow default)          ; allow process execution, reads, network by default
+
+; ── Write restrictions ──────────────────────────────────────────────────────
+(deny file-write*)       ; block all writes …
+
+; workspace: full read/write
+(allow file-write* (subpath "{ws}"))
+
+; standard temp locations
+(allow file-write*
+    (subpath "/private/tmp")
+    (subpath "/private/var/folders")
+    (subpath "/tmp"))
+
+; character devices every shell needs
+(allow file-write*
+    (literal "/dev/null")
+    (literal "/dev/stdout")
+    (literal "/dev/stderr")
+    (literal "/dev/tty"))
+
+; git needs to update known_hosts on first connect
+(allow file-write* (subpath "{home}/.ssh"))
+
+; package manager caches (pip, npm, brew, etc.)
+(allow file-write*
+    (subpath "{home}/.npm")
+    (subpath "{home}/.cache")
+    (subpath "{home}/.config")
+    (subpath "{home}/Library/Caches")
+    (subpath "{home}/Library/Preferences")
+    (subpath "/opt/homebrew/var"))
+
+; ── Hard-deny persistence — overrides everything above ──────────────────────
+(deny file-write*
+    (subpath "{home}/Library/LaunchAgents")
+    (subpath "{home}/Library/LaunchDaemons")
+    (subpath "/Library/LaunchAgents")
+    (subpath "/Library/LaunchDaemons")
+    (subpath "/System/Library/LaunchAgents")
+    (subpath "/System/Library/LaunchDaemons"))
+"""
+
+
+def _ensure_sandbox_profile() -> Optional[Path]:
+    """Write the sandbox profile to disk once; return its path (or None if unavailable)."""
+    global _SANDBOX_PROFILE_PATH
+
+    if not shutil.which("sandbox-exec"):
+        return None
+
+    if _SANDBOX_PROFILE_PATH is not None and _SANDBOX_PROFILE_PATH.exists():
+        return _SANDBOX_PROFILE_PATH
+
+    profile_path = WORKSPACE_ROOT / ".kevin_sandbox.sb"
+    profile_path.write_text(_build_sandbox_profile())
+    _SANDBOX_PROFILE_PATH = profile_path
+    return profile_path
 
 
 # ---------------------------------------------------------------------------
@@ -234,18 +323,34 @@ def search_content(query: str, path: str = ".", file_pattern: str = "*") -> Dict
 
 
 def run_shell(command: str, timeout: int = 30) -> Dict[str, Any]:
-    """Run a shell command in the workspace root.
+    """Run a shell command in the workspace root, inside the macOS seatbelt.
 
-    Blocked: rm -rf, sudo, dd, mkfs, pipe-to-shell, writes to system dirs, etc.
+    The sandbox (sandbox-exec) restricts file writes to the workspace, /tmp,
+    SSH, and package-manager caches. Persistence locations (LaunchAgents/
+    LaunchDaemons) are hard-blocked so malware can't install itself.
+
+    The keyword blocklist still runs first as a fast pre-check.
     Working directory is always the workspace root.
     """
     if not _is_safe_command(command):
         return {"error": f"Command blocked by safety filter: {command!r}"}
 
+    sandbox = _ensure_sandbox_profile()
+
+    if sandbox:
+        # Run inside macOS seatbelt
+        cmd = ["sandbox-exec", "-f", str(sandbox), "sh", "-c", command]
+        use_shell = False
+    else:
+        # sandbox-exec unavailable — fall back to unsandboxed (dev only)
+        print("[code_tools] WARNING: sandbox-exec not found, running unsandboxed")
+        cmd = command
+        use_shell = True
+
     try:
         result = subprocess.run(
-            command,
-            shell=True,
+            cmd,
+            shell=use_shell,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -258,6 +363,7 @@ def run_shell(command: str, timeout: int = 30) -> Dict[str, Any]:
             "stderr": stderr,
             "returncode": result.returncode,
             "success": result.returncode == 0,
+            "sandboxed": sandbox is not None,
         }
     except subprocess.TimeoutExpired:
         return {"error": f"Command timed out after {timeout}s"}
