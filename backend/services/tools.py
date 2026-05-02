@@ -15,6 +15,11 @@ from cachetools import TTLCache
 from backend.db.models.journal_block import JournalBlock
 from backend.services.embedding_service import get_embedding_service
 from backend.services.memory_service import search_memories as search_memories_service, fetch_full_memories
+from backend.services.code_tools import (
+    CODE_TOOLS,
+    read_file, write_file, list_directory,
+    search_files, search_content, run_shell,
+)
 
 # ============================================================================
 # Web Tools Cache (30 minute TTL)
@@ -267,7 +272,7 @@ JOURNAL_BLOCK_TOOLS = [
 ]
 
 # Populate ALL_TOOLS map for easy lookup
-for tool in JOURNAL_BLOCK_TOOLS:
+for tool in JOURNAL_BLOCK_TOOLS + CODE_TOOLS:
     tool_name = tool["function"]["name"]
     ALL_TOOLS[tool_name] = tool
 
@@ -473,6 +478,41 @@ def execute_tool(
         return fetch_url(
             arguments["url"],
             arguments.get("include_links", False)
+        )
+
+    # ------------------------------------------------------------------
+    # Code agent tools
+    # ------------------------------------------------------------------
+    elif tool_name == "read_file":
+        return read_file(
+            arguments["path"],
+            offset=arguments.get("offset", 0),
+            limit=arguments.get("limit"),
+        )
+
+    elif tool_name == "write_file":
+        return write_file(arguments["path"], arguments["content"])
+
+    elif tool_name == "list_directory":
+        return list_directory(arguments.get("path", "."))
+
+    elif tool_name == "search_files":
+        return search_files(
+            arguments["pattern"],
+            directory=arguments.get("directory", "."),
+        )
+
+    elif tool_name == "search_content":
+        return search_content(
+            arguments["query"],
+            path=arguments.get("path", "."),
+            file_pattern=arguments.get("file_pattern", "*"),
+        )
+
+    elif tool_name == "run_shell":
+        return run_shell(
+            arguments["command"],
+            timeout=arguments.get("timeout", 30),
         )
 
     else:
