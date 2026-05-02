@@ -17,9 +17,11 @@ from backend.services.embedding_service import get_embedding_service
 from backend.services.memory_service import search_memories as search_memories_service, fetch_full_memories
 from backend.services.code_tools import (
     CODE_TOOLS,
-    read_file, write_file, list_directory,
+    edit_file, read_file, write_file, list_directory,
     search_files, search_content, run_shell,
 )
+from backend.services.plugin_loader import load_plugins, PLUGINS_DIR
+from backend.services.skill_loader import load_skills, SKILLS_DIR
 
 # ============================================================================
 # Web Tools Cache (30 minute TTL)
@@ -271,10 +273,77 @@ JOURNAL_BLOCK_TOOLS = [
     }
 ]
 
+# ---------------------------------------------------------------------------
+# Plugin system — Kevin's self-authored tools
+# ---------------------------------------------------------------------------
+
+# Mutable module-level state so reload_plugins() can update in-place
+PLUGIN_TOOLS: List[Dict[str, Any]] = []
+_plugin_executors: Dict[str, Any] = {}
+
+def _init_plugins() -> None:
+    """Load all plugins into the module-level registries."""
+    defs, executors = load_plugins()
+    PLUGIN_TOOLS.clear()
+    PLUGIN_TOOLS.extend(defs)
+    _plugin_executors.clear()
+    _plugin_executors.update(executors)
+    # Keep ALL_TOOLS in sync — remove stale plugin entries then re-add
+    for key in [k for k, v in ALL_TOOLS.items() if k not in _CORE_TOOL_NAMES]:
+        del ALL_TOOLS[key]
+    for tool in PLUGIN_TOOLS:
+        ALL_TOOLS[tool["function"]["name"]] = tool
+
+_CORE_TOOL_NAMES: set = set()  # populated after ALL_TOOLS is built below
+
+# Built-in tools that let Kevin hot-reload plugins and skills without a server restart
+PLUGIN_MANAGEMENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "reload_plugins",
+            "description": (
+                "Re-scan the backend/services/plugins/ directory and load any new or updated plugins. "
+                "Call this immediately after writing a new plugin file to make the new tool available "
+                "in the current session — no server restart needed. "
+                "Returns a list of all currently loaded plugin tools."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reload_skills",
+            "description": (
+                "Re-scan backend/services/plugins/skills/ and return a summary of all loaded skill docs. "
+                "Call this after writing a new SKILL.md to confirm it parsed correctly. "
+                "The new skill will appear in your context on your next conversation turn. "
+                "Returns a list of skill names, descriptions, and file paths."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+]
+
 # Populate ALL_TOOLS map for easy lookup
-for tool in JOURNAL_BLOCK_TOOLS + CODE_TOOLS:
+for tool in JOURNAL_BLOCK_TOOLS + CODE_TOOLS + PLUGIN_MANAGEMENT_TOOLS:
     tool_name = tool["function"]["name"]
     ALL_TOOLS[tool_name] = tool
+
+# Lock in the set of core tool names (anything loaded before plugins)
+_CORE_TOOL_NAMES = set(ALL_TOOLS.keys())
+
+# Initial plugin load
+_init_plugins()
 
 
 # ============================================================================
@@ -292,7 +361,7 @@ def get_enabled_tools(enabled_tool_names: Optional[List[str]] = None) -> List[Di
     """
     if not enabled_tool_names:
         # No filter - return all tools
-        return JOURNAL_BLOCK_TOOLS
+        return list(ALL_TOOLS.values())
 
     # Filter tools by name
     filtered_tools = []
@@ -301,6 +370,41 @@ def get_enabled_tools(enabled_tool_names: Optional[List[str]] = None) -> List[Di
             filtered_tools.append(ALL_TOOLS[tool_name])
 
     return filtered_tools
+
+
+def build_tool_manifest(tools: List[Dict[str, Any]]) -> str:
+    """Build a human-readable tool manifest from a list of tool definitions.
+
+    Returns a compact summary Kevin can read to know what tools he has,
+    what they do, and what parameters they take.
+    """
+    if not tools:
+        return ""
+
+    lines = ["=== Available Tools ==="]
+    for tool in tools:
+        fn = tool.get("function", {})
+        name = fn.get("name", "?")
+        raw_desc = fn.get("description", "").strip()
+        # First sentence only, capped at 120 chars
+        first_sentence = raw_desc.split(". ")[0].rstrip(".")
+        desc = first_sentence[:120] + ("…" if len(first_sentence) > 120 else "")
+        params = fn.get("parameters", {}).get("properties", {})
+        required = set(fn.get("parameters", {}).get("required", []))
+
+        # Build compact signature: name(req_param, opt_param?)
+        sig_parts = []
+        for pname, pinfo in params.items():
+            ptype = pinfo.get("type", "str")[:3]  # int, str, arr, obj, boo
+            if pname in required:
+                sig_parts.append(f"{pname}:{ptype}")
+            else:
+                sig_parts.append(f"{pname}?:{ptype}")
+        sig = f"{name}({', '.join(sig_parts)})" if sig_parts else name
+
+        lines.append(f"• {sig} — {desc}")
+
+    return "\n".join(lines)
 
 
 # ============================================================================
@@ -483,6 +587,13 @@ def execute_tool(
     # ------------------------------------------------------------------
     # Code agent tools
     # ------------------------------------------------------------------
+    elif tool_name == "edit_file":
+        return edit_file(
+            arguments["path"],
+            arguments["old_string"],
+            arguments["new_string"],
+        )
+
     elif tool_name == "read_file":
         return read_file(
             arguments["path"],
@@ -514,6 +625,55 @@ def execute_tool(
             arguments["command"],
             timeout=arguments.get("timeout", 30),
         )
+
+    # ------------------------------------------------------------------
+    # Plugin management
+    # ------------------------------------------------------------------
+    elif tool_name == "reload_plugins":
+        _init_plugins()
+        loaded = [t["function"]["name"] for t in PLUGIN_TOOLS]
+        return {
+            "success": True,
+            "plugins_dir": str(PLUGINS_DIR),
+            "loaded_tools": loaded,
+            "count": len(loaded),
+            "message": (
+                f"Reloaded {len(loaded)} plugin tool(s): {', '.join(loaded)}"
+                if loaded else
+                "No plugins found. Create a .py file in backend/services/plugins/ and call reload_plugins again."
+            )
+        }
+
+    elif tool_name == "reload_skills":
+        skills = load_skills()
+        summary = [
+            {
+                "name": s["name"],
+                "description": s["description"],
+                "path": s["path"],
+            }
+            for s in skills
+        ]
+        return {
+            "success": True,
+            "skills_dir": str(SKILLS_DIR),
+            "loaded_skills": summary,
+            "count": len(summary),
+            "message": (
+                f"Loaded {len(summary)} skill(s): {', '.join(s['name'] for s in summary)}"
+                if summary else
+                "No skills found. Create a SKILL.md in backend/services/plugins/skills/<skill-name>/ and call reload_skills again."
+            )
+        }
+
+    # ------------------------------------------------------------------
+    # Plugin-authored tools
+    # ------------------------------------------------------------------
+    elif tool_name in _plugin_executors:
+        try:
+            return _plugin_executors[tool_name](tool_name, arguments)
+        except Exception as e:
+            return {"error": f"Plugin tool '{tool_name}' raised an exception: {e}"}
 
     else:
         return {"error": f"Unknown tool: {tool_name}"}

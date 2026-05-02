@@ -19,9 +19,49 @@ from backend.db.session import engine
 Base.metadata.create_all(bind=engine)
 
 
+def _print_sandbox_banner():
+    """Print a clear sandbox status banner to the terminal on startup."""
+    from backend.services.code_tools import check_sandbox_status
+
+    GREEN  = "\033[92m"
+    YELLOW = "\033[93m"
+    RED    = "\033[91m"
+    CYAN   = "\033[96m"
+    BOLD   = "\033[1m"
+    RESET  = "\033[0m"
+
+    s = check_sandbox_status()
+
+    shell_icon  = f"{GREEN}✅ ACTIVE{RESET}"   if s["shell_sandboxed"]    else f"{RED}❌ INACTIVE{RESET}"
+    smoke_icon  = f"{GREEN}✅ PASSED{RESET}"   if s["smoke_test_passed"]  else f"{YELLOW}⚠  FAILED{RESET}"
+
+    print()
+    print(f"{BOLD}{CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
+    print(f"{BOLD}{CYAN}║              🔒  KEVIN'S SANDBOX STATUS                  ║{RESET}")
+    print(f"{BOLD}{CYAN}╠══════════════════════════════════════════════════════════╣{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}  Shell commands  (run_shell)    {shell_icon:<30}{BOLD}{CYAN}║{RESET}")
+    if s["shell_sandboxed"]:
+        print(f"{BOLD}{CYAN}║{RESET}    via macOS seatbelt (sandbox-exec)                    {BOLD}{CYAN}║{RESET}")
+        print(f"{BOLD}{CYAN}║{RESET}    write-outside-workspace smoke test  {smoke_icon:<20}{BOLD}{CYAN}║{RESET}")
+    else:
+        err = (s["smoke_test_error"] or "unknown")[:50]
+        print(f"{BOLD}{CYAN}║{RESET}    {YELLOW}{err:<54}{RESET}{BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}                                                          {BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}  File ops  (read/write_file)    {YELLOW}🔑 WORKSPACE CHECK{RESET}        {BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}    Python-level path validation — not OS seatbelt        {BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}                                                          {BOLD}{CYAN}║{RESET}")
+    ws = s["workspace_root"]
+    ws_display = ws if len(ws) <= 52 else "…" + ws[-51:]
+    print(f"{BOLD}{CYAN}║{RESET}  Workspace root:                                          {BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}    {ws_display:<54}{BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
+    print()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
+    _print_sandbox_banner()
     yield
     # Shutdown: kill all MLX server subprocesses so they don't pile up
     from backend.services.mlx_manager import get_mlx_manager

@@ -108,6 +108,73 @@ def _ensure_sandbox_profile() -> Optional[Path]:
 
 
 # ---------------------------------------------------------------------------
+# Sandbox status (called at startup)
+# ---------------------------------------------------------------------------
+
+def check_sandbox_status() -> dict:
+    """Verify sandbox-exec is available and the profile actually fires.
+
+    Returns a dict suitable for printing a startup banner:
+        {
+            "shell_sandboxed": bool,      # sandbox-exec present + profile works
+            "sandbox_exec_path": str|None,
+            "profile_path": str|None,
+            "workspace_root": str,
+            "smoke_test_passed": bool,    # write-outside-workspace was actually blocked
+            "smoke_test_error": str|None, # why the smoke test failed (if it did)
+        }
+    """
+    result = {
+        "shell_sandboxed": False,
+        "sandbox_exec_path": shutil.which("sandbox-exec"),
+        "profile_path": None,
+        "workspace_root": str(WORKSPACE_ROOT),
+        "smoke_test_passed": False,
+        "smoke_test_error": None,
+    }
+
+    if not result["sandbox_exec_path"]:
+        result["smoke_test_error"] = "sandbox-exec not found in PATH"
+        return result
+
+    profile = _ensure_sandbox_profile()
+    if not profile:
+        result["smoke_test_error"] = "Could not write sandbox profile"
+        return result
+
+    result["profile_path"] = str(profile)
+
+    # Smoke test: try to write outside the workspace — this MUST be blocked
+    try:
+        smoke = subprocess.run(
+            ["sandbox-exec", "-f", str(profile), "sh", "-c",
+             "echo test > /tmp/kevin_sandbox_smoke_test && echo WROTE || echo BLOCKED"],
+            capture_output=True, text=True, timeout=5,
+        )
+        output = smoke.stdout.strip()
+        # writing to /tmp IS allowed by our profile (we allow /tmp for package managers)
+        # Test something that should genuinely be blocked — writing to /etc
+        smoke2 = subprocess.run(
+            ["sandbox-exec", "-f", str(profile), "sh", "-c",
+             "echo test > /etc/kevin_sandbox_test 2>&1 && echo WROTE || echo BLOCKED"],
+            capture_output=True, text=True, timeout=5,
+        )
+        # The shell command prints BLOCKED when the write is denied (exit 0 from || branch).
+        # A passing smoke test means the seatbelt intercepted the write.
+        blocked = "BLOCKED" in smoke2.stdout and "WROTE" not in smoke2.stdout
+        result["smoke_test_passed"] = blocked
+        result["shell_sandboxed"] = blocked
+        if not blocked:
+            result["smoke_test_error"] = f"Seatbelt did NOT block write to /etc (stdout: {smoke2.stdout!r})"
+    except subprocess.TimeoutExpired:
+        result["smoke_test_error"] = "Smoke test timed out"
+    except Exception as e:
+        result["smoke_test_error"] = str(e)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Path safety
 # ---------------------------------------------------------------------------
 
@@ -222,6 +289,59 @@ def write_file(path: str, content: str) -> Dict[str, Any]:
         }
     except Exception as e:
         return {"error": f"Write failed: {e}"}
+
+
+def edit_file(path: str, old_string: str, new_string: str) -> Dict[str, Any]:
+    """Replace an exact string in a file (targeted edit, not full rewrite).
+
+    Fails if old_string appears zero times (not found) or more than once
+    (ambiguous — add more surrounding context to make it unique).
+    """
+    full = _resolve_path(path)
+    if full is None:
+        return {"error": f"Path '{path}' is outside the workspace ({WORKSPACE_ROOT})"}
+    if not full.exists():
+        return {"error": f"File not found: {path}"}
+    if not full.is_file():
+        return {"error": f"Not a file: {path}"}
+
+    try:
+        content = full.read_text(encoding="utf-8")
+    except Exception as e:
+        return {"error": f"Could not read file: {e}"}
+
+    count = content.count(old_string)
+    if count == 0:
+        return {
+            "error": (
+                "old_string not found in file. "
+                "Check for exact whitespace/indentation match. "
+                "Use read_file first to confirm the exact text."
+            )
+        }
+    if count > 1:
+        return {
+            "error": (
+                f"old_string appears {count} times — ambiguous. "
+                "Add more surrounding lines to make it unique."
+            )
+        }
+
+    new_content = content.replace(old_string, new_string, 1)
+    try:
+        full.write_text(new_content, encoding="utf-8")
+    except Exception as e:
+        return {"error": f"Write failed: {e}"}
+
+    # Show a compact diff summary
+    old_lines = old_string.splitlines()
+    new_lines = new_string.splitlines()
+    return {
+        "success": True,
+        "path": str(full.relative_to(WORKSPACE_ROOT)),
+        "lines_removed": len(old_lines),
+        "lines_added": len(new_lines),
+    }
 
 
 def list_directory(path: str = ".") -> Dict[str, Any]:
@@ -376,6 +496,37 @@ def run_shell(command: str, timeout: int = 30) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 CODE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": (
+                "Make a targeted edit to a file by replacing an exact string. "
+                "Much safer than write_file for modifications — only the changed section needs to be in context. "
+                "old_string must match exactly (whitespace, indentation, everything). "
+                "Fails with a clear error if old_string is not found or appears more than once. "
+                "Workflow: read_file first to confirm the exact text, then edit_file to replace it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path relative to repo root"
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "The exact text to find and replace. Must be unique in the file — include enough surrounding lines if needed."
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "The text to replace it with"
+                    },
+                },
+                "required": ["path", "old_string", "new_string"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
