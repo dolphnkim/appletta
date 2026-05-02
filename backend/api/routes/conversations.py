@@ -1112,6 +1112,15 @@ async def _chat_stream_internal(
                 # in content) otherwise it rejects the following tool-role messages.
                 # Extract any text before the first tool call (think block etc.) as content.
                 pre_call_text = raw_response.split("<minimax:tool_call>")[0].strip() or None
+
+                # Stream Kevin's text from this iteration to the user before the tool call events
+                if pre_call_text:
+                    chunk_size = 20
+                    for _ci in range(0, len(pre_call_text), chunk_size):
+                        yield f"data: {json.dumps({'type': 'content', 'content': pre_call_text[_ci:_ci+chunk_size]})}\n\n"
+                        await asyncio.sleep(0.01)
+                    accumulated_response += pre_call_text + "\n\n"
+
                 tool_calls_structured = [
                     {
                         "id": f"call_{iteration}_{i}",
