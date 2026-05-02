@@ -25,7 +25,8 @@ from backend.schemas.conversation import (
 )
 from backend.services.mlx_manager import get_mlx_manager
 from backend.services.stateful_inference import get_inference_engine
-from backend.services.tools import execute_tool, get_enabled_tools, parse_minimax_tool_calls, format_tool_result_message
+from backend.services.tools import execute_tool, get_enabled_tools, build_tool_manifest, parse_minimax_tool_calls, format_tool_result_message
+from backend.services.skill_loader import load_skills, build_skill_docs
 from backend.services.memory_service import search_memories
 from backend.services.memory_coordinator import coordinate_memories
 from backend.services.embedding_service import get_embedding_service
@@ -1030,6 +1031,20 @@ async def _chat_stream_internal(
         if sanitized:
             system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
 
+    # Build tool list early so we can inject the manifest into the system prompt
+    tools = get_enabled_tools(agent.enabled_tools) if (agent.enabled_tools and len(agent.enabled_tools) > 0) else []
+
+    # Inject a readable tool manifest so the model knows what it can call
+    if tools:
+        manifest = build_tool_manifest(tools)
+        system_content += f"\n\n{manifest}"
+
+    # Inject skill docs so the model knows its documented workflows
+    skills = load_skills()
+    if skills:
+        skill_docs = build_skill_docs(skills)
+        system_content += f"\n\n{skill_docs}"
+
     # Build base messages array (system + history + current user message)
     # Timestamp goes in the user message (not system) so it doesn't bust the KV cache prefix
     from datetime import datetime
@@ -1052,8 +1067,7 @@ async def _chat_stream_internal(
     # If tools are enabled, pass them to the model via chat template and run
     # an agentic loop: generate → parse MiniMax XML tool calls → execute →
     # inject results → repeat until no tool calls, then stream final response.
-    if agent.enabled_tools and len(agent.enabled_tools) > 0:
-        tools = get_enabled_tools(agent.enabled_tools)
+    if tools:
 
         async def generate_stream_with_tools():
             current_messages = base_messages.copy()
