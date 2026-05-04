@@ -1,32 +1,37 @@
 # FastAPI and web server
-fastapi==0.115.0
-uvicorn[standard]==0.31.0
-python-multipart==0.0.12  # For file uploads
-httpx==0.27.2  # Async HTTP client for MLX server
+fastapi
+uvicorn[standard]
+python-multipart # For file uploads
+httpx # Async HTTP client for MLX server
 
 # Database
-sqlalchemy==2.0.35
-alembic==1.13.3
-psycopg2-binary==2.9.9  # PostgreSQL driver
-pgvector==0.3.5  # PostgreSQL vector extension
+sqlalchemy
+alembic
+psycopg2-binary # PostgreSQL driver
+pgvector  # PostgreSQL vector extension
 
 # Embeddings
-sentence-transformers==3.0.1  # For gte-base embeddings
-torch==2.4.0  # Required by sentence-transformers
-numpy==1.26.4  # Vector operations
-keybert==0.8.5  # Keyword extraction for tags
+sentence-transformers # For gte-base embeddings
+torch # Required by sentence-transformers
+numpy # Vector operations
+keybert # Keyword extraction for tags
 
 # Token counting
-tiktoken==0.7.0  # For context window management
+tiktoken # For context window management
 
 # Validation
-pydantic==2.9.2
-pydantic-settings==2.5.2
+pydantic
+pydantic-settings
 
 # Web search and fetching
-duckduckgo-search==6.3.0  # Free web search
-trafilatura==1.12.2  # Extract main content from web pages
-cachetools==5.5.0  # TTL caching
+ddg  # Free web search
+trafilatura # Extract main content from web pages
+cachetools # TTL caching
 
 # Python version compatibility
-typing-extensions==4.12.2
+typing-extensions
+
+# MLC
+mlx
+mlx-lm
+

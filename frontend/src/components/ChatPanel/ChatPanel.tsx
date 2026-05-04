@@ -22,6 +22,20 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [streamingContent, setStreamingContent] = useState('');
   const [memoryNarrative, setMemoryNarrative] = useState<string>('');
   const [savedMemoryNarratives, setSavedMemoryNarratives] = useState<Array<{id: string, content: string, collapsed: boolean}>>([]);
+
+  // Inline tool call events — rendered in the message stream while streaming
+  const [toolEvents, setToolEvents] = useState<Array<{
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+    result?: unknown;
+    error?: string;
+    pending: boolean;
+    collapsed: boolean;
+  }>>([]);
+  // Maps pending call index → toolEvent id for result matching
+  const pendingToolCallsRef = useRef<Map<number, string>>(new Map());
+  const toolCallIndexRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -150,6 +164,9 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     setStreaming(true);
     setStreamingContent('');
     setMemoryNarrative('');
+    setToolEvents([]);
+    pendingToolCallsRef.current.clear();
+    toolCallIndexRef.current = 0;
 
     // Add user message immediately
     const tempUserMessage: Message = {
@@ -186,6 +203,29 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
         } else {
           setStreamingContent((prev) => prev + data.content);
         }
+      } else if (data.type === 'tool_call') {
+        const eventId = `tool-${Date.now()}-${toolCallIndexRef.current}`;
+        pendingToolCallsRef.current.set(toolCallIndexRef.current, eventId);
+        toolCallIndexRef.current++;
+        setToolEvents(prev => [...prev, {
+          id: eventId,
+          name: data.name,
+          arguments: data.arguments ?? {},
+          pending: true,
+          collapsed: false,
+        }]);
+      } else if (data.type === 'tool_result') {
+        // Match to oldest pending call
+        const pendingEntries = [...pendingToolCallsRef.current.entries()].sort((a, b) => a[0] - b[0]);
+        if (pendingEntries.length > 0) {
+          const [idx, eventId] = pendingEntries[0];
+          pendingToolCallsRef.current.delete(idx);
+          setToolEvents(prev => prev.map(e =>
+            e.id === eventId
+              ? { ...e, result: data.result, error: data.error, pending: false }
+              : e
+          ));
+        }
       } else if (data.type === 'done') {
         // Save memory narrative if we have one
         if (memoryNarrative) {
@@ -208,6 +248,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
         setError(data.error);
         setStreamingContent('');
         setMemoryNarrative('');
+        setToolEvents([]);
         setStreaming(false);
         eventSource.close();
       }
@@ -362,6 +403,17 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
         narrative.id === id ? { ...narrative, collapsed: !narrative.collapsed } : narrative
       )
     );
+  };
+
+  const toggleToolEventCollapse = (id: string) => {
+    setToolEvents(prev => prev.map(e =>
+      e.id === id ? { ...e, collapsed: !e.collapsed } : e
+    ));
+  };
+
+  const formatToolValue = (value: unknown): string => {
+    if (typeof value === 'string') return value;
+    return JSON.stringify(value, null, 2);
   };
 
   const formatTime = (dateStr: string) => {
@@ -598,8 +650,50 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
               </div>
             )}
 
+            {/* Inline tool call events */}
+            {toolEvents.map(event => (
+              <div key={event.id} className={`tool-call-block ${event.pending ? 'pending' : ''} ${event.error ? 'errored' : ''}`}>
+                <button
+                  className="tool-call-header"
+                  onClick={() => toggleToolEventCollapse(event.id)}
+                >
+                  <span className="tool-call-chevron">{event.collapsed ? '▸' : '▾'}</span>
+                  <span className="tool-call-icon">⚙</span>
+                  <span className="tool-call-name">{event.name}</span>
+                  {event.pending && <span className="tool-call-badge pending"><span className="tool-call-spinner" />running</span>}
+                  {!event.pending && !event.error && <span className="tool-call-badge done">done</span>}
+                  {event.error && <span className="tool-call-badge error">error</span>}
+                </button>
+                {!event.collapsed && (
+                  <div className="tool-call-body">
+                    <div className="tool-call-section-label">Input</div>
+                    <div className="tool-call-args">
+                      {Object.entries(event.arguments).length === 0
+                        ? <span className="tool-call-empty">no arguments</span>
+                        : Object.entries(event.arguments).map(([k, v]) => (
+                          <div key={k} className="tool-call-arg-row">
+                            <span className="tool-call-arg-key">{k}</span>
+                            <span className="tool-call-arg-val">{formatToolValue(v)}</span>
+                          </div>
+                        ))
+                      }
+                    </div>
+                    {!event.pending && (
+                      <>
+                        <div className="tool-call-section-label">Output</div>
+                        {event.error
+                          ? <div className="tool-call-result error">{event.error}</div>
+                          : <pre className="tool-call-result">{formatToolValue(event.result)}</pre>
+                        }
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+
             {/* Typing indicator - show while waiting for first chunk */}
-            {streaming && !streamingContent && !memoryNarrative && (
+            {streaming && !streamingContent && !memoryNarrative && toolEvents.length === 0 && (
               <div className="message message-assistant typing">
                 <div className="message-header">
                   <span className="message-role">🤖 Assistant</span>
