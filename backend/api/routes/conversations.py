@@ -1169,7 +1169,7 @@ async def _chat_stream_internal(
                     result = execute_tool(tc["name"], tc["arguments"], agent.id, db)
                     print(f"  ✅ {tc['name']} → {result}")
 
-                    yield f"data: {json.dumps({'type': 'tool_result', 'name': tc['name'], 'success': 'error' not in result})}\n\n"
+                    yield f"data: {json.dumps({'type': 'tool_result', 'name': tc['name'], 'success': 'error' not in result, 'result': result, 'error': result.get('error') if isinstance(result, dict) else None})}\n\n"
                     current_messages.append(format_tool_result_message(tc["name"], result, call_id))
 
             # Save final accumulated response to DB

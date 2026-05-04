@@ -5,6 +5,47 @@
   gap: 16px;
 }
 
+.rag-search-bar {
+  flex-shrink: 0;
+  padding-bottom: 4px;
+}
+
+.rag-search-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.rag-search-toggle:hover {
+  color: #e0e0e0;
+  border-color: #555;
+}
+
+.rag-search-toggle.active {
+  color: #e0e0e0;
+  border-color: #007aff;
+  background: rgba(0, 122, 255, 0.08);
+}
+
+.rag-search-drawer {
+  flex-shrink: 0;
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #161616;
+  margin-bottom: 4px;
+}
+
 .rag-filesystem.loading {
   justify-content: center;
   align-items: center;

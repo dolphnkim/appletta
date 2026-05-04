@@ -60,6 +60,12 @@
   padding: 16px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+/* Workshop tab needs edge-to-edge layout, no padding */
+.database-panel-content:has(.workshop-panel) {
+  padding: 0;
 }
 
 .coming-soon {

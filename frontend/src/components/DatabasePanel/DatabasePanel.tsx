@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import RagFilesystem from './RagFilesystem';
-import Search from './Search';
 import JournalBlocks from './JournalBlocks';
+import WorkshopPanel from './WorkshopPanel';
 import './DatabasePanel.css';
 
 interface DatabasePanelProps {
   agentId: string;
+  conversationId?: string;
+  onConversationChange?: (conversationId: string) => void;
 }
 
-type TabType = 'filesystem' | 'search' | 'journals';
+type TabType = 'filesystem' | 'journals' | 'workshop';
 
-export default function DatabasePanel({ agentId }: DatabasePanelProps) {
+export default function DatabasePanel({ agentId, conversationId, onConversationChange }: DatabasePanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('filesystem');
 
   return (
@@ -25,24 +27,30 @@ export default function DatabasePanel({ agentId }: DatabasePanelProps) {
             Filesystem
           </button>
           <button
-            className={`tab-button ${activeTab === 'search' ? 'active' : ''}`}
-            onClick={() => setActiveTab('search')}
-          >
-            Search
-          </button>
-          <button
             className={`tab-button ${activeTab === 'journals' ? 'active' : ''}`}
             onClick={() => setActiveTab('journals')}
           >
             Journals
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'workshop' ? 'active' : ''}`}
+            onClick={() => setActiveTab('workshop')}
+          >
+            Workshop
           </button>
         </div>
       </div>
 
       <div className="database-panel-content">
         {activeTab === 'filesystem' && <RagFilesystem agentId={agentId} />}
-        {activeTab === 'search' && <Search agentId={agentId} />}
         {activeTab === 'journals' && <JournalBlocks agentId={agentId} />}
+        {activeTab === 'workshop' && (
+          <WorkshopPanel
+            agentId={agentId}
+            conversationId={conversationId}
+            onConversationChange={onConversationChange}
+          />
+        )}
       </div>
     </div>
   );

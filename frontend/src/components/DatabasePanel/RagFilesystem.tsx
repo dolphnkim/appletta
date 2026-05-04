@@ -3,6 +3,7 @@ import { ragAPI } from '../../api/ragAPI';
 import type { RagFolder, RagFile } from '../../types/rag';
 import SourceInstructionsModal from './SourceInstructionsModal';
 import FilePicker from '../AgentSettings/FilePicker';
+import Search from './Search';
 import './RagFilesystem.css';
 
 interface RagFilesystemProps {
@@ -19,6 +20,7 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const dragCounter = useRef(0);
 
   useEffect(() => {
@@ -206,6 +208,26 @@ export default function RagFilesystem({ agentId }: RagFilesystemProps) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {/* Search toggle */}
+      <div className="rag-search-bar">
+        <button
+          className={`rag-search-toggle ${showSearch ? 'active' : ''}`}
+          onClick={() => setShowSearch(s => !s)}
+          title="Search files, journals, and messages"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M10.25 2a8.25 8.25 0 0 1 6.34 13.53l5.69 5.69a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215l-5.69-5.69A8.25 8.25 0 1 1 10.25 2ZM3.5 10.25a6.75 6.75 0 1 0 13.5 0 6.75 6.75 0 0 0-13.5 0Z" />
+          </svg>
+          Search
+        </button>
+      </div>
+
+      {showSearch && (
+        <div className="rag-search-drawer">
+          <Search agentId={agentId} />
+        </div>
+      )}
+
       {error && (
         <div className="error-banner">
           {error}

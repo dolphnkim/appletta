@@ -126,7 +126,7 @@ export default function ChatView() {
   const handleMouseMoveRight = (e: MouseEvent) => {
     if (!isDraggingRight) return;
     const newWidth = ((window.innerWidth - e.clientX) / window.innerWidth) * 100;
-    if (newWidth > 15 && newWidth < 45) {
+    if (newWidth > 15 && newWidth < 60) {
       setRightWidth(newWidth);
     }
   };
@@ -200,7 +200,11 @@ export default function ChatView() {
         onMouseDown={() => setIsDraggingRight(true)}
       />
       <div className="app-right-panel" style={{ width: `${rightWidth}%` }}>
-        <DatabasePanel agentId={agentId} />
+        <DatabasePanel
+          agentId={agentId}
+          conversationId={currentConversationId}
+          onConversationChange={setCurrentConversationId}
+        />
       </div>
     </div>
   );
