@@ -1004,10 +1004,15 @@ async def _chat_stream_internal(
             if tag_updates:
                 apply_tag_updates(tag_updates, db)
 
-    # Build system content with memories
+    # Build STABLE system content — nothing dynamic goes here.
+    # The StatefulInferenceEngine hashes this to decide whether to reuse the KV
+    # cache. If it changes between turns the entire context is re-prefilled from
+    # scratch, which is very slow. Keep it to things that rarely change:
+    #   project_instructions, pinned blocks, tool manifest, skill docs.
+    # Memory narrative and timestamps go in per-turn messages instead.
     system_content = agent.project_instructions or ""
 
-    # Add pinned journal blocks
+    # Pinned journal blocks (always_in_context=True) — these change rarely
     pinned_blocks = db.query(JournalBlock).filter(
         JournalBlock.agent_id == agent.id,
         JournalBlock.always_in_context == True
@@ -1018,44 +1023,49 @@ async def _chat_stream_internal(
         for block in pinned_blocks:
             system_content += f"\n\n[{block.label}]\n{block.value}"
 
-    # Add memory narrative
+    # Build tool list early so we can inject the manifest into the system prompt
+    tools = get_enabled_tools(agent.enabled_tools) if (agent.enabled_tools and len(agent.enabled_tools) > 0) else []
+
+    # Tool manifest — stable (only changes when enabled_tools changes)
+    if tools:
+        manifest = build_tool_manifest(tools)
+        system_content += f"\n\n{manifest}"
+
+    # Skill docs — stable (only changes when Kevin writes a new skill)
+    skills = load_skills()
+    if skills:
+        skill_docs = build_skill_docs(skills)
+        system_content += f"\n\n{skill_docs}"
+
+    # Build the user message — dynamic per-turn content (timestamp, memories)
+    # goes HERE as a prefix, NOT in the system message. The system message is
+    # hashed to decide KV cache reuse; putting dynamic content there would bust
+    # the cache on every single turn, forcing a full re-prefill every message.
+    from datetime import datetime
+    import re
+    current_datetime = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+    user_msg_parts = [f"[{current_datetime}]"]
+
     if memory_narrative:
-        import re
         sanitized = memory_narrative
         sanitized = re.sub(r'<think>.*?</think>', '', sanitized, flags=re.DOTALL)
         sanitized = re.sub(r'!\[.*?\]\(.*?\)', '', sanitized)
         sanitized = re.sub(r'https?://[^\s]+', '', sanitized)
         sanitized = re.sub(r'\n\s*\n\s*\n+', '\n\n', sanitized)
         sanitized = sanitized.strip()
-
         if sanitized:
-            system_content += f"\n\n=== Memories Surfacing ===\n{sanitized}\n"
+            user_msg_parts.append(f"=== Memories Surfacing ===\n{sanitized}")
 
-    # Build tool list early so we can inject the manifest into the system prompt
-    tools = get_enabled_tools(agent.enabled_tools) if (agent.enabled_tools and len(agent.enabled_tools) > 0) else []
+    user_msg_parts.append(message)
 
-    # Inject a readable tool manifest so the model knows what it can call
-    if tools:
-        manifest = build_tool_manifest(tools)
-        system_content += f"\n\n{manifest}"
-
-    # Inject skill docs so the model knows its documented workflows
-    skills = load_skills()
-    if skills:
-        skill_docs = build_skill_docs(skills)
-        system_content += f"\n\n{skill_docs}"
-
-    # Build base messages array (system + history + current user message)
-    # Timestamp goes in the user message (not system) so it doesn't bust the KV cache prefix
-    from datetime import datetime
-    current_datetime = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
     system_message = {"role": "system", "content": system_content}
     messages_to_include = [{"role": msg.role, "content": msg.content} for msg in messages_in_context]
-    current_user_msg = {"role": "user", "content": f"[{current_datetime}]\n{message}"}
+    current_user_msg = {"role": "user", "content": "\n\n".join(user_msg_parts)}
     base_messages = [system_message] + messages_to_include + [current_user_msg]
 
     print(f"\n📦 CONTEXT WINDOW BUILT:")
-    print(f"  System content: {len(system_content)} chars")
+    print(f"  System content: {len(system_content)} chars (stable — KV cache safe)")
+    print(f"  User msg prefix: datetime + {'memories' if memory_narrative else 'no memories'}")
     print(f"  History messages: {len(messages_in_context)}")
     print(f"  Total messages: {len(base_messages)}")
     print(f"  Memory narrative: {'Yes' if memory_narrative else 'No'}")

@@ -962,7 +962,7 @@ def web_search(query: str, max_results: int = 5) -> Dict[str, Any]:
             return _web_cache[cache_key]
 
         # Lazy import to avoid startup cost
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
 
         # Clamp max_results
         max_results = min(max(1, max_results), 10)
