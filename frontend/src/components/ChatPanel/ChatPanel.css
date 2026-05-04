@@ -594,3 +594,13 @@
 .tool-call-result.error {
   color: #f47067;
 }
+
+.stream-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stream-content .tool-call-block {
+  margin: 2px 0;
+}

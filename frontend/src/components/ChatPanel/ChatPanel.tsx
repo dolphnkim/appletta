@@ -19,21 +19,17 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [streaming, setStreaming] = useState(false);
-  const [streamingContent, setStreamingContent] = useState('');
+  const [streamStatus, setStreamStatus] = useState('');
   const [memoryNarrative, setMemoryNarrative] = useState<string>('');
   const [savedMemoryNarratives, setSavedMemoryNarratives] = useState<Array<{id: string, content: string, collapsed: boolean}>>([]);
 
-  // Inline tool call events — rendered in the message stream while streaming
-  const [toolEvents, setToolEvents] = useState<Array<{
-    id: string;
-    name: string;
-    arguments: Record<string, unknown>;
-    result?: unknown;
-    error?: string;
-    pending: boolean;
-    collapsed: boolean;
-  }>>([]);
-  // Maps pending call index → toolEvent id for result matching
+  // Unified ordered stream: text chunks and tool call blocks interleaved
+  type StreamItem =
+    | { kind: 'text'; id: string; content: string }
+    | { kind: 'tool'; id: string; name: string; arguments: Record<string, unknown>; result?: unknown; error?: string; pending: boolean; collapsed: boolean };
+  const [streamItems, setStreamItems] = useState<StreamItem[]>([]);
+  // Accumulates full text for stopStreaming (state reads are stale inside closures)
+  const streamingContentRef = useRef('');
   const pendingToolCallsRef = useRef<Map<number, string>>(new Map());
   const toolCallIndexRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +61,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   // Auto-scroll to bottom when messages change or streaming
   useEffect(() => {
     scrollToBottom();
-  }, [messages, streamingContent]);
+  }, [messages, streamItems]);
 
   // Cleanup EventSource on unmount
   useEffect(() => {
@@ -162,9 +158,10 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
 
   const sendStreamingMessage = async (convId: string, content: string) => {
     setStreaming(true);
-    setStreamingContent('');
+    setStreamItems([]);
+    setStreamStatus('');
     setMemoryNarrative('');
-    setToolEvents([]);
+    streamingContentRef.current = '';
     pendingToolCallsRef.current.clear();
     toolCallIndexRef.current = 0;
 
@@ -179,12 +176,10 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     setMessages((prev) => [...prev, tempUserMessage]);
 
     const url = conversationAPI.getStreamURL(convId);
-    // Add timestamp to prevent browser caching of EventSource GET requests
     const timestamp = Date.now();
     const eventSource = new EventSource(`${url}?message=${encodeURIComponent(content)}&_t=${timestamp}`);
     eventSourceRef.current = eventSource;
 
-    // Reset content flag for new stream
     receivedContentRef.current = false;
 
     eventSource.onmessage = (event) => {
@@ -192,63 +187,72 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
 
       if (data.type === 'memory_narrative') {
         setMemoryNarrative(data.content);
+
       } else if (data.type === 'status') {
-        // Show status messages as streaming content (e.g., "Loading model...")
-        setStreamingContent((prev) => prev + (prev ? '\n\n' : '') + data.content);
+        setStreamStatus(data.content);
+
       } else if (data.type === 'content') {
-        // Clear status messages when real content starts
         if (!receivedContentRef.current) {
           receivedContentRef.current = true;
-          setStreamingContent(data.content);
-        } else {
-          setStreamingContent((prev) => prev + data.content);
+          setStreamStatus('');
         }
+        streamingContentRef.current += data.content;
+        // Append to last text item, or create a new one
+        setStreamItems(prev => {
+          const last = prev[prev.length - 1];
+          if (last && last.kind === 'text') {
+            return [...prev.slice(0, -1), { ...last, content: last.content + data.content }];
+          }
+          return [...prev, { kind: 'text', id: `text-${Date.now()}`, content: data.content }];
+        });
+
       } else if (data.type === 'tool_call') {
         const eventId = `tool-${Date.now()}-${toolCallIndexRef.current}`;
         pendingToolCallsRef.current.set(toolCallIndexRef.current, eventId);
         toolCallIndexRef.current++;
-        setToolEvents(prev => [...prev, {
+        setStreamItems(prev => [...prev, {
+          kind: 'tool',
           id: eventId,
           name: data.name,
           arguments: data.arguments ?? {},
           pending: true,
-          collapsed: false,
+          collapsed: true,
         }]);
+
       } else if (data.type === 'tool_result') {
-        // Match to oldest pending call
         const pendingEntries = [...pendingToolCallsRef.current.entries()].sort((a, b) => a[0] - b[0]);
         if (pendingEntries.length > 0) {
           const [idx, eventId] = pendingEntries[0];
           pendingToolCallsRef.current.delete(idx);
-          setToolEvents(prev => prev.map(e =>
-            e.id === eventId
-              ? { ...e, result: data.result, error: data.error, pending: false }
-              : e
+          setStreamItems(prev => prev.map(item =>
+            item.kind === 'tool' && item.id === eventId
+              ? { ...item, result: data.result, error: data.error, pending: false }
+              : item
           ));
         }
+
       } else if (data.type === 'done') {
-        // Save memory narrative if we have one
         if (memoryNarrative) {
           setSavedMemoryNarratives((prev) => [
             ...prev,
             { id: data.assistant_message.id, content: memoryNarrative, collapsed: false }
           ]);
         }
-
-        // Stream complete - replace temp messages with real ones
         setMessages((prev) => {
           const withoutTemp = prev.filter((m) => m.id !== 'temp-user');
           return [...withoutTemp, data.user_message, data.assistant_message];
         });
-        setStreamingContent('');
+        setStreamItems([]);
+        setStreamStatus('');
         setMemoryNarrative('');
         setStreaming(false);
         eventSource.close();
+
       } else if (data.type === 'error') {
         setError(data.error);
-        setStreamingContent('');
+        setStreamItems([]);
+        setStreamStatus('');
         setMemoryNarrative('');
-        setToolEvents([]);
         setStreaming(false);
         eventSource.close();
       }
@@ -256,7 +260,8 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
 
     eventSource.onerror = () => {
       setError('Connection lost. Please try again.');
-      setStreamingContent('');
+      setStreamItems([]);
+      setStreamStatus('');
       setMemoryNarrative('');
       setStreaming(false);
       eventSource.close();
@@ -364,6 +369,7 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     }
 
     // Save partial message if there was content being streamed
+    const streamingContent = streamingContentRef.current;
     if (streamingContent && conversationId) {
       try {
         const result = await conversationAPI.savePartialMessage(conversationId, streamingContent);
@@ -388,7 +394,9 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
     }
 
     setStreaming(false);
-    setStreamingContent('');
+    setStreamItems([]);
+    setStreamStatus('');
+    streamingContentRef.current = '';
   };
 
   const handleUserNameChange = (newName: string) => {
@@ -406,8 +414,8 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   };
 
   const toggleToolEventCollapse = (id: string) => {
-    setToolEvents(prev => prev.map(e =>
-      e.id === id ? { ...e, collapsed: !e.collapsed } : e
+    setStreamItems(prev => prev.map(item =>
+      item.kind === 'tool' && item.id === id ? { ...item, collapsed: !item.collapsed } : item
     ));
   };
 
@@ -650,54 +658,12 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
               </div>
             )}
 
-            {/* Inline tool call events */}
-            {toolEvents.map(event => (
-              <div key={event.id} className={`tool-call-block ${event.pending ? 'pending' : ''} ${event.error ? 'errored' : ''}`}>
-                <button
-                  className="tool-call-header"
-                  onClick={() => toggleToolEventCollapse(event.id)}
-                >
-                  <span className="tool-call-chevron">{event.collapsed ? '▸' : '▾'}</span>
-                  <span className="tool-call-icon">⚙</span>
-                  <span className="tool-call-name">{event.name}</span>
-                  {event.pending && <span className="tool-call-badge pending"><span className="tool-call-spinner" />running</span>}
-                  {!event.pending && !event.error && <span className="tool-call-badge done">done</span>}
-                  {event.error && <span className="tool-call-badge error">error</span>}
-                </button>
-                {!event.collapsed && (
-                  <div className="tool-call-body">
-                    <div className="tool-call-section-label">Input</div>
-                    <div className="tool-call-args">
-                      {Object.entries(event.arguments).length === 0
-                        ? <span className="tool-call-empty">no arguments</span>
-                        : Object.entries(event.arguments).map(([k, v]) => (
-                          <div key={k} className="tool-call-arg-row">
-                            <span className="tool-call-arg-key">{k}</span>
-                            <span className="tool-call-arg-val">{formatToolValue(v)}</span>
-                          </div>
-                        ))
-                      }
-                    </div>
-                    {!event.pending && (
-                      <>
-                        <div className="tool-call-section-label">Output</div>
-                        {event.error
-                          ? <div className="tool-call-result error">{event.error}</div>
-                          : <pre className="tool-call-result">{formatToolValue(event.result)}</pre>
-                        }
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {/* Typing indicator - show while waiting for first chunk */}
-            {streaming && !streamingContent && !memoryNarrative && toolEvents.length === 0 && (
+            {/* Typing indicator — nothing arrived yet */}
+            {streaming && streamItems.length === 0 && !memoryNarrative && (
               <div className="message message-assistant typing">
                 <div className="message-header">
                   <span className="message-role">🤖 Assistant</span>
-                  <span className="message-time">Thinking...</span>
+                  <span className="message-time">{streamStatus || 'Thinking...'}</span>
                 </div>
                 <div className="message-content">
                   <div className="typing-indicator">
@@ -709,14 +675,60 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
               </div>
             )}
 
-            {/* Streaming message */}
-            {streaming && streamingContent && (
+            {/* Interleaved text + tool call stream */}
+            {streamItems.length > 0 && (
               <div className="message message-assistant streaming">
                 <div className="message-header">
                   <span className="message-role">🤖 Assistant</span>
-                  <span className="message-time">Streaming...</span>
+                  <span className="message-time">{streaming ? 'Working...' : 'Streaming...'}</span>
                 </div>
-                <div className="message-content">{streamingContent}</div>
+                <div className="message-content stream-content">
+                  {streamItems.map(item => {
+                    if (item.kind === 'text') {
+                      return <span key={item.id} style={{ whiteSpace: 'pre-wrap' }}>{item.content}</span>;
+                    }
+                    return (
+                      <div key={item.id} className={`tool-call-block ${item.pending ? 'pending' : ''} ${item.error ? 'errored' : ''}`}>
+                        <button
+                          className="tool-call-header"
+                          onClick={() => toggleToolEventCollapse(item.id)}
+                        >
+                          <span className="tool-call-chevron">{item.collapsed ? '▸' : '▾'}</span>
+                          <span className="tool-call-icon">⚙</span>
+                          <span className="tool-call-name">{item.name}</span>
+                          {item.pending && <span className="tool-call-badge pending"><span className="tool-call-spinner" />running</span>}
+                          {!item.pending && !item.error && <span className="tool-call-badge done">done</span>}
+                          {item.error && <span className="tool-call-badge error">error</span>}
+                        </button>
+                        {!item.collapsed && (
+                          <div className="tool-call-body">
+                            <div className="tool-call-section-label">Input</div>
+                            <div className="tool-call-args">
+                              {Object.entries(item.arguments).length === 0
+                                ? <span className="tool-call-empty">no arguments</span>
+                                : Object.entries(item.arguments).map(([k, v]) => (
+                                  <div key={k} className="tool-call-arg-row">
+                                    <span className="tool-call-arg-key">{k}</span>
+                                    <span className="tool-call-arg-val">{formatToolValue(v)}</span>
+                                  </div>
+                                ))
+                              }
+                            </div>
+                            {!item.pending && (
+                              <>
+                                <div className="tool-call-section-label">Output</div>
+                                {item.error
+                                  ? <div className="tool-call-result error">{item.error}</div>
+                                  : <pre className="tool-call-result">{formatToolValue(item.result)}</pre>
+                                }
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
