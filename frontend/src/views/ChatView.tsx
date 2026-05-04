@@ -200,11 +200,7 @@ export default function ChatView() {
         onMouseDown={() => setIsDraggingRight(true)}
       />
       <div className="app-right-panel" style={{ width: `${rightWidth}%` }}>
-        <DatabasePanel
-          agentId={agentId}
-          conversationId={currentConversationId}
-          onConversationChange={setCurrentConversationId}
-        />
+        <DatabasePanel agentId={agentId} />
       </div>
     </div>
   );

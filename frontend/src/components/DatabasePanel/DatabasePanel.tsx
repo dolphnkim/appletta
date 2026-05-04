@@ -1,18 +1,15 @@
 import { useState } from 'react';
 import RagFilesystem from './RagFilesystem';
 import JournalBlocks from './JournalBlocks';
-import WorkshopPanel from './WorkshopPanel';
 import './DatabasePanel.css';
 
 interface DatabasePanelProps {
   agentId: string;
-  conversationId?: string;
-  onConversationChange?: (conversationId: string) => void;
 }
 
-type TabType = 'filesystem' | 'journals' | 'workshop';
+type TabType = 'filesystem' | 'journals';
 
-export default function DatabasePanel({ agentId, conversationId, onConversationChange }: DatabasePanelProps) {
+export default function DatabasePanel({ agentId }: DatabasePanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('filesystem');
 
   return (
@@ -32,25 +29,12 @@ export default function DatabasePanel({ agentId, conversationId, onConversationC
           >
             Journals
           </button>
-          <button
-            className={`tab-button ${activeTab === 'workshop' ? 'active' : ''}`}
-            onClick={() => setActiveTab('workshop')}
-          >
-            Workshop
-          </button>
         </div>
       </div>
 
       <div className="database-panel-content">
         {activeTab === 'filesystem' && <RagFilesystem agentId={agentId} />}
         {activeTab === 'journals' && <JournalBlocks agentId={agentId} />}
-        {activeTab === 'workshop' && (
-          <WorkshopPanel
-            agentId={agentId}
-            conversationId={conversationId}
-            onConversationChange={onConversationChange}
-          />
-        )}
       </div>
     </div>
   );
