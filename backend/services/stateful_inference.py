@@ -120,8 +120,25 @@ class StatefulInferenceEngine:
         self._model_key = key
         print(f"[StatefulInference] Model ready.")
 
+        # Start emotion monitoring if this is Kevin's model and a probe exists
+        try:
+            from backend.services.emotion_probes.monitor import get_monitor, PROBE_PATH
+            if PROBE_PATH.exists():
+                monitor = get_monitor()
+                if not monitor.is_running:
+                    monitor.start(self._model)
+        except Exception as e:
+            print(f"[StatefulInference] Emotion monitor not started: {e}")
+
     async def unload_model(self):
         """Free the loaded model from memory."""
+        # Stop emotion monitoring before clearing the model reference
+        try:
+            from backend.services.emotion_probes.monitor import get_monitor
+            get_monitor().stop(self._model)
+        except Exception:
+            pass
+
         self._model = None
         self._tokenizer = None
         self._model_key = None
