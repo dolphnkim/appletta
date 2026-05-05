@@ -14,6 +14,10 @@ interface ChatPanelProps {
   onAgentChange: (agentId: string) => void;
 }
 
+type StreamItem =
+  | { kind: 'text'; id: string; content: string }
+  | { kind: 'tool'; id: string; name: string; arguments: Record<string, unknown>; result?: unknown; error?: string; pending: boolean; collapsed: boolean };
+
 export default function ChatPanel({ agentId, agents, conversationId, onConversationChange, onAgentChange }: ChatPanelProps) {
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -24,10 +28,9 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
   const [savedMemoryNarratives, setSavedMemoryNarratives] = useState<Array<{id: string, content: string, collapsed: boolean}>>([]);
 
   // Unified ordered stream: text chunks and tool call blocks interleaved
-  type StreamItem =
-    | { kind: 'text'; id: string; content: string }
-    | { kind: 'tool'; id: string; name: string; arguments: Record<string, unknown>; result?: unknown; error?: string; pending: boolean; collapsed: boolean };
   const [streamItems, setStreamItems] = useState<StreamItem[]>([]);
+  // Persists stream items after done, keyed by assistant message ID
+  const [savedStreamItems, setSavedStreamItems] = useState<Record<string, StreamItem[]>>({});
   // Accumulates full text for stopStreaming (state reads are stale inside closures)
   const streamingContentRef = useRef('');
   const pendingToolCallsRef = useRef<Map<number, string>>(new Map());
@@ -238,11 +241,17 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
             { id: data.assistant_message.id, content: memoryNarrative, collapsed: false }
           ]);
         }
+        // Persist stream items (tool calls + text) under the finalized message ID
+        setStreamItems(current => {
+          if (current.length > 0) {
+            setSavedStreamItems(prev => ({ ...prev, [data.assistant_message.id]: current }));
+          }
+          return [];
+        });
         setMessages((prev) => {
           const withoutTemp = prev.filter((m) => m.id !== 'temp-user');
           return [...withoutTemp, data.user_message, data.assistant_message];
         });
-        setStreamItems([]);
         setStreamStatus('');
         setMemoryNarrative('');
         setStreaming(false);
@@ -550,7 +559,59 @@ export default function ChatPanel({ agentId, agents, conversationId, onConversat
                         </span>
                         <span className="message-time">{formatTime(message.created_at)}</span>
                       </div>
-                      <div className="message-content">{message.content}</div>
+                      {savedStreamItems[message.id] ? (
+                        <div className="message-content stream-content">
+                          {savedStreamItems[message.id].map(item => {
+                            if (item.kind === 'text') {
+                              return <span key={item.id} style={{ whiteSpace: 'pre-wrap' }}>{item.content}</span>;
+                            }
+                            return (
+                              <div key={item.id} className={`tool-call-block ${item.error ? 'errored' : ''}`}>
+                                <button
+                                  className="tool-call-header"
+                                  onClick={() => {
+                                    setSavedStreamItems(prev => ({
+                                      ...prev,
+                                      [message.id]: prev[message.id].map(i =>
+                                        i.kind === 'tool' && i.id === item.id ? { ...i, collapsed: !i.collapsed } : i
+                                      )
+                                    }));
+                                  }}
+                                >
+                                  <span className="tool-call-chevron">{item.collapsed ? '▸' : '▾'}</span>
+                                  <span className="tool-call-icon">⚙</span>
+                                  <span className="tool-call-name">{item.name}</span>
+                                  {!item.error && <span className="tool-call-badge done">done</span>}
+                                  {item.error && <span className="tool-call-badge error">error</span>}
+                                </button>
+                                {!item.collapsed && (
+                                  <div className="tool-call-body">
+                                    <div className="tool-call-section-label">Input</div>
+                                    <div className="tool-call-args">
+                                      {Object.entries(item.arguments).length === 0
+                                        ? <span className="tool-call-empty">no arguments</span>
+                                        : Object.entries(item.arguments).map(([k, v]) => (
+                                          <div key={k} className="tool-call-arg-row">
+                                            <span className="tool-call-arg-key">{k}</span>
+                                            <span className="tool-call-arg-val">{formatToolValue(v)}</span>
+                                          </div>
+                                        ))
+                                      }
+                                    </div>
+                                    <div className="tool-call-section-label">Output</div>
+                                    {item.error
+                                      ? <div className="tool-call-result error">{item.error}</div>
+                                      : <pre className="tool-call-result">{formatToolValue(item.result)}</pre>
+                                    }
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="message-content">{message.content}</div>
+                      )}
                     <div className="message-actions">
                       {/* Edit button - available for both user and assistant messages */}
                       <button
