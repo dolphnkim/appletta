@@ -63,6 +63,10 @@
   overflow: hidden;
 }
 
+.database-panel-content.no-padding {
+  padding: 0;
+}
+
 
 .coming-soon {
   text-align: center;

@@ -20,14 +20,15 @@ from pathlib import Path
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 from uuid import UUID
 
-try:
-    import mlx.core as mx
-    from mlx_lm import load, stream_generate
-    from mlx_lm.models.cache import make_prompt_cache
-    from mlx_lm.sample_utils import make_sampler
-    MLX_AVAILABLE = True
-except ImportError:
-    MLX_AVAILABLE = False
+# MLX is imported lazily inside StatefulInferenceEngine.__init__ so the
+# uvicorn reloader process never loads MLX (and its background scheduler
+# thread) at import time.  Python's sys.modules cache means the cost is
+# paid exactly once — on the first request that instantiates the engine.
+mx = None
+load = None
+stream_generate = None
+make_prompt_cache = None
+make_sampler = None
 
 
 class ConversationCache:
@@ -70,10 +71,16 @@ class StatefulInferenceEngine:
     CACHE_TTL = 30 * 60  # 30 minutes
 
     def __init__(self):
-        if not MLX_AVAILABLE:
-            raise ImportError(
-                "MLX is not available. Install mlx and mlx-lm."
-            )
+        global mx, load, stream_generate, make_prompt_cache, make_sampler
+        import mlx.core as _mx
+        from mlx_lm import load as _load, stream_generate as _stream_generate
+        from mlx_lm.models.cache import make_prompt_cache as _make_prompt_cache
+        from mlx_lm.sample_utils import make_sampler as _make_sampler
+        mx = _mx
+        load = _load
+        stream_generate = _stream_generate
+        make_prompt_cache = _make_prompt_cache
+        make_sampler = _make_sampler
 
         self._model = None
         self._tokenizer = None

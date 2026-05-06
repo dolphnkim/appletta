@@ -1,0 +1,133 @@
+.terminal-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #111;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+
+.terminal-autoscroll {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #888;
+  cursor: pointer;
+  user-select: none;
+}
+
+.terminal-autoscroll input[type='checkbox'] {
+  accent-color: #007aff;
+  cursor: pointer;
+}
+
+.terminal-clear-btn {
+  background: transparent;
+  border: 1px solid #333;
+  color: #888;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.terminal-clear-btn:hover {
+  color: #e0e0e0;
+  border-color: #555;
+}
+
+.terminal-count {
+  font-size: 11px;
+  color: #444;
+  margin-left: auto;
+}
+
+.terminal-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Cascadia Code', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  scrollbar-width: thin;
+  scrollbar-color: #333 transparent;
+}
+
+.terminal-output::-webkit-scrollbar {
+  width: 5px;
+}
+.terminal-output::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-output::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.terminal-empty {
+  color: #444;
+  font-style: italic;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.terminal-line {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 1px 0;
+  border-bottom: 1px solid transparent;
+}
+
+.terminal-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.terminal-ts {
+  color: #444;
+  flex-shrink: 0;
+  min-width: 68px;
+}
+
+.terminal-level {
+  flex-shrink: 0;
+  min-width: 54px;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+}
+
+.level-debug    { color: #666; }
+.level-info     { color: #4caf50; }
+.level-warning  { color: #ff9800; }
+.level-error    { color: #f44336; }
+.level-print    { color: #64b5f6; }
+.level-history  { color: #555; }
+
+.terminal-logger {
+  color: #555;
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-msg {
+  color: #ccc;
+  word-break: break-word;
+  flex: 1;
+  min-width: 0;
+}

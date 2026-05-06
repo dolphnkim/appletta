@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core.config import settings
-from backend.api.routes import agents, agent_attachments, files, rag, router_lens_api, search, conversations, journal_blocks, affect, vscode_integration, emotion_probe
+from backend.api.routes import agents, agent_attachments, files, rag, router_lens_api, search, conversations, journal_blocks, affect, vscode_integration, emotion_probe, logs as logs_route
 from backend.db.base import Base
 from backend.db.session import engine
 
@@ -61,6 +61,8 @@ def _print_sandbox_banner():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
+    from backend.services.log_broadcaster import install as install_log_broadcaster
+    install_log_broadcaster()
     _print_sandbox_banner()
     yield
     # Shutdown: kill all MLX server subprocesses so they don't pile up
@@ -96,6 +98,7 @@ app.include_router(router_lens_api.router)
 app.include_router(affect.router)
 app.include_router(emotion_probe.router)
 app.include_router(vscode_integration.router)
+app.include_router(logs_route.router)
 
 
 @app.get("/")

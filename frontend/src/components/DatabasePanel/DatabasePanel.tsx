@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import RagFilesystem from './RagFilesystem';
 import JournalBlocks from './JournalBlocks';
+import BackendTerminal from './BackendTerminal';
 import './DatabasePanel.css';
 
 interface DatabasePanelProps {
   agentId: string;
 }
 
-type TabType = 'filesystem' | 'journals';
+type TabType = 'filesystem' | 'journals' | 'terminal';
 
 export default function DatabasePanel({ agentId }: DatabasePanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('filesystem');
@@ -29,12 +30,19 @@ export default function DatabasePanel({ agentId }: DatabasePanelProps) {
           >
             Journals
           </button>
+          <button
+            className={`tab-button ${activeTab === 'terminal' ? 'active' : ''}`}
+            onClick={() => setActiveTab('terminal')}
+          >
+            Terminal
+          </button>
         </div>
       </div>
 
-      <div className="database-panel-content">
+      <div className={`database-panel-content${activeTab === 'terminal' ? ' no-padding' : ''}`}>
         {activeTab === 'filesystem' && <RagFilesystem agentId={agentId} />}
         {activeTab === 'journals' && <JournalBlocks agentId={agentId} />}
+        {activeTab === 'terminal' && <BackendTerminal />}
       </div>
     </div>
   );
